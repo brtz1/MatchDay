@@ -1,0 +1,64 @@
+// Prisma Schema for Soccer Manager Game
+
+// Database Provider
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Prisma Client Generator
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Team model
+model Team {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  country     String
+  budget      Int      @default(1000000) // Initial budget
+  players     Player[]
+  homeMatches Match[]  @relation("HomeTeam")
+  awayMatches Match[]  @relation("AwayTeam")
+  createdAt   DateTime @default(now())
+}
+
+// Player model
+model Player {
+  id        Int      @id @default(autoincrement())
+  name      String
+  age       Int
+  position  String
+  rating    Int      // Skill rating
+  value     Int
+  salary    Int
+  teamId    Int?
+  team      Team?    @relation(fields: [teamId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// Match model
+model Match {
+  id          Int      @id @default(autoincrement())
+  homeTeamId  Int
+  awayTeamId  Int
+  homeTeam    Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore   Int?
+  awayScore   Int?
+  matchDate   DateTime
+  season      Int
+  isPlayed    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// Finance model for team financial tracking
+model Finance {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id])
+  amount    Int
+  type      String   // "income" or "expense"
+  reason    String
+  date      DateTime @default(now())
+}
