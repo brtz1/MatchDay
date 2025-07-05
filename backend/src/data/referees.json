@@ -1,0 +1,5 @@
+[
+  { "id": 1, "name": "Anthony Taylor", "country": "England", "strictness": 7 },
+  { "id": 2, "name": "Mateu Lahoz", "country": "Spain", "strictness": 9 },
+  { "id": 3, "name": "Felix Brych", "country": "Germany", "strictness": 8 }
+]

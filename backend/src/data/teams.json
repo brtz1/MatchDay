@@ -1,0 +1,54 @@
+[
+  {
+    "id": 1,
+    "name": "FC Barcelona",
+    "country": "Spain",
+    "budget": 25000000,
+    "players": [
+      {
+        "id": 1,
+        "name": "Pedro González",
+        "age": 21,
+        "position": "Midfielder",
+        "rating": 88,
+        "value": 9000000,
+        "salary": 250000
+      },
+      {
+        "id": 2,
+        "name": "Gavi",
+        "age": 19,
+        "position": "Midfielder",
+        "rating": 86,
+        "value": 8500000,
+        "salary": 200000
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "name": "Manchester City",
+    "country": "England",
+    "budget": 30000000,
+    "players": [
+      {
+        "id": 3,
+        "name": "Phil Foden",
+        "age": 23,
+        "position": "Forward",
+        "rating": 87,
+        "value": 10000000,
+        "salary": 300000
+      },
+      {
+        "id": 4,
+        "name": "Kevin De Bruyne",
+        "age": 32,
+        "position": "Midfielder",
+        "rating": 91,
+        "value": 12000000,
+        "salary": 450000
+      }
+    ]
+  }
+]
