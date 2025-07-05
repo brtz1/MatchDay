@@ -1,35 +1,30 @@
-// Prisma Schema for Soccer Manager Game
-
-// Database Provider
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// Prisma Client Generator
 generator client {
   provider = "prisma-client-js"
 }
 
-// Team model
 model Team {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+  id          Int       @id @default(autoincrement())
+  name        String
   country     String
-  budget      Int      @default(1000000) // Initial budget
+  budget      Int       @default(1000000)
   players     Player[]
-  homeMatches Match[]  @relation("HomeTeam")
-  awayMatches Match[]  @relation("AwayTeam")
-  createdAt   DateTime @default(now())
+  finances    Finance[] // 👈 add this line to complete the relation
+  homeMatches Match[]   @relation("HomeTeam")
+  awayMatches Match[]   @relation("AwayTeam")
+  createdAt   DateTime  @default(now())
 }
 
-// Player model
 model Player {
   id        Int      @id @default(autoincrement())
   name      String
   age       Int
   position  String
-  rating    Int      // Skill rating
+  rating    Int
   value     Int
   salary    Int
   teamId    Int?
@@ -37,28 +32,26 @@ model Player {
   createdAt DateTime @default(now())
 }
 
-// Match model
 model Match {
-  id          Int      @id @default(autoincrement())
-  homeTeamId  Int
-  awayTeamId  Int
-  homeTeam    Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam    Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  homeScore   Int?
-  awayScore   Int?
-  matchDate   DateTime
-  season      Int
-  isPlayed    Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  homeTeamId Int
+  awayTeamId Int
+  homeTeam   Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam   Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore  Int?
+  awayScore  Int?
+  matchDate  DateTime
+  season     Int
+  isPlayed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
 }
 
-// Finance model for team financial tracking
 model Finance {
-  id        Int      @id @default(autoincrement())
-  teamId    Int
-  team      Team     @relation(fields: [teamId], references: [id])
-  amount    Int
-  type      String   // "income" or "expense"
-  reason    String
-  date      DateTime @default(now())
+  id     Int      @id @default(autoincrement())
+  teamId Int
+  team   Team     @relation(fields: [teamId], references: [id])
+  amount Int
+  type   String
+  reason String
+  date   DateTime @default(now())
 }
