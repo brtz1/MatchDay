@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+
+  # Backend Node.js Service
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"  # Localhost:4000 → Container:4000
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/elifoot
+      - PORT=4000
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  # Frontend React/Vite Service
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"  # Localhost:3000 → Container:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # PostgreSQL Database Service
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: elifoot
+    ports:
+      - "5432:5432"  # Localhost:5432 → Container:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
