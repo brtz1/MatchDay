@@ -22,8 +22,26 @@ const createTeam = async (teamData: any): Promise<Team> => {
   });
 };
 
+const updateTeam = async (
+  id: number,
+  teamData: any
+): Promise<Team | null> => {
+  return prisma.team.update({
+    where: { id },
+    data: teamData,
+  });
+};
+
+const deleteTeam = async (id: number): Promise<Team | null> => {
+  return prisma.team.delete({
+    where: { id },
+  });
+};
+
 export default {
   getAllTeams,
   getTeamById,
   createTeam,
+  updateTeam,
+  deleteTeam,
 };

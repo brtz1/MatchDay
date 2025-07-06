@@ -1,15 +1,27 @@
 import { Router } from 'express';
-import { getAllTeams, getTeamById, createTeam } from '../controllers/teamController';
+import {
+  getAllTeams,
+  getTeamById,
+  createTeam,
+  updateTeam,
+  deleteTeam,
+} from '../controllers/teamController';
 
 const router = Router();
 
-// GET /api/teams (List all teams)
+// GET all teams
 router.get('/', getAllTeams);
 
-// GET /api/teams/:id (Get a specific team by ID)
+// GET team by id
 router.get('/:id', getTeamById);
 
-// POST /api/teams (Create a new team)
+// POST create team
 router.post('/', createTeam);
+
+// PUT update team
+router.put('/:id', updateTeam);
+
+// DELETE team
+router.delete('/:id', deleteTeam);
 
 export default router;

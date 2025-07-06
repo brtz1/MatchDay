@@ -4,35 +4,52 @@ import loadJSON from '../src/utils/loadData';
 const prisma = new PrismaClient();
 
 async function seed() {
-  const teams = loadJSON<any[]>('../src/data/teams.json');
-  const referees = loadJSON<any[]>('../src/data/referees.json');
+  try {
+    // Load team JSON
+    const teams = loadJSON<any[]>('../src/data/teams.json');
+    const referees = loadJSON<any[]>('../src/data/referees.json');
 
-  // Seed Teams and Players
-  for (const teamData of teams) {
-    await prisma.team.create({
-      data: {
-        name: teamData.name,
-        country: teamData.country,
-        budget: teamData.budget,
-        players: {
-          create: teamData.players,
+    console.log(`Seeding ${teams.length} teams...`);
+
+    for (const teamData of teams) {
+      await prisma.team.create({
+        data: {
+          name: teamData.name,
+          country: teamData.country,
+          budget: teamData.budget,
+          players: {
+            create: teamData.players.map((player: any) => ({
+              name: player.name,
+              age: player.age,
+              position: player.position,
+              rating: player.rating,
+              value: player.value,
+              salary: player.salary,
+            })),
+          },
         },
-      },
-    });
-  }
+      });
+    }
 
-  // Seed Referees (if needed in your model)
-  for (const referee of referees) {
-    await prisma.referee.create({
-      data: referee,
-    });
-  }
+    console.log(`Seeding ${referees.length} referees...`);
 
-  console.log('Database seeded successfully!');
+    for (const referee of referees) {
+      await prisma.referee.create({
+        data: {
+          name: referee.name,
+          country: referee.country,
+          strictness: referee.strictness,
+        },
+      });
+    }
+
+    console.log('✅ Database seeded successfully!');
+  } catch (error) {
+    console.error('❌ Error during seeding:', error);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-seed()
-  .catch((e) => {
-    console.error(e);
-  })
-  .finally(() => prisma.$disconnect());
+seed();

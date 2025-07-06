@@ -19,18 +19,44 @@ export const getTeamById = async (req: Request, res: Response) => {
     if (!team) {
       return res.status(404).json({ error: 'Team not found' });
     }
-    res.status(200).json(team);
+    res.status(404).json(team);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch team' });
   }
 };
 
-// Create new team
+// Create a new team
 export const createTeam = async (req: Request, res: Response) => {
   try {
     const newTeam = await teamService.createTeam(req.body);
     res.status(201).json(newTeam);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create team' });
+  }
+};
+
+// Update a team
+export const updateTeam = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { name, country, budget } = req.body;
+    const updated = await teamService.updateTeam(id, { name, country, budget });
+    if (!updated) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+};
+
+// Delete a team
+export const deleteTeam = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    await teamService.deleteTeam(id);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete team' });
   }
 };
