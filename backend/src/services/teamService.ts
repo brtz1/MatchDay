@@ -1,6 +1,5 @@
-import { PrismaClient, Team } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prisma';
+import { Team } from '@prisma/client';
 
 const getAllTeams = async (): Promise<Team[]> => {
   return prisma.team.findMany({
@@ -8,7 +7,7 @@ const getAllTeams = async (): Promise<Team[]> => {
   });
 };
 
-const getTeamById = async (id: number): Promise<Team | null> => {
+const getTeamById = async (id: number): Promise<(Team & { players: any[] }) | null> => {
   return prisma.team.findUnique({
     where: { id },
     include: { players: true },
@@ -22,17 +21,14 @@ const createTeam = async (teamData: any): Promise<Team> => {
   });
 };
 
-const updateTeam = async (
-  id: number,
-  teamData: any
-): Promise<Team | null> => {
+const updateTeam = async (id: number, teamData: any): Promise<Team> => {
   return prisma.team.update({
     where: { id },
     data: teamData,
   });
 };
 
-const deleteTeam = async (id: number): Promise<Team | null> => {
+const deleteTeam = async (id: number): Promise<Team> => {
   return prisma.team.delete({
     where: { id },
   });

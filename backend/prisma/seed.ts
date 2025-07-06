@@ -5,12 +5,11 @@ const prisma = new PrismaClient();
 
 async function seed() {
   try {
-    // Load team JSON
-    const teams = loadJSON<any[]>('../src/data/teams.json');
-    const referees = loadJSON<any[]>('../src/data/referees.json');
+    // Load team and referee JSON data (fixed paths)
+    const teams = loadJSON<any[]>('../data/teams.json');
+    const referees = loadJSON<any[]>('../data/referees.json');
 
     console.log(`Seeding ${teams.length} teams...`);
-
     for (const teamData of teams) {
       await prisma.team.create({
         data: {
@@ -32,7 +31,6 @@ async function seed() {
     }
 
     console.log(`Seeding ${referees.length} referees...`);
-
     for (const referee of referees) {
       await prisma.referee.create({
         data: {

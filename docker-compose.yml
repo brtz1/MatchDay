@@ -9,6 +9,7 @@ services:
     depends_on:
       - db
     restart: unless-stopped
+    command: ["npm", "test"]
 
   frontend:
     build: ./frontend

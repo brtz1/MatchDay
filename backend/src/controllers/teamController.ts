@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import teamService from '../services/teamServices';
+import teamService from '../services/teamService';
 
 // Get all teams
 export const getAllTeams = async (req: Request, res: Response) => {
@@ -19,7 +19,7 @@ export const getTeamById = async (req: Request, res: Response) => {
     if (!team) {
       return res.status(404).json({ error: 'Team not found' });
     }
-    res.status(404).json(team);
+    res.status(200).json(team);  // fixed status code to 200
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch team' });
   }
@@ -39,12 +39,15 @@ export const createTeam = async (req: Request, res: Response) => {
 export const updateTeam = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, country, budget } = req.body;
-    const updated = await teamService.updateTeam(id, { name, country, budget });
-    if (!updated) {
+    // Check if team exists
+    const existing = await teamService.getTeamById(id);
+    if (!existing) {
       return res.status(404).json({ error: 'Team not found' });
     }
-    res.status(200).json(updated);
+    // Perform update
+    const { name, country, budget } = req.body;
+    const updatedTeam = await teamService.updateTeam(id, { name, country, budget });
+    res.status(200).json(updatedTeam);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update team' });
   }
@@ -54,6 +57,11 @@ export const updateTeam = async (req: Request, res: Response) => {
 export const deleteTeam = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+    // Check if team exists
+    const existing = await teamService.getTeamById(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
     await teamService.deleteTeam(id);
     res.status(204).send();
   } catch (error) {

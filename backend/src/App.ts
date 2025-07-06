@@ -1,20 +1,26 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import teamRoutes from './routes/teamRoutes';
+import teamRoutes from './routes/teamRoute';
+import playerRoutes from './routes/playerRoute';
+import refereeRoutes from './routes/refereeRoute';
+import matchRoutes from './routes/matchRoute';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use('/api/teams', teamRoutes);
 
+// routes
+app.use('/api/teams', teamRoutes);
+app.use('/api/players', playerRoutes);
+app.use('/api/referees', refereeRoutes);
+app.use('/api/matches', matchRoutes);
+
+// health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'API is running!' });
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+export default app;
