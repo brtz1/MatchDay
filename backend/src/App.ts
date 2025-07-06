@@ -7,6 +7,7 @@ import refereeRoutes from './routes/refereeRoute';
 import matchRoutes from './routes/matchRoute';
 import seasonRoutes from './routes/seasonRoute';
 import transferRoutes from './routes/transferRoute';
+import statsRoutes from './routes/statsRoute';
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ app.use('/api/referees', refereeRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/season', seasonRoutes);
 app.use('/api/transfers', transferRoutes);
+app.use('/api/stats', statsRoutes);
 
 // health check
 app.get('/api/health', (req, res) => {
