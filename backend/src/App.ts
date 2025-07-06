@@ -5,6 +5,8 @@ import teamRoutes from './routes/teamRoute';
 import playerRoutes from './routes/playerRoute';
 import refereeRoutes from './routes/refereeRoute';
 import matchRoutes from './routes/matchRoute';
+import seasonRoutes from './routes/seasonRoute';
+import transferRoutes from './routes/transferRoute';
 
 dotenv.config();
 
@@ -17,6 +19,8 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/players', playerRoutes);
 app.use('/api/referees', refereeRoutes);
 app.use('/api/matches', matchRoutes);
+app.use('/api/season', seasonRoutes);
+app.use('/api/transfers', transferRoutes);
 
 // health check
 app.get('/api/health', (req, res) => {

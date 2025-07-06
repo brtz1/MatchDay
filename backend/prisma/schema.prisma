@@ -8,19 +8,22 @@ generator client {
 }
 
 model Team {
-  id          Int       @id @default(autoincrement())
-  name        String
-  country     String
-  budget      Int       @default(1000000)
-  players     Player[]
-  finances    Finance[]
-  homeMatches Match[]   @relation("HomeTeam")
-  awayMatches Match[]   @relation("AwayTeam")
-  createdAt   DateTime  @default(now())
+  id           Int          @id @default(autoincrement())
+  name         String
+  country      String
+  budget       Int          @default(1000000)
+  players      Player[]
+  finances     Finance[]
+  homeMatches  Match[]      @relation("HomeTeam")
+  awayMatches  Match[]      @relation("AwayTeam")
+  leagueEntry  LeagueTable? //
+  createdAt    DateTime     @default(now())
+  transferFrom Transfer[]   @relation("FromTeam")
+  transferTo   Transfer[]   @relation("ToTeam")
 }
 
 model Player {
-  id        Int      @id @default(autoincrement())
+  id        Int        @id @default(autoincrement())
   name      String
   age       Int
   position  String
@@ -28,8 +31,9 @@ model Player {
   value     Int
   salary    Int
   teamId    Int?
-  team      Team?    @relation(fields: [teamId], references: [id])
-  createdAt DateTime @default(now())
+  team      Team?      @relation(fields: [teamId], references: [id])
+  createdAt DateTime   @default(now())
+  transfers Transfer[]
 }
 
 model Match {
@@ -57,9 +61,34 @@ model Finance {
 }
 
 model Referee {
-  id         Int     @id @default(autoincrement())
+  id         Int    @id @default(autoincrement())
   name       String
   country    String
   strictness Int
 }
 
+model LeagueTable {
+  id           Int  @id @default(autoincrement())
+  teamId       Int  @unique
+  team         Team @relation(fields: [teamId], references: [id])
+  played       Int  @default(0)
+  wins         Int  @default(0)
+  draws        Int  @default(0)
+  losses       Int  @default(0)
+  goalsFor     Int  @default(0)
+  goalsAgainst Int  @default(0)
+  points       Int  @default(0)
+}
+
+model Transfer {
+  id         Int      @id @default(autoincrement())
+  playerId   Int
+  fromTeamId Int?
+  toTeamId   Int
+  fee        Int
+  date       DateTime @default(now())
+
+  player   Player @relation(fields: [playerId], references: [id])
+  fromTeam Team?  @relation("FromTeam", fields: [fromTeamId], references: [id])
+  toTeam   Team   @relation("ToTeam", fields: [toTeamId], references: [id])
+}
