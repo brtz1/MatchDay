@@ -8,6 +8,7 @@ import matchRoutes from './routes/matchRoute';
 import seasonRoutes from './routes/seasonRoute';
 import transferRoutes from './routes/transferRoute';
 import statsRoutes from './routes/statsRoute';
+import saveGameRoute from './routes/saveGameRoute';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use('/api/matches', matchRoutes);
 app.use('/api/season', seasonRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/savegames', saveGameRoute);
 
 // health check
 app.get('/api/health', (req, res) => {

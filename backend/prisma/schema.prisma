@@ -7,102 +7,222 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model Team {
-  id           Int          @id @default(autoincrement())
-  name         String
-  country      String
-  budget       Int          @default(1000000)
-  players      Player[]
-  finances     Finance[]
-  homeMatches  Match[]      @relation("HomeTeam")
-  awayMatches  Match[]      @relation("AwayTeam")
-  leagueEntry  LeagueTable? //
-  createdAt    DateTime     @default(now())
-  transferFrom Transfer[]   @relation("FromTeam")
-  transferTo   Transfer[]   @relation("ToTeam")
+model Division {
+  id     Int     @id @default(autoincrement())
+  name   String
+  level  Int
+  teams  Team[]
 }
 
-model Player {
-  id        Int        @id @default(autoincrement())
-  name      String
-  age       Int
-  position  String
-  rating    Int
-  value     Int
-  salary    Int
-  teamId    Int?
-  team      Team?      @relation(fields: [teamId], references: [id])
-  createdAt DateTime   @default(now())
-  transfers Transfer[]
-  matchStats PlayerMatchStats[]
+model Coach {
+  id            Int     @id @default(autoincrement())
+  name          String
+  teamId        Int?    @unique
+  team          Team?   @relation(fields: [teamId], references: [id])
+  morale        Int     @default(75)
+  contractWage  Int     @default(10000)
+  contractUntil Int
+}
+
+model Matchday {
+  id        Int          @id @default(autoincrement())
+  number    Int
+  type      String       // "LEAGUE" or "CUP"
+  date      DateTime
+  isPlayed  Boolean      @default(false)
+  matches   Match[]
+  events    MatchEvent[] @relation("MatchdayEvents")
 }
 
 model Match {
-  id         Int      @id @default(autoincrement())
-  homeTeamId Int
-  awayTeamId Int
-  homeTeam   Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam   Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  homeScore  Int?
-  awayScore  Int?
-  matchDate  DateTime
-  season     Int
-  isPlayed   Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  playerStats PlayerMatchStats[]
+  id           Int       @id @default(autoincrement())
+  homeTeamId   Int
+  awayTeamId   Int
+  homeTeam     Team      @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam     Team      @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore    Int?
+  awayScore    Int?
+  matchDate    DateTime
+  season       Int
+  isPlayed     Boolean   @default(false)
+  matchdayId   Int
+  matchday     Matchday  @relation(fields: [matchdayId], references: [id])
+  refereeId    Int?
+  referee      Referee?  @relation(fields: [refereeId], references: [id])
+  events       MatchEvent[] @relation("MatchEvents")
+  playerStats  PlayerMatchStats[]
+  createdAt    DateTime  @default(now())
+}
+
+model MatchEvent {
+  id         Int       @id @default(autoincrement())
+  matchdayId Int
+  matchday   Matchday  @relation(fields: [matchdayId], references: [id], name: "MatchdayEvents")
+  matchId    Int
+  match      Match     @relation(fields: [matchId], references: [id], name: "MatchEvents")
+  minute     Int
+  eventType  String    // "GOAL", "INJURY", "RED_CARD"
+  description String
+}
+
+model Player {
+  id             Int      @id @default(autoincrement())
+  name           String
+  nationality    String
+  position       String
+  rating         Int
+  salary         Int
+  contractUntil  Int?
+  teamId         Int?
+  team           Team?    @relation(fields: [teamId], references: [id])
+  matchStats     PlayerMatchStats[]
+  transfers      Transfer[]
+  createdAt      DateTime @default(now())
+}
+
+model Team {
+  id           Int      @id @default(autoincrement())
+  name         String
+  country      String
+  divisionId   Int?
+  division     Division? @relation(fields: [divisionId], references: [id])
+  budget       Int       @default(1000000)
+  stadiumSize  Int       @default(10000)
+  ticketPrice  Int       @default(5)
+  players      Player[]
+  coach        Coach?
+  finances     Finance[]
+  homeMatches  Match[]   @relation("HomeTeam")
+  awayMatches  Match[]   @relation("AwayTeam")
+  leagueTable  LeagueTable?
+  transfersFrom Transfer[] @relation("FromTeam")
+  transfersTo   Transfer[] @relation("ToTeam")
+  primaryColor   String   @default("#facc15") // a yellow fallback
+  secondaryColor String   @default("#000000") // black text fallback
 }
 
 model Finance {
-  id     Int      @id @default(autoincrement())
-  teamId Int
-  team   Team     @relation(fields: [teamId], references: [id])
-  amount Int
-  type   String
-  reason String
-  date   DateTime @default(now())
-}
-
-model Referee {
-  id         Int    @id @default(autoincrement())
-  name       String
-  country    String
-  strictness Int
+  id         Int      @id @default(autoincrement())
+  teamId     Int
+  team       Team     @relation(fields: [teamId], references: [id])
+  amount     Int
+  type       String
+  reason     String
+  date       DateTime @default(now())
 }
 
 model LeagueTable {
-  id           Int  @id @default(autoincrement())
-  teamId       Int  @unique
-  team         Team @relation(fields: [teamId], references: [id])
-  played       Int  @default(0)
-  wins         Int  @default(0)
-  draws        Int  @default(0)
-  losses       Int  @default(0)
-  goalsFor     Int  @default(0)
-  goalsAgainst Int  @default(0)
-  points       Int  @default(0)
+  id           Int   @id @default(autoincrement())
+  teamId       Int   @unique
+  team         Team  @relation(fields: [teamId], references: [id])
+  played       Int   @default(0)
+  wins         Int   @default(0)
+  draws        Int   @default(0)
+  losses       Int   @default(0)
+  goalsFor     Int   @default(0)
+  goalsAgainst Int   @default(0)
+  points       Int   @default(0)
 }
 
 model Transfer {
   id         Int      @id @default(autoincrement())
   playerId   Int
+  player     Player   @relation(fields: [playerId], references: [id])
   fromTeamId Int?
+  fromTeam   Team?    @relation("FromTeam", fields: [fromTeamId], references: [id])
   toTeamId   Int
+  toTeam     Team     @relation("ToTeam", fields: [toTeamId], references: [id])
   fee        Int
   date       DateTime @default(now())
-
-  player   Player @relation(fields: [playerId], references: [id])
-  fromTeam Team?  @relation("FromTeam", fields: [fromTeamId], references: [id])
-  toTeam   Team   @relation("ToTeam", fields: [toTeamId], references: [id])
 }
 
 model PlayerMatchStats {
   id        Int      @id @default(autoincrement())
   playerId  Int
+  player    Player   @relation(fields: [playerId], references: [id])
   matchId   Int
+  match     Match    @relation(fields: [matchId], references: [id])
   goals     Int      @default(0)
   assists   Int      @default(0)
   yellow    Int      @default(0)
   red       Int      @default(0)
-  player    Player   @relation(fields: [playerId], references: [id])
-  match     Match    @relation(fields: [matchId], references: [id])
 }
+
+model Referee {
+  id         Int      @id @default(autoincrement())
+  name       String
+  country    String
+  strictness Int
+  matches    Match[]
+}
+
+model SaveGame {
+  id           Int              @id @default(autoincrement())
+  name         String
+  coachName    String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  teams        SaveGameTeam[]
+  players      SaveGamePlayer[]
+  matches      SaveGameMatch[]
+}
+
+model SaveGameTeam {
+  id            Int       @id @default(autoincrement())
+  saveGameId    Int
+  baseTeamId    Int
+  name          String
+  budget        Int
+  division      String
+  coachName     String
+  morale        Int
+  currentSeason Int
+  SaveGame      SaveGame  @relation(fields: [saveGameId], references: [id])
+}
+
+model SaveGamePlayer {
+  id            Int       @id @default(autoincrement())
+  saveGameId    Int
+  basePlayerId  Int
+  name          String
+  position      String
+  rating        Int
+  salary        Int
+  teamId        Int?
+  contractUntil Int
+  SaveGame      SaveGame  @relation(fields: [saveGameId], references: [id])
+}
+
+model SaveGameMatch {
+  id           Int      @id @default(autoincrement())
+  saveGameId   Int
+  homeTeamId   Int
+  awayTeamId   Int
+  homeScore    Int?
+  awayScore    Int?
+  matchDate    DateTime
+  played       Boolean  @default(false)
+  SaveGame     SaveGame @relation(fields: [saveGameId], references: [id])
+}
+
+model BaseTeam {
+  id        Int       @id @default(autoincrement())
+  name      String
+  country   String
+  rating    Int
+  budget    Int
+  coachName String
+  players   BasePlayer[]
+}
+
+model BasePlayer {
+  id        Int       @id @default(autoincrement())
+  name      String
+  nationality String
+  position  String
+  rating    Int
+  salary    Int
+  teamId    Int
+  team      BaseTeam  @relation(fields: [teamId], references: [id])
+}
+

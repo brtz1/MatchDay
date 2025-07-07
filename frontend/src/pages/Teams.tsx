@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getTeams, createTeam } from '../services/teams';
+import { getTeams, createTeam } from '../services/teamService';
 
 interface Team {
   id: number;

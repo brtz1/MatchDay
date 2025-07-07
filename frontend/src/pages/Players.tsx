@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPlayers, createPlayer } from '../services/players';
-import { getTeams } from '../services/teams';
+import { getTeams } from '../services/teamService';
 
 interface Player {
   id: number;

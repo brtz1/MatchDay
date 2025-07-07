@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getMatches, simulateMatch } from '../services/matches';
-import { getTeams } from '../services/teams';
+import { getTeams } from '../services/teamService';
 import { getReferees } from '../services/referees';
 
 interface Match {

@@ -1,7 +1,13 @@
+// teamService.ts
 const API_BASE = 'http://localhost:4000/api/teams';
 
 export const getTeams = async () => {
   const res = await fetch(API_BASE);
+  return res.json();
+};
+
+export const getTeam = async (teamId: number) => {
+  const res = await fetch(`${API_BASE}/${teamId}`);
   return res.json();
 };
 

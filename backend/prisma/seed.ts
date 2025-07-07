@@ -1,53 +1,92 @@
 import { PrismaClient } from '@prisma/client';
-import loadJSON from '../src/utils/loadData';
 
 const prisma = new PrismaClient();
 
 async function seed() {
-  try {
-    // Load team and referee JSON data (fixed paths)
-    const teams = loadJSON<any[]>('../data/teams.json');
-    const referees = loadJSON<any[]>('../data/referees.json');
+  await prisma.coach.deleteMany();
+  await prisma.player.deleteMany();
+  await prisma.team.deleteMany();
+  await prisma.division.deleteMany();
 
-    console.log(`Seeding ${teams.length} teams...`);
-    for (const teamData of teams) {
-      await prisma.team.create({
-        data: {
-          name: teamData.name,
-          country: teamData.country,
-          budget: teamData.budget,
-          players: {
-            create: teamData.players.map((player: any) => ({
-              name: player.name,
-              age: player.age,
-              position: player.position,
-              rating: player.rating,
-              value: player.value,
-              salary: player.salary,
-            })),
+  const d1 = await prisma.division.create({
+    data: { name: 'D1', level: 1 }
+  });
+
+  const team1 = await prisma.team.create({
+    data: {
+      name: 'Porto FC',
+      country: 'Portugal',
+      budget: 1000000,
+      divisionId: d1.id,
+      ticketPrice: 5,
+      coach: {
+        create: {
+          name: 'Coach Porto',
+          morale: 80,
+          contractWage: 10000,
+          contractUntil: 2026  // fixed as Int
+        }
+      },
+      players: {
+        create: [
+          {
+            name: 'Player 1',
+            position: 'GK',
+            rating: 75,
+            salary: 2000,
+            nationality: '🇵🇹'
           },
-        },
-      });
+          {
+            name: 'Player 2',
+            position: 'DF',
+            rating: 78,
+            salary: 2500,
+            nationality: '🇵🇹'
+          }
+        ]
+      }
     }
+  });
 
-    console.log(`Seeding ${referees.length} referees...`);
-    for (const referee of referees) {
-      await prisma.referee.create({
-        data: {
-          name: referee.name,
-          country: referee.country,
-          strictness: referee.strictness,
-        },
-      });
+  const team2 = await prisma.team.create({
+    data: {
+      name: 'Benfica FC',
+      country: 'Portugal',
+      budget: 1000000,
+      divisionId: d1.id,
+      ticketPrice: 5,
+      coach: {
+        create: {
+          name: 'Coach Benfica',
+          morale: 75,
+          contractWage: 9000,
+          contractUntil: 2026  // fixed as Int
+        }
+      },
+      players: {
+        create: [
+          {
+            name: 'Player 3',
+            position: 'MF',
+            rating: 80,
+            salary: 3000,
+            nationality: '🇵🇹'
+          },
+          {
+            name: 'Player 4',
+            position: 'AT',
+            rating: 82,
+            salary: 4000,
+            nationality: '🇵🇹'
+          }
+        ]
+      }
     }
+  });
 
-    console.log('✅ Database seeded successfully!');
-  } catch (error) {
-    console.error('❌ Error during seeding:', error);
-    process.exit(1);
-  } finally {
-    await prisma.$disconnect();
-  }
+  console.log(`✅ Seed completed.`);
 }
 
-seed();
+seed()
+  .catch(e => console.error(e))
+  .finally(() => prisma.$disconnect());
