@@ -1,43 +1,46 @@
+import { useState } from "react";
 import { useTeamContext } from "../../../context/TeamContext";
 
-interface Props {
-  player: {
-    id: number;
-    name: string;
-    position: string;
-    rating: number;
-    salary: number;
-    nationality: string;
-  };
-}
+export default function RenewTab() {
+  const { selectedPlayer, setRenewMode } = useTeamContext();
+  const [wageOffer, setWageOffer] = useState("");
 
-export default function RenewTab({ player }: Props) {
-  const { setRenewMode } = useTeamContext();
+  if (!selectedPlayer) return null;
+
+  const handleRenew = () => {
+    if (!wageOffer || isNaN(Number(wageOffer))) {
+      alert("Please enter a valid wage.");
+      return;
+    }
+    alert(`Proposed €${Number(wageOffer).toLocaleString()} to ${selectedPlayer.name}`);
+    setRenewMode(false);
+  };
 
   return (
-    <div>
-      <p className="font-bold text-accent mb-2">Renew Contract</p>
-      <p>{player.name} ({player.position}) - {player.rating} power</p>
+    <div className="space-y-2">
+      <h2 className="text-blue-700 font-semibold">Renew Contract</h2>
+      <p className="text-sm">Player: <strong>{selectedPlayer.name}</strong></p>
       <input
         type="number"
-        placeholder="New wage offer"
-        className="border rounded p-1 w-full mb-2"
+        className="border p-1 rounded text-sm w-full"
+        placeholder="Wage offer (€)"
+        value={wageOffer}
+        onChange={(e) => setWageOffer(e.target.value)}
       />
-      <button
-        className="bg-green-600 text-white rounded px-2 py-1"
-        onClick={() => {
-          alert(`New contract proposed to ${player.name}`);
-          setRenewMode(false);
-        }}
-      >
-        Propose
-      </button>
-      <button
-        className="bg-gray-300 rounded px-2 py-1 ml-2"
-        onClick={() => setRenewMode(false)}
-      >
-        Back
-      </button>
+      <div className="flex space-x-2 mt-2">
+        <button
+          onClick={handleRenew}
+          className="bg-blue-700 text-white px-3 py-1 rounded text-sm hover:bg-blue-800"
+        >
+          Propose
+        </button>
+        <button
+          onClick={() => setRenewMode(false)}
+          className="bg-gray-300 text-black px-3 py-1 rounded text-sm hover:bg-gray-400"
+        >
+          Back
+        </button>
+      </div>
     </div>
   );
 }

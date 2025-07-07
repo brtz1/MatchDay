@@ -34,7 +34,14 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <TeamContext.Provider
-      value={{ selectedPlayer, setSelectedPlayer, sellMode, setSellMode, renewMode, setRenewMode }}
+      value={{
+        selectedPlayer,
+        setSelectedPlayer,
+        sellMode,
+        setSellMode,
+        renewMode,
+        setRenewMode,
+      }}
     >
       {children}
     </TeamContext.Provider>

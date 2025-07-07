@@ -1,4 +1,5 @@
 import { useTeamContext } from "../../../context/TeamContext";
+import { Player } from "../../../types";
 
 export default function PlayerTab() {
   const { selectedPlayer, setRenewMode } = useTeamContext();

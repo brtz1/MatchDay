@@ -1,43 +1,46 @@
+import { useState } from "react";
 import { useTeamContext } from "../../../context/TeamContext";
 
-interface Props {
-  player: {
-    id: number;
-    name: string;
-    position: string;
-    rating: number;
-    salary: number;
-    nationality: string;
-  };
-}
+export default function SellTab() {
+  const { selectedPlayer, setSellMode } = useTeamContext();
+  const [minPrice, setMinPrice] = useState("");
 
-export default function SellTab({ player }: Props) {
-  const { setSellMode } = useTeamContext();
+  if (!selectedPlayer) return null;
+
+  const handleSell = () => {
+    if (!minPrice || isNaN(Number(minPrice))) {
+      alert("Please enter a valid minimum price.");
+      return;
+    }
+    alert(`Player ${selectedPlayer.name} is now for sale at €${Number(minPrice).toLocaleString()}`);
+    setSellMode(false);
+  };
 
   return (
-    <div>
-      <p className="font-bold text-accent mb-2">Sell Player</p>
-      <p>{player.name} ({player.position}) - {player.rating} power</p>
+    <div className="space-y-2">
+      <h2 className="text-blue-700 font-semibold">Sell Player</h2>
+      <p className="text-sm">Player: <strong>{selectedPlayer.name}</strong></p>
       <input
         type="number"
-        placeholder="Minimum Price"
-        className="border rounded p-1 w-full mb-2"
+        className="border p-1 rounded text-sm w-full"
+        placeholder="Minimum price (€)"
+        value={minPrice}
+        onChange={(e) => setMinPrice(e.target.value)}
       />
-      <button
-        className="bg-red-600 text-white rounded px-2 py-1"
-        onClick={() => {
-          alert(`Player ${player.name} placed for sale!`);
-          setSellMode(false);
-        }}
-      >
-        Sell
-      </button>
-      <button
-        className="bg-gray-300 rounded px-2 py-1 ml-2"
-        onClick={() => setSellMode(false)}
-      >
-        Back
-      </button>
+      <div className="flex space-x-2 mt-2">
+        <button
+          onClick={handleSell}
+          className="bg-blue-700 text-white px-3 py-1 rounded text-sm hover:bg-blue-800"
+        >
+          Confirm
+        </button>
+        <button
+          onClick={() => setSellMode(false)}
+          className="bg-gray-300 text-black px-3 py-1 rounded text-sm hover:bg-gray-400"
+        >
+          Back
+        </button>
+      </div>
     </div>
   );
 }
