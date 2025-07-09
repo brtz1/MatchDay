@@ -1,8 +1,9 @@
+// src/routes/transferRoute.ts
+
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * List all transfers
@@ -31,43 +32,32 @@ router.post('/', async (req, res) => {
   const { playerId, fromTeamId, toTeamId, fee } = req.body;
 
   try {
-    // check player exists
     const player = await prisma.player.findUnique({
       where: { id: playerId },
     });
-    if (!player) return res.status(404).json({ error: "Player not found" });
 
-    // check destination team
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    if (player.teamId === null) return res.status(400).json({ error: 'Player is unattached' });
+
+    // Optional Rule: prevent transfer if player is not transferable right now
+    // Example rule: block if player was returned to team from failed auction
+    // You can later implement: if (player.isLockedUntilMatchday > currentMatchday) return error
+
     const toTeam = await prisma.team.findUnique({
       where: { id: toTeamId },
     });
-    if (!toTeam) return res.status(404).json({ error: "Destination team not found" });
 
-    // check budget
-    if (toTeam.budget < fee) {
-      return res.status(400).json({ error: "Not enough budget for transfer" });
-    }
+    if (!toTeam) return res.status(404).json({ error: 'Destination team not found' });
 
-    // update budgets
-    await prisma.team.update({
-      where: { id: toTeamId },
-      data: { budget: { decrement: fee } },
-    });
-
-    if (fromTeamId) {
-      await prisma.team.update({
-        where: { id: fromTeamId },
-        data: { budget: { increment: fee } },
-      });
-    }
-
-    // transfer player
+    // Perform transfer
     await prisma.player.update({
       where: { id: playerId },
-      data: { teamId: toTeamId },
+      data: {
+        teamId: toTeamId,
+        contractUntil: 1, // Reset contract if needed — adjust as required
+      },
     });
 
-    // record transfer
     const newTransfer = await prisma.transfer.create({
       data: {
         playerId,

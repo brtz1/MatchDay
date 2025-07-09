@@ -1,83 +1,68 @@
-import { useState, useEffect } from "react";
-import GameTab from "./tabs/GameTab";
-import PlayerTab from "./tabs/PlayerTab";
-import FormationTab from "./tabs/FormationTab";
-import OpponentTab from "./tabs/OpponentTab";
-import FinancesTab from "./tabs/FinancesTab";
-import SellTab from "./tabs/SellTab";
-import RenewTab from "./tabs/RenewTab";
-import { useTeamContext } from "../../context/TeamContext";
+import { useState } from 'react';
+import GameTab from './tabs/GameTab';
+import PlayerTab from './tabs/PlayerTab';
+import FormationTab from './tabs/FormationTab';
+import OpponentTab from './tabs/OpponentTab';
+import FinancesTab from './tabs/FinancesTab';
+import SellTab from './tabs/SellTab';
+import RenewTab from './tabs/RenewTab';
+import { Player, Team, Finance } from '@/types';
+
+interface TeamRosterTabsProps {
+  team: Team;
+  players: Player[];
+  finances: Finance[];
+  selectedPlayer: Player | null;
+  onSelectPlayer: (player: Player) => void;
+}
+
+const tabs = ['Game', 'Player', 'Formation', 'Opponent', 'Finances', 'Sell', 'Renew'];
 
 export default function TeamRosterTabs({
-  teamName,
-  budget,
-  morale,
-}: {
-  teamName: string;
-  budget: number;
-  morale: number | null;
-}) {
-  const {
-    selectedPlayer,
-    sellMode,
-    setSellMode,
-    renewMode,
-    setRenewMode,
-  } = useTeamContext();
+  team,
+  players,
+  finances,
+  selectedPlayer,
+  onSelectPlayer,
+}: TeamRosterTabsProps) {
+  const [activeTab, setActiveTab] = useState('Game');
 
-  const [selectedTab, setSelectedTab] = useState("Game");
-
-  useEffect(() => {
-    if (!sellMode && selectedTab === "Sell") {
-      setSelectedTab("Player");
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'Game':
+        return <GameTab team={team} />;
+      case 'Player':
+        return <PlayerTab players={players} selectedPlayer={selectedPlayer} onSelectPlayer={onSelectPlayer} />;
+      case 'Formation':
+        return <FormationTab players={players} />;
+      case 'Opponent':
+        return <OpponentTab teamId={team.id} />;
+      case 'Finances':
+        return <FinancesTab finances={finances} budget={team.budget} />;
+      case 'Sell':
+        return <SellTab selectedPlayer={selectedPlayer} />;
+      case 'Renew':
+        return <RenewTab selectedPlayer={selectedPlayer} />;
+      default:
+        return null;
     }
-    if (!renewMode && selectedTab === "Renew") {
-      setSelectedTab("Player");
-    }
-  }, [sellMode, renewMode, selectedTab]);
-
-  const tabs = ["Game", "Player", "Formation", "Opponent", "Finances"];
-
-  if (sellMode && selectedPlayer) tabs.push("Sell");
-  if (renewMode && selectedPlayer) tabs.push("Renew");
+  };
 
   return (
-    <div className="bg-white rounded-lg shadow p-2 text-xs h-full flex flex-col">
-      <div className="flex flex-wrap justify-between mb-2 border-b border-gray-300 text-xs">
+    <div className="h-full w-full flex flex-col">
+      <div className="flex gap-2 border-b p-2">
         {tabs.map((tab) => (
           <button
             key={tab}
-            className={`px-3 py-1 rounded-t ${
-              selectedTab === tab
-                ? "bg-blue-700 text-white"
-                : "bg-gray-100 text-gray-700"
-            } hover:bg-blue-600 hover:text-white transition`}
-            onClick={() => setSelectedTab(tab)}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-sm rounded-t ${activeTab === tab ? 'bg-primary text-white' : 'bg-gray-200'}`}
           >
             {tab}
           </button>
         ))}
       </div>
-
-      <div className="flex-1 rounded border border-gray-200 bg-white p-2 overflow-y-auto">
-        {selectedTab === "Game" && (
-          <GameTab teamName={teamName} budget={budget} morale={morale} />
-        )}
-        {selectedTab === "Player" && selectedPlayer && (
-          <PlayerTab player={selectedPlayer} />
-        )}
-        {selectedTab === "Formation" && <FormationTab />}
-        {selectedTab === "Opponent" && <OpponentTab />}
-        {selectedTab === "Finances" && <FinancesTab budget={budget} />}
-        {selectedTab === "Sell" && selectedPlayer && sellMode && (
-          <SellTab player={selectedPlayer} onBack={() => setSellMode(false)} />
-        )}
-        {selectedTab === "Renew" && selectedPlayer && renewMode && (
-          <RenewTab
-            player={selectedPlayer}
-            onBack={() => setRenewMode(false)}
-          />
-        )}
+      <div className="flex-1 overflow-auto bg-white p-4">
+        {renderTab()}
       </div>
     </div>
   );

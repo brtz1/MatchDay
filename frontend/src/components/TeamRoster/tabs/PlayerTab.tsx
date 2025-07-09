@@ -1,31 +1,28 @@
-import { useTeamContext } from "../../../context/TeamContext";
-import { Player } from "../../../types";
+import { Player } from '@/types';
 
-export default function PlayerTab() {
-  const { selectedPlayer, setRenewMode } = useTeamContext();
+interface PlayerTabProps {
+  players: Player[];
+  selectedPlayer: Player | null;
+  onSelectPlayer: (player: Player) => void;
+}
 
-  if (!selectedPlayer) return <p>Select a player to view details.</p>;
-
+export default function PlayerTab({ players, selectedPlayer, onSelectPlayer }: PlayerTabProps) {
   return (
-    <div>
-      <p className="font-bold text-accent mb-2">Player Details</p>
-      <p>Name: {selectedPlayer.name}</p>
-      <p>Country: {selectedPlayer.nationality ?? "🇵🇹"}</p>
-      <p>Behaviour: Normal</p>
-      <p>Games Played: 10</p>
-      <p>Goals This Season: 5</p>
-      <p>Total Goals: 15</p>
-      <p>Red Cards: 1</p>
-      <p>Injuries: 0</p>
-      <button
-        className="bg-primary text-black rounded px-2 py-1 mt-2"
-        onClick={() => {
-          setRenewMode(true);
-          window.dispatchEvent(new CustomEvent("show-renew-tab"));
-        }}
-      >
-        Renew Contract
-      </button>
+    <div className="space-y-2">
+      {players.map((player) => (
+        <div
+          key={player.id}
+          onClick={() => onSelectPlayer(player)}
+          className={`p-2 rounded border cursor-pointer ${
+            selectedPlayer?.id === player.id ? 'bg-primary text-white' : 'hover:bg-gray-100'
+          }`}
+        >
+          <div className="flex justify-between">
+            <span>{player.name}</span>
+            <span className="text-sm text-gray-500">{player.position} – {player.rating}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

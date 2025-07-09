@@ -1,10 +1,23 @@
+// src/utils/loadData.ts
+
 import fs from 'fs';
 import path from 'path';
 
-const loadJSON = <T>(filePath: string): T => {
-  const absolutePath = path.resolve(__dirname, filePath);
-  const fileContents = fs.readFileSync(absolutePath, 'utf-8');
-  return JSON.parse(fileContents) as T;
-};
+/**
+ * Generic JSON loader with type safety
+ * @param relativePath - Relative path to JSON file from project root
+ */
+export const loadJSON = <T = any>(relativePath: string): T => {
+  const absolutePath = path.resolve(process.cwd(), relativePath);
 
-export default loadJSON;
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`File not found at: ${absolutePath}`);
+  }
+
+  const content = fs.readFileSync(absolutePath, 'utf-8');
+  try {
+    return JSON.parse(content) as T;
+  } catch (error) {
+    throw new Error(`Failed to parse JSON from ${absolutePath}: ${(error as Error).message}`);
+  }
+};

@@ -2,51 +2,36 @@ import { useEffect, useState } from "react";
 import TeamRosterToolbar from "../components/TeamRoster/Toolbar";
 import PlayerRoster from "../components/TeamRoster/PlayerRoster";
 import TeamRosterTabs from "../components/TeamRoster/TeamRosterTabs";
-import { getFlagEmoji } from "../utils/getFlagEmoji";
 import { getFlagUrl } from "../utils/getFlagUrl";
-
-interface Team {
-  id: number;
-  name: string;
-  country: string;
-  budget: number;
-  division?: {
-    id: number;
-    name: string;
-    level: number;
-  };
-  primaryColor?: string;
-  secondaryColor?: string;
-  coach?: {
-    id: number;
-    name: string;
-    morale?: number;
-    level?: string;
-  };
-}
+import { getTeamById, getPlayersByTeam, getTeamFinances } from "../services/teamService";
+import { Player, Team, Finance } from "@/types";
 
 export default function TeamRoster() {
   const [team, setTeam] = useState<Team | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [finances, setFinances] = useState<Finance[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
 
   const teamId = 1;
 
   useEffect(() => {
-    if (!teamId) {
-      console.warn("No team ID provided");
-      return;
+    async function fetchData() {
+      try {
+        const [teamData, playerData, financeData] = await Promise.all([
+          getTeamById(teamId),
+          getPlayersByTeam(teamId),
+          getTeamFinances(teamId),
+        ]);
+        setTeam(teamData);
+        setPlayers(playerData);
+        setFinances(financeData);
+      } catch (err) {
+        console.error("Failed to load team data:", err);
+      }
     }
 
-    fetch(`http://localhost:4000/api/teams/${teamId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Team ${teamId} not found (status ${res.status})`);
-        return res.json();
-      })
-      .then((data) => {
-        console.log("Fetched team data:", data);
-        setTeam(data);
-      })
-      .catch((err) => console.error(err));
-  }, [teamId]);
+    fetchData();
+  }, []);
 
   if (!team) return <p className="text-center mt-4">Loading team roster...</p>;
 
@@ -66,16 +51,13 @@ export default function TeamRoster() {
             alt={team.country}
             className="inline w-6 h-4"
           />
-
         </h1>
         <p className="text-xs text-black text-right">
-          Division: {team.division?.name ?? "Unknown"}
-          {" | "}
+          Division: {team.division?.name ?? "Unknown"}{" | "}
           Coach: {team.coach?.name ?? "Unknown"}
           {team.coach?.level ? ` (Level: ${team.coach.level})` : ""}
           {" | "}
-          Morale: {team.coach?.morale ?? "n/a"}
-          {" | "}
+          Morale: {team.coach?.morale ?? "n/a"}{" | "}
           Budget: €{team.budget.toLocaleString()}
         </p>
       </div>
@@ -85,14 +67,21 @@ export default function TeamRoster() {
       <div className="flex gap-4 h-[57vh]">
         {/* Player roster 70% */}
         <div className="w-[65%] h-full">
-          <PlayerRoster />
+          <PlayerRoster
+            players={players}
+            selectedPlayer={selectedPlayer}
+            onSelectPlayer={setSelectedPlayer}
+          />
         </div>
+
         {/* Tabs 30% */}
-        <div className="w-[35%] h-[full overflow-y-auto]">
+        <div className="w-[35%] h-full overflow-y-auto">
           <TeamRosterTabs
-            teamName={team.name}
-            budget={team.budget}
-            morale={team.coach?.morale ?? null}
+            team={team}
+            players={players}
+            finances={finances}
+            selectedPlayer={selectedPlayer}
+            onSelectPlayer={setSelectedPlayer}
           />
         </div>
       </div>

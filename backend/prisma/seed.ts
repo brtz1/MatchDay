@@ -1,92 +1,65 @@
+// prisma/seed.ts
+
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient();
 
-async function seed() {
-  await prisma.coach.deleteMany();
-  await prisma.player.deleteMany();
-  await prisma.team.deleteMany();
-  await prisma.division.deleteMany();
+const SALARY_MULTIPLIER = 1000;
 
-  const d1 = await prisma.division.create({
-    data: { name: 'D1', level: 1 }
-  });
-
-  const team1 = await prisma.team.create({
-    data: {
-      name: 'Porto FC',
-      country: 'Portugal',
-      budget: 1000000,
-      divisionId: d1.id,
-      ticketPrice: 5,
-      coach: {
-        create: {
-          name: 'Coach Porto',
-          morale: 80,
-          contractWage: 10000,
-          contractUntil: 2026  // fixed as Int
-        }
-      },
-      players: {
-        create: [
-          {
-            name: 'Player 1',
-            position: 'GK',
-            rating: 75,
-            salary: 2000,
-            nationality: '🇵🇹'
-          },
-          {
-            name: 'Player 2',
-            position: 'DF',
-            rating: 78,
-            salary: 2500,
-            nationality: '🇵🇹'
-          }
-        ]
-      }
-    }
-  });
-
-  const team2 = await prisma.team.create({
-    data: {
-      name: 'Benfica FC',
-      country: 'Portugal',
-      budget: 1000000,
-      divisionId: d1.id,
-      ticketPrice: 5,
-      coach: {
-        create: {
-          name: 'Coach Benfica',
-          morale: 75,
-          contractWage: 9000,
-          contractUntil: 2026  // fixed as Int
-        }
-      },
-      players: {
-        create: [
-          {
-            name: 'Player 3',
-            position: 'MF',
-            rating: 80,
-            salary: 3000,
-            nationality: '🇵🇹'
-          },
-          {
-            name: 'Player 4',
-            position: 'AT',
-            rating: 82,
-            salary: 4000,
-            nationality: '🇵🇹'
-          }
-        ]
-      }
-    }
-  });
-
-  console.log(`✅ Seed completed.`);
+function generatePlayerRating(teamRating: number, index: number): number {
+  const variance = Math.floor(Math.random() * 5);
+  const sign = index % 2 === 0 ? 1 : -1;
+  return Math.max(30, Math.min(99, teamRating + (sign * variance)));
 }
 
-seed()
-  .catch(e => console.error(e))
-  .finally(() => prisma.$disconnect());
+function calculateSalary(rating: number, behavior: number): number {
+  const multiplier = 1 + (behavior - 3) * 0.1;
+  return Math.round(rating * SALARY_MULTIPLIER * multiplier);
+}
+
+async function main() {
+  const filePath = path.resolve(__dirname, '../src/data/teams.json');
+  console.log('Resolved file path:', filePath);
+
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const json = JSON.parse(raw);
+
+  for (const team of json.teams) {
+    const createdTeam = await prisma.baseTeam.create({
+      data: {
+        name: team.name,
+        country: team.country,
+        rating: team.rating,
+        coachName: team.coachName,
+        players: {
+          create: team.players.map((player: any, index: number) => {
+            const rating = generatePlayerRating(team.rating, index);
+            return {
+              name: player.name,
+              nationality: player.nationality,
+              position: player.position,
+              behavior: player.behavior,
+              rating,
+              salary: calculateSalary(rating, player.behavior),
+            };
+          }),
+        },
+      },
+    });
+
+    console.log(`✅ Created base team: ${createdTeam.name}`);
+  }
+}
+
+main()
+  .then(() => {
+    console.log('🌱 Base team seed complete');
+    return prisma.$disconnect();
+  })
+  .catch((e) => {
+    console.error('❌ Error during base team seed:', e);
+    prisma.$disconnect();
+    process.exit(1);
+  });

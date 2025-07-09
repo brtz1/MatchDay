@@ -1,3 +1,4 @@
+// src/services/teamService.ts
 import prisma from '../utils/prisma';
 import { Team } from '@prisma/client';
 
@@ -15,9 +16,9 @@ const getTeamById = async (id: number): Promise<(Team & { players: any[] }) | nu
 };
 
 const createTeam = async (teamData: any): Promise<Team> => {
-  const { name, country, budget } = teamData;
+  const { name, country, divisionId, rating } = teamData;
   return prisma.team.create({
-    data: { name, country, budget },
+    data: { name, country, divisionId, rating },
   });
 };
 

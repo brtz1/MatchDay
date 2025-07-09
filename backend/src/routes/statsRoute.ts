@@ -1,57 +1,45 @@
+// src/routes/statsRoute.ts
+
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
-/**
- * Get top scorers
- */
-router.get('/top-scorers', async (_req, res) => {
-  try {
-    const scorers = await prisma.playerMatchStats.groupBy({
-      by: ['playerId'],
-      _sum: { goals: true },
-      orderBy: { _sum: { goals: 'desc' } },
-      take: 10,
-    });
-
-    const enriched = await Promise.all(
-      scorers.map(async s => {
-        const player = await prisma.player.findUnique({
-          where: { id: s.playerId },
-        });
-        return {
-          playerId: s.playerId,
-          playerName: player?.name,
-          totalGoals: s._sum.goals,
-        };
-      })
-    );
-
-    res.json(enriched);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch top scorers' });
-  }
-});
-
-/**
- * Get stats for a single player
- */
-router.get('/player/:playerId', async (req, res) => {
-  const playerId = parseInt(req.params.playerId);
-  if (isNaN(playerId)) return res.status(400).json({ error: 'Invalid player id' });
-
+router.get('/stats', async (req, res) => {
   try {
     const stats = await prisma.playerMatchStats.findMany({
-      where: { playerId },
-      include: { match: true },
+      include: { player: true },
     });
-    res.json(stats);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch player stats' });
+
+    const totals = new Map<number, any>();
+
+    for (const stat of stats) {
+      const current = totals.get(stat.playerId) || {
+        id: stat.playerId,
+        name: stat.player.name,
+        nationality: stat.player.nationality,
+        position: stat.player.position,
+        goals: 0,
+        assists: 0,
+        yellow: 0,
+        red: 0,
+      };
+
+      current.goals += stat.goals;
+      current.assists += stat.assists;
+      current.yellow += stat.yellow;
+      current.red += stat.red;
+
+      totals.set(stat.playerId, current);
+    }
+
+    const list = Array.from(totals.values());
+    list.sort((a, b) => b.goals - a.goals || b.assists - a.assists);
+
+    res.json(list);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to load player stats' });
   }
 });
 

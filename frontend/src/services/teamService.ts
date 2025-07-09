@@ -1,25 +1,28 @@
-// teamService.ts
-const API_BASE = 'http://localhost:4000/api/teams';
+// src/services/teamService.ts
+import api from './api';
+import { Team, Player, Finance, Match } from '@/types';
 
-export const getTeams = async () => {
-  const res = await fetch(API_BASE);
-  return res.json();
+export const getTeamById = async (id: number): Promise<Team> => {
+  const res = await api.get(`/teams/${id}`);
+  return res.data;
 };
 
-export const getTeam = async (teamId: number) => {
-  const res = await fetch(`${API_BASE}/${teamId}`);
-  return res.json();
+export const getPlayersByTeam = async (id: number): Promise<Player[]> => {
+  const res = await api.get(`/teams/${id}/players`);
+  return res.data;
 };
 
-export const createTeam = async (team: {
-  name: string;
-  country: string;
-  budget: number;
-}) => {
-  const res = await fetch(API_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(team)
-  });
-  return res.json();
+export const getTeamFinances = async (id: number): Promise<Finance[]> => {
+  const res = await api.get(`/teams/${id}/finances`);
+  return res.data;
+};
+
+export const getNextMatch = async (id: number): Promise<Match> => {
+  const res = await api.get(`/teams/${id}/next-match`);
+  return res.data;
+};
+
+export const getOpponentInfo = async (id: number): Promise<Team> => {
+  const res = await api.get(`/teams/${id}/opponent`);
+  return res.data;
 };

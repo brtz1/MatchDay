@@ -1,44 +1,27 @@
-import { useEffect, useState } from "react";
-import { getTeamFinances } from "../../../services/team";
+import { Finance } from '@/types';
 
-interface FinanceRecord {
-  id: number;
-  amount: number;
-  type: string;
-  reason: string;
-  date: string;
+interface FinancesTabProps {
+  finances: Finance[];
+  budget: number;
 }
 
-export default function FinancesTab() {
-  const [balance, setBalance] = useState<number>(0);
-  const [ticketPrice, setTicketPrice] = useState<number>(0);
-  const [salaries, setSalaries] = useState<number>(0);
-  const [recent, setRecent] = useState<FinanceRecord[]>([]);
-
-  useEffect(() => {
-    getTeamFinances(1).then((data) => {
-      setBalance(data.balance);
-      setTicketPrice(data.ticketPrice);
-      setSalaries(data.salaries);
-      setRecent(data.recent);
-    });
-  }, []);
-
+export default function FinancesTab({ finances, budget }: FinancesTabProps) {
   return (
-    <div>
-      <p className="font-bold text-accent mb-2">Finances</p>
-      <p>Balance: €{balance.toLocaleString()}</p>
-      <p>Salaries: €{salaries.toLocaleString()} / week</p>
-      <p>Ticket Price: €{ticketPrice}</p>
-      <hr className="my-2" />
-      <p className="font-bold text-accent mb-2">Recent Transactions</p>
-      <ul className="space-y-1">
-        {recent.map((f) => (
-          <li key={f.id}>
-            {new Date(f.date).toLocaleDateString()} — {f.type} — €{f.amount.toLocaleString()} ({f.reason})
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-4">
+      <div className="text-lg font-semibold">Budget: ${budget.toLocaleString()}</div>
+      <div>
+        <h3 className="text-md font-medium mb-2">Recent Transactions</h3>
+        <ul className="divide-y divide-gray-200">
+          {finances.map((tx, index) => (
+            <li key={index} className="py-2 flex justify-between">
+              <span>{tx.description}</span>
+              <span className={tx.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                {tx.amount >= 0 ? '+' : ''}${tx.amount.toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

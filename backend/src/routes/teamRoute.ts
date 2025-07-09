@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * Get all teams
  */
-router.get('/', async (req, res) => {
+router.get('/', async (_req, res) => {
   try {
     const teams = await prisma.team.findMany({
       include: {
@@ -23,11 +22,11 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * Get a single team by id
+ * Get a single team by ID
  */
 router.get('/:teamId', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
   try {
     const team = await prisma.team.findUnique({
@@ -47,11 +46,11 @@ router.get('/:teamId', async (req, res) => {
 });
 
 /**
- * Get players from a team
+ * Get all players in a team
  */
 router.get('/:teamId/players', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
   try {
     const players = await prisma.player.findMany({
@@ -70,16 +69,13 @@ router.get('/:teamId/players', async (req, res) => {
  */
 router.get('/:teamId/next-match', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
   try {
     const nextMatch = await prisma.match.findFirst({
       where: {
         isPlayed: false,
-        OR: [
-          { homeTeamId: teamId },
-          { awayTeamId: teamId }
-        ],
+        OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
       },
       include: {
         homeTeam: true,
@@ -89,6 +85,9 @@ router.get('/:teamId/next-match', async (req, res) => {
       },
       orderBy: { matchDate: 'asc' },
     });
+
+    if (!nextMatch) return res.status(404).json({ error: 'No upcoming match found' });
+
     res.json(nextMatch);
   } catch (error) {
     console.error(error);
@@ -99,9 +98,9 @@ router.get('/:teamId/next-match', async (req, res) => {
 /**
  * Get opponent team info
  */
-router.get('/info/:teamId', async (req, res) => {
+router.get('/opponent/:teamId', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
   try {
     const team = await prisma.team.findUnique({
@@ -111,10 +110,13 @@ router.get('/info/:teamId', async (req, res) => {
         division: true,
       },
     });
+
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
     res.json(team);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Failed to fetch opponent' });
+    res.status(500).json({ error: 'Failed to fetch opponent info' });
   }
 });
 
@@ -130,8 +132,11 @@ router.post('/', async (req, res) => {
         name,
         country,
         divisionId,
-      },
-    });
+        stadiumSize: 10000,
+        ticketPrice: 5,
+        rating: 50,
+  },
+});
     res.status(201).json(newTeam);
   } catch (error) {
     console.error(error);
@@ -140,13 +145,13 @@ router.post('/', async (req, res) => {
 });
 
 /**
- * Update a team
+ * Update an existing team
  */
 router.put('/:teamId', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
-  const { name, country, divisionId, budget } = req.body;
+  const { name, country, divisionId } = req.body;
 
   try {
     const updatedTeam = await prisma.team.update({
@@ -155,7 +160,6 @@ router.put('/:teamId', async (req, res) => {
         name,
         country,
         divisionId,
-        budget,
       },
     });
     res.json(updatedTeam);
@@ -170,7 +174,7 @@ router.put('/:teamId', async (req, res) => {
  */
 router.delete('/:teamId', async (req, res) => {
   const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team id' });
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
 
   try {
     await prisma.team.delete({
@@ -180,6 +184,35 @@ router.delete('/:teamId', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+/**
+ * Get team finances (placeholder logic)
+ */
+router.get('/:teamId/finances', async (req, res) => {
+  const teamId = parseInt(req.params.teamId);
+  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
+
+  try {
+    // Replace with actual finance logic when implemented
+    const players = await prisma.player.findMany({
+      where: { teamId },
+    });
+
+    const totalSalaries = players.reduce((sum, p) => sum + (p.salary || 0), 0);
+
+    res.json({
+      salaryTotal: totalSalaries,
+      salaryByPlayer: players.map(p => ({
+        id: p.id,
+        name: p.name,
+        salary: p.salary,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to load finances' });
   }
 });
 

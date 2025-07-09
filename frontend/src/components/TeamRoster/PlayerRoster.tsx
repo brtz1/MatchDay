@@ -1,35 +1,13 @@
-import { useTeamContext } from "../../context/TeamContext";
 import { getFlagUrl } from "../../utils/getFlagUrl";
+import { Player } from "@/types";
 
-interface Player {
-  id: number;
-  name: string;
-  position: "GK" | "DF" | "MF" | "AT";
-  rating: number;
-  salary: number;
-  nationality: string;
-  underContract: boolean;
+interface PlayerRosterProps {
+  players: Player[];
+  selectedPlayer: Player | null;
+  onSelectPlayer: (player: Player) => void;
 }
 
-const dummyPlayers: Player[] = [
-  { id: 1, name: "José Sá", position: "GK", rating: 82, salary: 4000, nationality: "PT", underContract: true },
-  { id: 2, name: "Pepe", position: "DF", rating: 86, salary: 6500, nationality: "PT", underContract: true },
-  { id: 3, name: "Otávio", position: "MF", rating: 80, salary: 5000, nationality: "PT", underContract: true },
-  { id: 4, name: "Taremi", position: "AT", rating: 83, salary: 5500, nationality: "IR", underContract: false },
-  ...Array.from({ length: 16 }, (_, i) => ({
-    id: 100 + i,
-    name: "",
-    position: (["GK", "DF", "MF", "AT"] as const)[i % 4],
-    rating: 0,
-    salary: 0,
-    nationality: "",
-    underContract: false
-  })),
-];
-
-export default function PlayerRoster() {
-  const { selectedPlayer, setSelectedPlayer } = useTeamContext();
-
+export default function PlayerRoster({ players, selectedPlayer, onSelectPlayer }: PlayerRosterProps) {
   const positions: ("GK" | "DF" | "MF" | "AT")[] = ["GK", "DF", "MF", "AT"];
 
   return (
@@ -50,8 +28,19 @@ export default function PlayerRoster() {
               {pos}
             </div>
             <div className="rounded border border-gray-200 overflow-hidden bg-white">
-              {dummyPlayers
+              {players
                 .filter((p) => p.position === pos)
+                .concat(
+                  Array.from({ length: 5 - players.filter((p) => p.position === pos).length }, (_, i) => ({
+                    id: 1000 + i,
+                    name: "",
+                    position: pos,
+                    rating: 0,
+                    salary: 0,
+                    nationality: "",
+                    underContract: false,
+                  }))
+                )
                 .map((p, idx) => (
                   <div
                     key={p.id}
@@ -62,7 +51,7 @@ export default function PlayerRoster() {
                         ? "bg-gray-50"
                         : "bg-white"
                     } hover:bg-gray-100 border-b border-white last:border-b-0`}
-                    onClick={() => setSelectedPlayer(p)}
+                    onClick={() => p.name && onSelectPlayer(p)}
                     style={{ minHeight: "24px" }}
                   >
                     {p.name ? (

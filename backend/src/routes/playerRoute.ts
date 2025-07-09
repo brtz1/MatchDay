@@ -22,7 +22,7 @@ router.get('/', async (_req, res) => {
 });
 
 /**
- * Get a single player by id
+ * Get a single player by ID
  */
 router.get('/:playerId', async (req, res) => {
   const playerId = parseInt(req.params.playerId);
@@ -42,48 +42,28 @@ router.get('/:playerId', async (req, res) => {
 });
 
 /**
- * Create a new player
+ * Prohibit creating players via API
  */
-router.post('/', async (req, res) => {
-  const { name, nationality, position, rating, salary, teamId } = req.body;
-
-  try {
-    const newPlayer = await prisma.player.create({
-      data: {
-        name,
-        nationality,
-        position,
-        rating,
-        salary,
-        teamId,
-      },
-    });
-    res.status(201).json(newPlayer);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to create player' });
-  }
+router.post('/', async (_req, res) => {
+  res.status(403).json({ error: 'Player creation is only allowed at game start.' });
 });
 
 /**
- * Update a player
+ * Update limited player fields
  */
 router.put('/:playerId', async (req, res) => {
   const playerId = parseInt(req.params.playerId);
   if (isNaN(playerId)) return res.status(400).json({ error: 'Invalid player id' });
 
-  const { name, nationality, position, rating, salary, teamId } = req.body;
+  const { rating, teamId, contractUntil } = req.body;
 
   try {
     const updated = await prisma.player.update({
       where: { id: playerId },
       data: {
-        name,
-        nationality,
-        position,
         rating,
-        salary,
         teamId,
+        contractUntil,
       },
     });
     res.json(updated);
@@ -94,21 +74,10 @@ router.put('/:playerId', async (req, res) => {
 });
 
 /**
- * Delete a player
+ * Prohibit player deletion
  */
-router.delete('/:playerId', async (req, res) => {
-  const playerId = parseInt(req.params.playerId);
-  if (isNaN(playerId)) return res.status(400).json({ error: 'Invalid player id' });
-
-  try {
-    await prisma.player.delete({
-      where: { id: playerId },
-    });
-    res.json({ message: 'Player deleted' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete player' });
-  }
+router.delete('/:playerId', async (_req, res) => {
+  res.status(403).json({ error: 'Players cannot be deleted.' });
 });
 
 export default router;

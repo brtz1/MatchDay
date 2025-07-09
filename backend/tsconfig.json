@@ -8,8 +8,12 @@
     "esModuleInterop": true,
     "strict": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "exclude": ["node_modules", "../hello-prisma", "../prisma", "../tests", "prisma", "tests", "**/*.spec.ts"]
 }
