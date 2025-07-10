@@ -1,36 +1,68 @@
 // src/services/teamService.ts
 import prisma from '../utils/prisma';
-import { Team } from '@prisma/client';
+import { DivisionTier } from '@prisma/client';
 
-const getAllTeams = async (): Promise<Team[]> => {
-  return prisma.team.findMany({
-    include: { players: true },
+/**
+ * Get all save game teams (with players)
+ */
+const getAllTeams = async () => {
+  return prisma.saveGameTeam.findMany({
+    include: {
+      players: true,
+    },
   });
 };
 
-const getTeamById = async (id: number): Promise<(Team & { players: any[] }) | null> => {
-  return prisma.team.findUnique({
+/**
+ * Get a single save game team by ID (with players)
+ */
+const getTeamById = async (id: number) => {
+  return prisma.saveGameTeam.findUnique({
     where: { id },
-    include: { players: true },
+    include: {
+      players: true,
+    },
   });
 };
 
-const createTeam = async (teamData: any): Promise<Team> => {
-  const { name, country, divisionId, rating } = teamData;
-  return prisma.team.create({
-    data: { name, country, divisionId, rating },
+/**
+ * Create a team in saveGame context
+ */
+const createTeam = async (teamData: {
+  name: string;
+  saveGameId: number;
+  baseTeamId: number;
+  morale?: number;
+  division: DivisionTier;
+}) => {
+  const { name, saveGameId, baseTeamId, morale = 50, division } = teamData;
+  return prisma.saveGameTeam.create({
+    data: {
+      name,
+      baseTeamId,
+      morale,
+      currentSeason: 1,
+      saveGameId,
+      division, // Include division in the data
+    },
   });
 };
 
-const updateTeam = async (id: number, teamData: any): Promise<Team> => {
-  return prisma.team.update({
+/**
+ * Update a save game team
+ */
+const updateTeam = async (id: number, teamData: Partial<{ name: string; country:  string; rating: number }>) => {
+  return prisma.saveGameTeam.update({
     where: { id },
     data: teamData,
   });
 };
 
-const deleteTeam = async (id: number): Promise<Team> => {
-  return prisma.team.delete({
+/**
+ * Delete a save game team
+ */
+const deleteTeam = async (id: number) => {
+  return prisma.saveGameTeam.delete({
     where: { id },
   });
 };

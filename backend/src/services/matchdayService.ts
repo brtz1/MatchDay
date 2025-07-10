@@ -3,6 +3,7 @@ import { simulateMatchday } from './matchService';
 import { updateLeagueTableForMatchday } from './leagueTableService';
 import { updateMoraleAndContracts } from './moraleContractService';
 import { GameState } from '../state/gameState';
+import { MatchdayType } from '@prisma/client';
 
 export async function advanceMatchday(): Promise<string> {
   const state = await GameState.get();
@@ -20,7 +21,7 @@ export async function advanceMatchday(): Promise<string> {
 
   await simulateMatchday(matchday.id);
 
-  if (matchday.type === 'LEAGUE') {
+  if (matchday.type === MatchdayType.LEAGUE) {
     await updateLeagueTableForMatchday(matchday.id);
   }
 

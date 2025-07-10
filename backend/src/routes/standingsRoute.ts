@@ -18,18 +18,18 @@ router.get('/standings', async (req, res) => {
       orderBy: { level: 'asc' },
     });
 
-    const result = divisions.map((div) => ({
-      division: div.name,
-      teams: div.teams
-        .map((team) => ({
-          name: team.name,
-          points: team.leagueTable?.points ?? 0,
-          played: team.leagueTable?.played ?? 0,
-          wins: team.leagueTable?.wins ?? 0,
-          draws: team.leagueTable?.draws ?? 0,
-          losses: team.leagueTable?.losses ?? 0,
-          goalsFor: team.leagueTable?.goalsFor ?? 0,
-          goalsAgainst: team.leagueTable?.goalsAgainst ?? 0,
+    const result = divisions.map((division) => ({
+      division: division.name,
+      teams: division.teams
+        .map((SaveGameTeam) => ({
+          name: SaveGameTeam.name,
+          points: SaveGameTeam.leagueTable?.points ?? 0,
+          played: SaveGameTeam.leagueTable?.played ?? 0,
+          wins: SaveGameTeam.leagueTable?.wins ?? 0,
+          draws: SaveGameTeam.leagueTable?.draws ?? 0,
+          losses: SaveGameTeam.leagueTable?.losses ?? 0,
+          goalsFor: SaveGameTeam.leagueTable?.goalsFor ?? 0,
+          goalsAgainst: SaveGameTeam.leagueTable?.goalsAgainst ?? 0,
         }))
         .sort((a, b) => b.points - a.points || b.goalsFor - a.goalsFor),
     }));

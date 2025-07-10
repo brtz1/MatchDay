@@ -1,11 +1,25 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
+interface PlayerStats {
+  id: number;
+  name: string;
+  position: string;
+  nationality: string;
+  goals: number;
+  assists: number;
+  yellow: number;
+  red: number;
+}
+
 export default function TopPlayersPage() {
-  const [players, setPlayers] = useState<any[]>([]);
+  const [players, setPlayers] = useState<PlayerStats[]>([]);
 
   useEffect(() => {
-    axios.get('/api/stats').then((res) => setPlayers(res.data));
+    axios
+      .get<PlayerStats[]>('/api/stats')
+      .then((res) => setPlayers(res.data))
+      .catch((err) => console.error('Failed to fetch player stats:', err));
   }, []);
 
   return (

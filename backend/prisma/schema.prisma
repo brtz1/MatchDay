@@ -8,127 +8,129 @@ generator client {
 }
 
 model Division {
-  id     Int     @id @default(autoincrement())
-  name   String
-  level  Int
-  teams  Team[]
+  id    Int    @id @default(autoincrement())
+  name  String
+  level Int
+  teams Team[]
 }
 
 model Coach {
-  id            Int     @id @default(autoincrement())
+  id            Int    @id @default(autoincrement())
   name          String
-  teamId        Int?    @unique
-  team          Team?   @relation(fields: [teamId], references: [id])
-  morale        Int     @default(75)
-  contractWage  Int     @default(10000)
+  teamId        Int?   @unique
+  team          Team?  @relation(fields: [teamId], references: [id])
+  morale        Int    @default(75)
+  contractWage  Int    @default(10000)
   contractUntil Int
 }
 
 model Matchday {
-  id        Int          @id @default(autoincrement())
-  number    Int
-  type      String       // "LEAGUE" or "CUP"
-  date      DateTime
-  isPlayed  Boolean      @default(false)
-  matches   Match[]
-  events    MatchEvent[] @relation("MatchdayEvents")
+  id              Int             @id @default(autoincrement())
+  number          Int
+  type            MatchdayType
+  date            DateTime
+  isPlayed        Boolean         @default(false)
+  matches         Match[]
+  saveGameMatches SaveGameMatch[] // ✅ add this
+  events          MatchEvent[]    @relation("MatchdayEvents")
 }
 
 model Match {
-  id           Int       @id @default(autoincrement())
-  homeTeamId   Int
-  awayTeamId   Int
-  homeTeam     Team      @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam     Team      @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  homeScore    Int?
-  awayScore    Int?
-  matchDate    DateTime
-  season       Int
-  isPlayed     Boolean   @default(false)
-  matchdayId   Int
-  matchday     Matchday  @relation(fields: [matchdayId], references: [id])
-  refereeId    Int?
-  referee      Referee?  @relation(fields: [refereeId], references: [id])
-  events       MatchEvent[] @relation("MatchEvents")
-  MatchState   MatchState?
-  playerStats  PlayerMatchStats[]
-  createdAt    DateTime  @default(now())
+  id          Int                @id @default(autoincrement())
+  homeTeamId  Int
+  awayTeamId  Int
+  homeTeam    Team               @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team               @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore   Int?
+  awayScore   Int?
+  matchDate   DateTime
+  season      Int
+  isPlayed    Boolean            @default(false)
+  matchdayId  Int
+  matchday    Matchday           @relation(fields: [matchdayId], references: [id])
+  refereeId   Int?
+  referee     Referee?           @relation(fields: [refereeId], references: [id])
+  events      MatchEvent[]       @relation("MatchEvents")
+  MatchState  MatchState?
+  playerStats PlayerMatchStats[]
+  createdAt   DateTime           @default(now())
 }
 
 model MatchEvent {
-  id          Int      @id @default(autoincrement())
-  matchdayId  Int
-  matchday    Matchday @relation(fields: [matchdayId], references: [id], name: "MatchdayEvents")
-  matchId     Int
-  match       Match    @relation(fields: [matchId], references: [id], name: "MatchEvents")
-  minute      Int
-  eventType   String
-  description String
-  playerId    Int?
-  player      Player?  @relation("PlayerEvents", fields: [playerId], references: [id]) // 👈 ADD relation name
+  id              Int            @id @default(autoincrement())
+  matchdayId      Int
+  matchday        Matchday       @relation(fields: [matchdayId], references: [id], name: "MatchdayEvents")
+  matchId         Int
+  match           Match          @relation(fields: [matchId], references: [id], name: "MatchEvents")
+  saveGameMatchId Int?
+  saveGameMatch   SaveGameMatch? @relation(fields: [saveGameMatchId], references: [id])
+  minute          Int
+  eventType       String
+  description     String
+  playerId        Int?
+  player          Player?        @relation("PlayerEvents", fields: [playerId], references: [id]) // 👈 ADD relation name
 }
 
 model Player {
-  id             Int      @id @default(autoincrement())
-  name           String
-  nationality    String
-  position       String
-  rating         Int
-  salary         Int
-  behavior       Int      @default(3)
-  contractUntil  Int?
-  teamId         Int?
-  team           Team?    @relation(fields: [teamId], references: [id])
-  matchStats     PlayerMatchStats[]
-  transfers      Transfer[]
-  events         MatchEvent[]   @relation("PlayerEvents") // 👈 MATCHING name
-  createdAt      DateTime @default(now())
-  lockedUntilNextMatchday Boolean @default(false)
+  id                      Int                @id @default(autoincrement())
+  name                    String
+  nationality             String
+  position                String
+  rating                  Int
+  salary                  Int
+  behavior                Int                @default(3)
+  contractUntil           Int?
+  teamId                  Int?
+  team                    Team?              @relation(fields: [teamId], references: [id])
+  matchStats              PlayerMatchStats[]
+  transfers               Transfer[]
+  events                  MatchEvent[]       @relation("PlayerEvents") // 👈 MATCHING name
+  createdAt               DateTime           @default(now())
+  lockedUntilNextMatchday Boolean            @default(false)
 }
 
 model Team {
-  id           Int      @id @default(autoincrement())
-  name         String
-  country      String
-  divisionId   Int?
-  division     Division? @relation(fields: [divisionId], references: [id])
-  stadiumSize  Int       @default(10000)
-  ticketPrice  Int       @default(5)
-  rating       Int
-  players      Player[]
-  coach        Coach?
-  finances     Finance[]
-  homeMatches  Match[]   @relation("HomeTeam")
-  awayMatches  Match[]   @relation("AwayTeam")
-  leagueTable  LeagueTable?
-  transfersFrom Transfer[] @relation("FromTeam")
-  transfersTo   Transfer[] @relation("ToTeam")
-  gameStates    GameState[]
-  primaryColor   String   @default("#facc15") // a yellow fallback
-  secondaryColor String   @default("#000000") // black text fallback
+  id             Int          @id @default(autoincrement())
+  name           String
+  country        String
+  divisionId     Int?
+  division       Division?    @relation(fields: [divisionId], references: [id])
+  stadiumSize    Int          @default(10000)
+  ticketPrice    Int          @default(5)
+  rating         Int
+  players        Player[]
+  coach          Coach?
+  finances       Finance[]
+  homeMatches    Match[]      @relation("HomeTeam")
+  awayMatches    Match[]      @relation("AwayTeam")
+  leagueTable    LeagueTable?
+  transfersFrom  Transfer[]   @relation("FromTeam")
+  transfersTo    Transfer[]   @relation("ToTeam")
+  primaryColor   String       @default("#facc15") // a yellow fallback
+  secondaryColor String       @default("#000000") // black text fallback
 }
 
 model Finance {
-  id         Int      @id @default(autoincrement())
-  teamId     Int
-  team       Team     @relation(fields: [teamId], references: [id])
-  amount     Int
-  type       String
-  reason     String
-  date       DateTime @default(now())
+  id     Int      @id @default(autoincrement())
+  teamId Int
+  team   Team     @relation(fields: [teamId], references: [id])
+  amount Int
+  type   String
+  reason String
+  date   DateTime @default(now())
 }
 
 model LeagueTable {
-  id           Int   @id @default(autoincrement())
-  teamId       Int   @unique
-  team         Team  @relation(fields: [teamId], references: [id])
-  played       Int   @default(0)
-  wins         Int   @default(0)
-  draws        Int   @default(0)
-  losses       Int   @default(0)
-  goalsFor     Int   @default(0)
-  goalsAgainst Int   @default(0)
-  points       Int   @default(0)
+  id           Int  @id @default(autoincrement())
+  teamId       Int  @unique
+  team         Team @relation(fields: [teamId], references: [id])
+  played       Int  @default(0)
+  wins         Int  @default(0)
+  draws        Int  @default(0)
+  losses       Int  @default(0)
+  goalsFor     Int  @default(0)
+  goalsAgainst Int  @default(0)
+  points       Int  @default(0)
 }
 
 model Transfer {
@@ -144,19 +146,19 @@ model Transfer {
 }
 
 model PlayerMatchStats {
-  id        Int      @id @default(autoincrement())
-  playerId  Int
-  player    Player   @relation(fields: [playerId], references: [id])
-  matchId   Int
-  match     Match    @relation(fields: [matchId], references: [id])
-  goals     Int      @default(0)
-  assists   Int      @default(0)
-  yellow    Int      @default(0)
-  red       Int      @default(0)
+  id       Int    @id @default(autoincrement())
+  playerId Int
+  player   Player @relation(fields: [playerId], references: [id])
+  matchId  Int
+  match    Match  @relation(fields: [matchId], references: [id])
+  goals    Int    @default(0)
+  assists  Int    @default(0)
+  yellow   Int    @default(0)
+  red      Int    @default(0)
 }
 
 model Referee {
-  id         Int      @id @default(autoincrement())
+  id         Int     @id @default(autoincrement())
   name       String
   country    String
   strictness Int
@@ -164,29 +166,34 @@ model Referee {
 }
 
 model SaveGame {
-  id           Int              @id @default(autoincrement())
-  name         String
-  coachName    String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  teams        SaveGameTeam[]
-  players      SaveGamePlayer[]
-  matches      SaveGameMatch[]
+  id        Int              @id @default(autoincrement())
+  name      String
+  coachName String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  teams     SaveGameTeam[]
+  players   SaveGamePlayer[]
+  matches   SaveGameMatch[]
 }
 
 model SaveGameTeam {
-  id            Int       @id @default(autoincrement())
+  id            Int              @id @default(autoincrement())
   saveGameId    Int
   baseTeamId    Int
   name          String
-  division      String
+  division      DivisionTier
   morale        Int
   currentSeason Int
-  SaveGame      SaveGame  @relation(fields: [saveGameId], references: [id])
+  SaveGame      SaveGame         @relation(fields: [saveGameId], references: [id])
+  baseTeam      BaseTeam         @relation(fields: [baseTeamId], references: [id])
+  players       SaveGamePlayer[]
+  homeMatches   SaveGameMatch[]  @relation("HomeTeamSave")
+  awayMatches   SaveGameMatch[]  @relation("AwayTeamSave")
+  GameStates    GameState[]
 }
 
 model SaveGamePlayer {
-  id            Int       @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
   saveGameId    Int
   basePlayerId  Int
   name          String
@@ -195,64 +202,92 @@ model SaveGamePlayer {
   salary        Int
   teamId        Int?
   contractUntil Int
-  behavior      Int       @default(3)
-  SaveGame      SaveGame  @relation(fields: [saveGameId], references: [id])
+  behavior      Int           @default(3)
+  SaveGame      SaveGame      @relation(fields: [saveGameId], references: [id])
+  team          SaveGameTeam? @relation(fields: [teamId], references: [id])
 }
 
 model SaveGameMatch {
-  id           Int      @id @default(autoincrement())
-  saveGameId   Int
-  homeTeamId   Int
-  awayTeamId   Int
-  homeScore    Int?
-  awayScore    Int?
-  matchDate    DateTime
-  played       Boolean  @default(false)
-  SaveGame     SaveGame @relation(fields: [saveGameId], references: [id])
+  id         Int          @id @default(autoincrement())
+  saveGameId Int
+  homeTeamId Int
+  awayTeamId Int
+  homeScore  Int?
+  awayScore  Int?
+  matchDate  DateTime
+  played     Boolean      @default(false)
+  SaveGame   SaveGame     @relation(fields: [saveGameId], references: [id])
+  homeTeam   SaveGameTeam @relation("HomeTeamSave", fields: [homeTeamId], references: [id])
+  awayTeam   SaveGameTeam @relation("AwayTeamSave", fields: [awayTeamId], references: [id])
+  matchdayId Int?
+  matchday   Matchday?    @relation(fields: [matchdayId], references: [id])
+  MatchEvent MatchEvent[]
 }
 
 model BaseTeam {
-  id        Int       @id @default(autoincrement())
-  name      String
-  country   String
-  rating    Int
-  coachName String
-  players   BasePlayer[]
+  id             Int            @id @default(autoincrement())
+  name           String
+  country        String
+  rating         Int
+  coachName      String
+  primaryColor   String         @default("#facc15") // fallback yellow
+  secondaryColor String         @default("#000000") // fallback black
+  players        BasePlayer[]
+  saveGameTeams  SaveGameTeam[]
 }
 
 model BasePlayer {
-  id        Int       @id @default(autoincrement())
-  name      String
+  id          Int      @id @default(autoincrement())
+  name        String
   nationality String
-  position  String
-  rating    Int
-  salary    Int
-  behavior  Int       @default(3)
-  teamId    Int
-  team      BaseTeam  @relation(fields: [teamId], references: [id])
+  position    String
+  rating      Int
+  salary      Int
+  behavior    Int      @default(3)
+  teamId      Int
+  team        BaseTeam @relation(fields: [teamId], references: [id])
 }
 
 model GameState {
-  id                Int      @id @default(autoincrement())
-  season            Int      @default(1)
-  currentMatchday   Int      @default(1)
-  matchdayType      String   @default("LEAGUE")
+  id                Int          @id @default(autoincrement())
+  season            Int          @default(1)
+  currentMatchday   Int          @default(1)
   coachTeamId       Int
-  gameStage         String   @default("ACTION")
+  coachTeam         SaveGameTeam @relation(fields: [coachTeamId], references: [id])
   currentSaveGameId Int
-  coachTeam         Team     @relation(fields: [coachTeamId], references: [id])
+  matchdayType      MatchdayType @default(LEAGUE) // use enum
+  gameStage         GameStage    @default(ACTION) // define new enum
 }
 
 model MatchState {
-  id               Int      @id @default(autoincrement())
-  matchId          Int      @unique
-  match            Match    @relation(fields: [matchId], references: [id])
-  homeLineup       Int[]    // Player IDs
-  awayLineup       Int[]    // Player IDs
-  homeReserves     Int[]    // Player IDs
-  awayReserves     Int[]    // Player IDs
-  homeSubsMade     Int      @default(0)
-  awaySubsMade     Int      @default(0)
-  isPaused         Boolean  @default(false)
+  id           Int     @id @default(autoincrement())
+  matchId      Int     @unique
+  match        Match   @relation(fields: [matchId], references: [id])
+  homeLineup   Int[] // Player IDs
+  awayLineup   Int[] // Player IDs
+  homeReserves Int[] // Player IDs
+  awayReserves Int[] // Player IDs
+  homeSubsMade Int     @default(0)
+  awaySubsMade Int     @default(0)
+  isPaused     Boolean @default(false)
 }
 
+enum MatchdayType {
+  LEAGUE
+  CUP
+}
+
+enum GameStage {
+  ACTION
+  MATCHDAY
+  HALFTIME
+  RESULTS
+  STANDINGS
+}
+
+enum DivisionTier {
+  D1
+  D2
+  D3
+  D4
+}

@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma';
+import { DivisionTier } from '@prisma/client';
 
 /**
  * Initializes a new SaveGame from BaseTeam/BasePlayer
@@ -18,7 +19,7 @@ export async function createSaveGameFromBase(saveName: string) {
         saveGameId: save.id,
         baseTeamId: base.id,
         name: base.name,
-        division: 'FIRST',
+        division: 'D1' as DivisionTier,
         morale: 75,
         currentSeason: 1
       }

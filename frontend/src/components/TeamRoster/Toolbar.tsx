@@ -27,11 +27,10 @@ export default function TeamRosterToolbar() {
       } else {
         alert(`❌ Save failed: ${data.error}`);
       }
-    } catch (err) {
-      alert('❌ Save failed.');
+    } finally {
+      setSaving(false);
+      setOpen(null);
     }
-    setSaving(false);
-    setOpen(null);
   };
 
   return (

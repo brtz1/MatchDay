@@ -67,9 +67,7 @@ export default function DrawPage() {
       setDivisionPreview(data.divisionPreview || []); // 👈 Add this in your backend
       setLoading(false);
       localStorage.removeItem('selectedCountries');
-    } catch (err: any) {
-      console.error('❌ Error during draw:', err);
-      setError(err.message || 'Error starting game');
+    } finally {
       setLoading(false);
     }
   };

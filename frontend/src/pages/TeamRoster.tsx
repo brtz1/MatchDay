@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import TeamRosterToolbar from "../components/TeamRoster/Toolbar";
 import PlayerRoster from "../components/TeamRoster/PlayerRoster";
 import TeamRosterTabs from "../components/TeamRoster/TeamRosterTabs";
 import { getFlagUrl } from "../utils/getFlagUrl";
 import { getTeamById, getPlayersByTeam, getTeamFinances } from "../services/teamService";
-import { Player, Team, Finance } from "@/types";
+import { Player, Team, Finance } from "../types"; // ✅ Adjusted to match real path
 
 export default function TeamRoster() {
+  const { id } = useParams();
+  const teamId = Number(id);
+
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [finances, setFinances] = useState<Finance[]>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-
-  const teamId = 1;
 
   useEffect(() => {
     async function fetchData() {
@@ -21,17 +23,23 @@ export default function TeamRoster() {
           getTeamById(teamId),
           getPlayersByTeam(teamId),
           getTeamFinances(teamId),
-        ]);
+]);
+        console.log("🏟️ Team:", teamData);
+        console.log("👥 Players:", playerData);
+        console.log("💰 Finance:", financeData);
+        
         setTeam(teamData);
         setPlayers(playerData);
-        setFinances(financeData);
+        setFinances([financeData]);
       } catch (err) {
         console.error("Failed to load team data:", err);
       }
     }
 
-    fetchData();
-  }, []);
+    if (!isNaN(teamId)) {
+      fetchData();
+    }
+  }, [teamId]);
 
   if (!team) return <p className="text-center mt-4">Loading team roster...</p>;
 
@@ -58,7 +66,7 @@ export default function TeamRoster() {
           {team.coach?.level ? ` (Level: ${team.coach.level})` : ""}
           {" | "}
           Morale: {team.coach?.morale ?? "n/a"}{" | "}
-          Budget: €{team.budget.toLocaleString()}
+          Budget: €{team.budget?.toLocaleString?.() ?? "n/a"}
         </p>
       </div>
 

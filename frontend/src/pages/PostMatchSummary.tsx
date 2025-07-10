@@ -1,11 +1,28 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
+interface MatchEvent {
+  minute: number;
+  type: string;
+  desc: string;
+}
+
+interface MatchSummary {
+  matchId: number;
+  home: string;
+  away: string;
+  score: string;
+  events: MatchEvent[];
+}
+
 export default function PostMatchSummary({ matchdayId }: { matchdayId: number }) {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<MatchSummary[]>([]);
 
   useEffect(() => {
-    axios.get(`/api/match-summary/${matchdayId}`).then((res) => setData(res.data));
+    axios
+      .get<MatchSummary[]>(`/api/match-summary/${matchdayId}`)
+      .then((res) => setData(res.data))
+      .catch((err) => console.error('Error loading match summary:', err));
   }, [matchdayId]);
 
   return (

@@ -1,19 +1,20 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
+import { getCurrentSaveGameId } from '../services/gameState';
 
 const router = Router();
 
 /**
- * Get all matches
+ * Get all matches in current save game
  */
-router.get('/', async (req, res) => {
+router.get('/', async (_req, res) => {
   try {
-    const matches = await prisma.match.findMany({
+    const saveGameId = await getCurrentSaveGameId();
+    const matches = await prisma.saveGameMatch.findMany({
+      where: { saveGameId },
       include: {
         homeTeam: true,
         awayTeam: true,
-        referee: true,
-        matchday: true,
       },
     });
     res.json(matches);
@@ -24,24 +25,25 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * Get a single match by id
+ * Get a single match by ID from current save game
  */
 router.get('/:matchId', async (req, res) => {
   const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match id' });
+  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
 
   try {
-    const match = await prisma.match.findUnique({
-      where: { id: matchId },
+    const saveGameId = await getCurrentSaveGameId();
+    const match = await prisma.saveGameMatch.findFirst({
+      where: {
+        id: matchId,
+        saveGameId,
+      },
       include: {
         homeTeam: true,
         awayTeam: true,
-        referee: true,
-        matchday: true,
-        events: true,
-        playerStats: true,
       },
     });
+
     if (!match) return res.status(404).json({ error: 'Match not found' });
     res.json(match);
   } catch (error) {
@@ -51,30 +53,36 @@ router.get('/:matchId', async (req, res) => {
 });
 
 /**
- * Simulate a match (simple version)
+ * Simulate a match (basic example)
  */
 router.post('/:matchId/simulate', async (req, res) => {
   const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match id' });
+  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
 
   try {
-    const match = await prisma.match.findUnique({
-      where: { id: matchId },
-      include: { homeTeam: true, awayTeam: true },
+    const saveGameId = await getCurrentSaveGameId();
+    const match = await prisma.saveGameMatch.findFirst({
+      where: {
+        id: matchId,
+        saveGameId,
+      },
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+      },
     });
 
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
-    // simplistic simulation
     const homeScore = Math.floor(Math.random() * 4);
     const awayScore = Math.floor(Math.random() * 4);
 
-    const updated = await prisma.match.update({
+    const updated = await prisma.saveGameMatch.update({
       where: { id: matchId },
       data: {
         homeScore,
         awayScore,
-        isPlayed: true,
+        played: true, // ✅ updated field
       },
     });
 
@@ -86,27 +94,23 @@ router.post('/:matchId/simulate', async (req, res) => {
 });
 
 /**
- * Create a new match
+ * Create a new match in current save game
  */
 router.post('/', async (req, res) => {
   const {
     homeTeamId,
     awayTeamId,
     matchDate,
-    season,
-    matchdayId,
-    refereeId
   } = req.body;
 
   try {
-    const newMatch = await prisma.match.create({
+    const saveGameId = await getCurrentSaveGameId();
+    const newMatch = await prisma.saveGameMatch.create({
       data: {
+        saveGameId,
         homeTeamId,
         awayTeamId,
         matchDate: new Date(matchDate),
-        season,
-        matchdayId,
-        refereeId,
       },
     });
     res.status(201).json(newMatch);
@@ -121,10 +125,10 @@ router.post('/', async (req, res) => {
  */
 router.delete('/:matchId', async (req, res) => {
   const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match id' });
+  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
 
   try {
-    await prisma.match.delete({
+    await prisma.saveGameMatch.delete({
       where: { id: matchId },
     });
     res.json({ message: 'Match deleted' });

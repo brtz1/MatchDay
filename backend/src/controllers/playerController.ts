@@ -1,11 +1,16 @@
 import { Request, Response } from 'express';
 import playerService from '../services/playerService';
 import teamService from '../services/teamService';
+import prisma from '@/prisma/client';
 
 // Get all players
 export const getAllPlayers = async (req: Request, res: Response) => {
   try {
-    const players = await playerService.getAllPlayers();
+    const saveGameId = parseInt(req.query.saveGameId as string);
+  if (isNaN(saveGameId)) {
+  return res.status(400).json({ error: 'Missing or invalid saveGameId' });
+}
+const players = await prisma.saveGamePlayer.findMany({ where: { saveGameId } });
     res.status(200).json(players);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch players' });
@@ -16,7 +21,7 @@ export const getAllPlayers = async (req: Request, res: Response) => {
 export const getPlayerById = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const player = await playerService.getPlayerById(id);
+    const player = await prisma.saveGamePlayer.findUnique({ where: { id } });
     if (!player) {
       return res.status(404).json({ error: 'Player not found' });
     }
@@ -29,7 +34,8 @@ export const getPlayerById = async (req: Request, res: Response) => {
 // Create a new player
 export const createPlayer = async (req: Request, res: Response) => {
   try {
-    const { name, age, position, rating, value, salary, teamId } = req.body;
+    const { name, age, position, rating, salary, teamId } = req.body;
+
     // If assigning to a team, verify team exists
     if (teamId) {
       const team = await teamService.getTeamById(teamId);
@@ -37,7 +43,8 @@ export const createPlayer = async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'Team not found for given teamId' });
       }
     }
-    const newPlayer = await playerService.createPlayer({ name, age, position, rating, value, salary, teamId });
+
+    const newPlayer = await playerService.createPlayer({ name, age, position, rating, salary, teamId });
     res.status(201).json(newPlayer);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create player' });
@@ -48,11 +55,13 @@ export const createPlayer = async (req: Request, res: Response) => {
 export const updatePlayer = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+
     // Check if player exists
     const existing = await playerService.getPlayerById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Player not found' });
     }
+
     // If updating team assignment, check new team exists
     const { teamId } = req.body;
     if (teamId) {
@@ -61,6 +70,7 @@ export const updatePlayer = async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'Team not found for given teamId' });
       }
     }
+
     const updatedPlayer = await playerService.updatePlayer(id, req.body);
     res.status(200).json(updatedPlayer);
   } catch (error) {
@@ -72,11 +82,13 @@ export const updatePlayer = async (req: Request, res: Response) => {
 export const deletePlayer = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+
     // Check if player exists
     const existing = await playerService.getPlayerById(id);
     if (!existing) {
       return res.status(404).json({ error: 'Player not found' });
     }
+
     await playerService.deletePlayer(id);
     res.status(204).send();
   } catch (error) {

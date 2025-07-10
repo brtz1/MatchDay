@@ -1,4 +1,7 @@
 // src/index.ts
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -26,6 +29,10 @@ app.use('/team', teamRoute);
 app.use('/api/countries', countryRoute);
 app.use('/api/manual-save', manualSaveRoute);
 
+// Define PORT before using it and ensure it's a number
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+;
+
 // Socket setup
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
@@ -43,7 +50,6 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 4000;
 httpServer.listen(PORT, () => {
   console.log(`✅ MatchDay! backend running at http://localhost:${PORT}`);
 });

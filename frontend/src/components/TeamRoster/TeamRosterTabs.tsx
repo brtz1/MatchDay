@@ -6,17 +6,17 @@ import OpponentTab from './tabs/OpponentTab';
 import FinancesTab from './tabs/FinancesTab';
 import SellTab from './tabs/SellTab';
 import RenewTab from './tabs/RenewTab';
-import { Player, Team, Finance } from '@/types';
+import { SaveGamePlayer, SaveGameTeam, SaveGameFinance } from '@prisma/client';
 
 interface TeamRosterTabsProps {
-  team: Team;
-  players: Player[];
-  finances: Finance[];
-  selectedPlayer: Player | null;
-  onSelectPlayer: (player: Player) => void;
+  team: SaveGameTeam;
+  players: SaveGamePlayer[];
+  finances: SaveGameFinance[];
+  selectedPlayer: SaveGamePlayer | null;
+  onSelectPlayer: (player: SaveGamePlayer) => void;
 }
 
-const tabs = ['Game', 'Player', 'Formation', 'Opponent', 'Finances', 'Sell', 'Renew'];
+type TabType = 'Game' | 'Player' | 'Formation' | 'Opponent' | 'Finances' | 'Sell' | 'Renew';
 
 export default function TeamRosterTabs({
   team,
@@ -25,20 +25,26 @@ export default function TeamRosterTabs({
   selectedPlayer,
   onSelectPlayer,
 }: TeamRosterTabsProps) {
-  const [activeTab, setActiveTab] = useState('Game');
+  const [activeTab, setActiveTab] = useState<TabType>('Game');
 
   const renderTab = () => {
     switch (activeTab) {
       case 'Game':
         return <GameTab team={team} />;
       case 'Player':
-        return <PlayerTab players={players} selectedPlayer={selectedPlayer} onSelectPlayer={onSelectPlayer} />;
+        return (
+          <PlayerTab
+            players={players}
+            selectedPlayer={selectedPlayer}
+            onSelectPlayer={onSelectPlayer}
+          />
+        );
       case 'Formation':
         return <FormationTab players={players} />;
       case 'Opponent':
         return <OpponentTab teamId={team.id} />;
       case 'Finances':
-        return <FinancesTab finances={finances} budget={team.budget} />;
+        return <FinancesTab finances={finances} />;
       case 'Sell':
         return <SellTab selectedPlayer={selectedPlayer} />;
       case 'Renew':
@@ -48,6 +54,8 @@ export default function TeamRosterTabs({
     }
   };
 
+  const tabs: TabType[] = ['Game', 'Player', 'Formation', 'Opponent', 'Finances', 'Sell', 'Renew'];
+
   return (
     <div className="h-full w-full flex flex-col">
       <div className="flex gap-2 border-b p-2">
@@ -55,15 +63,15 @@ export default function TeamRosterTabs({
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm rounded-t ${activeTab === tab ? 'bg-primary text-white' : 'bg-gray-200'}`}
+            className={`px-4 py-2 text-sm rounded-t ${
+              activeTab === tab ? 'bg-primary text-white' : 'bg-gray-200'
+            }`}
           >
             {tab}
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-auto bg-white p-4">
-        {renderTab()}
-      </div>
+      <div className="flex-1 overflow-auto bg-white p-4">{renderTab()}</div>
     </div>
   );
 }

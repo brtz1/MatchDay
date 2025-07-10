@@ -1,14 +1,12 @@
-import { Finance } from '@/types';
+import { SaveGameFinance } from '@prisma/client';
 
 interface FinancesTabProps {
-  finances: Finance[];
-  budget: number;
+  finances: SaveGameFinance[];
 }
 
-export default function FinancesTab({ finances, budget }: FinancesTabProps) {
+export default function FinancesTab({ finances }: FinancesTabProps) {
   return (
     <div className="space-y-4">
-      <div className="text-lg font-semibold">Budget: ${budget.toLocaleString()}</div>
       <div>
         <h3 className="text-md font-medium mb-2">Recent Transactions</h3>
         <ul className="divide-y divide-gray-200">

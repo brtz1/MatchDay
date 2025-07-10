@@ -1,9 +1,8 @@
-// src/routes/saveGameRoute.ts
-
 import { Router } from 'express';
 import prisma from '../utils/prisma';
 import { applyTeamRatingBasedOnDivision } from '../utils/teamRater';
 import { syncPlayersWithNewTeamRating } from '../utils/playerSync';
+import { GameStage, MatchdayType } from '@prisma/client';
 
 const router = Router();
 
@@ -24,7 +23,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// POST new save game
+// POST new save game from country selection
 router.post("/", async (req, res) => {
   const { name, coachName, countries } = req.body;
 
@@ -35,7 +34,7 @@ router.post("/", async (req, res) => {
     });
 
     if (baseTeams.length < 128) {
-      return res.status(400).json({ error: "Not enough teams in those countries" });
+      return res.status(400).json({ error: "Not enough teams in selected countries" });
     }
 
     const ordered = baseTeams.sort((a, b) => b.rating - a.rating);
@@ -52,63 +51,72 @@ router.post("/", async (req, res) => {
       data: { name, coachName },
     });
 
-    const divisionEntities = await prisma.division.findMany();
-    const divisionLookup = Object.fromEntries(divisionEntities.map(d => [`D${d.level}`, d.id]));
+    const saveGameTeamIds: { [baseTeamId: number]: number } = {};
 
-    for (const [div, teams] of Object.entries(divisionMap)) {
-      const divisionId = divisionLookup[div];
+    for (const [division, teams] of Object.entries(divisionMap)) {
       for (const team of teams) {
-        const teamRating = applyTeamRatingBasedOnDivision(parseInt(div.replace('D', '')));
-        const createdTeam = await prisma.team.create({
+        const newTeam = await prisma.saveGameTeam.create({
           data: {
+            saveGameId: saveGame.id,
             name: team.name,
-            country: team.country,
-            rating: teamRating,
-            stadiumSize: 10000,
-            ticketPrice: 5,
-            divisionId,
+            morale: 50,
+            baseTeamId: team.id,
+            currentSeason: 1,
+            division: division as any,
           },
         });
 
-        await syncPlayersWithNewTeamRating(
-          createdTeam.id,
-          team.players.map((p, i) => ({
-            id: i + 1,
-            name: p.name,
-            nationality: p.nationality || team.country,
-            position: p.position,
-            rating: p.rating,
-            salary: p.salary,
-            behavior: p.behavior,
-          })),
-          teamRating
-        );
+        saveGameTeamIds[team.id] = newTeam.id;
+
+        for (const player of team.players) {
+          await prisma.saveGamePlayer.create({
+            data: {
+              saveGameId: saveGame.id,
+              teamId: newTeam.id,
+              basePlayerId: player.id,
+              name: player.name,
+              position: player.position,
+              rating: 0,
+              salary: 0,
+              behavior: player.behavior ?? 3,
+              contractUntil: 1,
+            },
+          });
+        }
       }
     }
 
-    // ✅ Snapshot full state now that teams exist
-    const { createSaveGame } = await import('../services/createSaveGame');
-    await createSaveGame(name, coachName);
+    await applyTeamRatingBasedOnDivision(saveGame.id);
+    await syncPlayersWithNewTeamRating(saveGame.id, baseTeams, divisionMap);
+
+    const coachSaveGameTeamId = saveGameTeamIds[userTeam.id];
+    await prisma.gameState.create({
+      data: {
+        currentSaveGameId: saveGame.id,
+        coachTeamId: coachSaveGameTeamId,
+        currentMatchday: 1,
+        matchdayType: MatchdayType.LEAGUE,
+        gameStage: GameStage.ACTION,
+      },
+    });
 
     const divisionPreview = Object.entries(divisionMap).map(([div, teams]) => {
-      const line = teams.map(t => t.name);
-      return `${div}: ${line.join(', ')}`;
+      return `${div}: ${teams.map(team => saveGameTeamIds [team.id]).join(', ')}`;
     });
 
     res.status(201).json({
       saveGameId: saveGame.id,
-      userTeamId: userTeam.id,
+      userTeamId: coachSaveGameTeamId,
       userTeamName: userTeam.name,
       divisionPreview,
     });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Failed to create new savegame" });
+  } catch (e: any) {
+  console.error('❌ Save game creation failed:', e.message, e.stack);
+  res.status(500).json({ error: e.message });
   }
 });
 
-
-// POST load from save (non-destructive)
+// POST load from save (into active memory only)
 router.post("/load", async (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: "Missing save game ID" });
@@ -116,69 +124,35 @@ router.post("/load", async (req, res) => {
   try {
     const save = await prisma.saveGame.findUnique({
       where: { id },
-      include: {
-        teams: true,
-        players: true,
-      },
+      include: { teams: true },
     });
 
     if (!save) return res.status(404).json({ error: "SaveGame not found" });
 
-    const divisions = await prisma.division.findMany();
-    const divisionMap = Object.fromEntries(divisions.map(d => [`D${d.level}`, d.id]));
-
-    // Create all teams from save into live Team table
-    for (const team of save.teams) {
-      const teamRating = applyTeamRatingBasedOnDivision(parseInt(team.division.replace('D', '')));
-      const createdTeam = await prisma.team.create({
-        data: {
-          name: team.name,
-          country: 'Unknown',
-          stadiumSize: 10000,
-          ticketPrice: 5,
-          rating: teamRating,
-          divisionId: divisionMap[team.division],
-        },
-      });
-
-      const players = save.players.filter(p => p.teamId === team.baseTeamId);
-      await syncPlayersWithNewTeamRating(
-        createdTeam.id,
-        players.map((p, i) => ({
-          id: i + 1,
-          name: p.name,
-          nationality: 'Unknown',
-          position: p.position,
-          rating: p.rating,
-          salary: p.salary,
-          behavior: p.behavior,
-        })),
-        teamRating
-      );
-    }
-
-    const coachSaveTeam = save.teams.find(t => t.division === 'D4');
-    if (!coachSaveTeam) {
+    const coachTeam = save.teams.find(SaveGameTeams => SaveGameTeams.division === 'D4');
+    if (!coachTeam) {
       return res.status(500).json({ error: 'Could not determine coach team from save.' });
     }
 
-    const coachTeam = await prisma.team.findFirst({ where: { name: coachSaveTeam.name } });
-    if (!coachTeam) {
-      return res.status(500).json({ error: 'Failed to find created coach team.' });
+    const existing = await prisma.gameState.findFirst();
+    if (existing) {
+      await prisma.gameState.delete({ where: { id: existing.id } });
     }
 
     await prisma.gameState.create({
       data: {
-        season: 1,
-        currentMatchday: 1,
-        matchdayType: 'LEAGUE',
+        currentSaveGameId: save.id,
         coachTeamId: coachTeam.id,
-        gameStage: 'ACTION',
-        currentSaveGameId: id,
+        gameStage: GameStage.ACTION,
+        currentMatchday: 1,
+        matchdayType: MatchdayType.LEAGUE,
       },
     });
 
-    res.status(200).json({ message: "Game state loaded from save", coachTeamId: coachTeam.id });
+    res.status(200).json({
+      message: "Game state loaded from save",
+      coachTeamId: coachTeam.id,
+    });
   } catch (e: any) {
     console.error('❌ Failed to load save game:', e.message, e.stack);
     res.status(500).json({ error: "Failed to load save game" });

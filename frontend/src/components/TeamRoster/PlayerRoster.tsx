@@ -1,10 +1,10 @@
 import { getFlagUrl } from "../../utils/getFlagUrl";
-import { Player } from "@/types";
+import { SaveGamePlayer } from '@prisma/client';
 
 interface PlayerRosterProps {
-  players: Player[];
-  selectedPlayer: Player | null;
-  onSelectPlayer: (player: Player) => void;
+  players: SaveGamePlayer[];
+  selectedPlayer: SaveGamePlayer | null;
+  onSelectPlayer: (player: SaveGamePlayer) => void;
 }
 
 export default function PlayerRoster({ players, selectedPlayer, onSelectPlayer }: PlayerRosterProps) {

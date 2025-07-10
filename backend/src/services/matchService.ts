@@ -1,13 +1,24 @@
 import prisma from '../utils/prisma';
 
+/**
+ * Simulate all matches in a given matchday
+ */
 export const simulateMatchday = async (matchdayId: number) => {
   const matchday = await prisma.matchday.findUnique({
     where: { id: matchdayId },
     include: {
       matches: {
         include: {
-          homeTeam: { include: { players: true } },
-          awayTeam: { include: { players: true } },
+          homeTeam: {
+            include: {
+              players: true,
+            },
+          },
+          awayTeam: {
+            include: {
+              players: true,
+            },
+          },
         },
       },
     },
@@ -32,8 +43,19 @@ export const simulateMatchday = async (matchdayId: number) => {
       },
     });
 
-    await simulateMatchStats(match.id, matchdayId, match.homeTeam.players, homeScore);
-    await simulateMatchStats(match.id, matchdayId, match.awayTeam.players, awayScore);
+    await simulateMatchStats(
+      match.id,
+      matchdayId,
+      match.homeTeam.players,
+      homeScore
+    );
+
+    await simulateMatchStats(
+      match.id,
+      matchdayId,
+      match.awayTeam.players,
+      awayScore
+    );
   }
 
   await prisma.matchday.update({
@@ -42,16 +64,25 @@ export const simulateMatchday = async (matchdayId: number) => {
   });
 };
 
+/**
+ * Calculate average team strength
+ */
 const teamStrength = (players: { rating: number }[]) => {
-  return players.reduce((sum, p) => sum + p.rating, 0) / players.length;
+  return players.length === 0 ? 0 : players.reduce((sum, p) => sum + p.rating, 0) / players.length;
 };
 
+/**
+ * Generate semi-random scores based on strength
+ */
 const simulateScore = (home: number, away: number): [number, number] => {
   const homeScore = Math.max(0, Math.round(home / 20 + Math.random() * 2));
   const awayScore = Math.max(0, Math.round(away / 20 + Math.random() * 2));
   return [homeScore, awayScore];
 };
 
+/**
+ * Simulate match events for a list of players
+ */
 const simulateMatchStats = async (
   matchId: number,
   matchdayId: number,
@@ -61,23 +92,23 @@ const simulateMatchStats = async (
   const scorers = selectRandom(players, goals);
 
   for (const player of players) {
-    const goals = scorers.filter((p) => p.id === player.id).length;
+    const playerGoals = scorers.filter((p) => p.id === player.id).length;
     const yellow = Math.random() < 0.1 ? 1 : 0;
     const red = Math.random() < player.behavior * 0.03 ? 1 : 0;
-    const assists = goals > 0 ? Math.floor(Math.random() * goals) : 0;
+    const assists = playerGoals > 0 ? Math.floor(Math.random() * playerGoals) : 0;
 
     await prisma.playerMatchStats.create({
       data: {
         playerId: player.id,
         matchId,
-        goals,
+        goals: playerGoals,
         assists,
         yellow,
         red,
       },
     });
 
-    if (goals > 0) {
+    if (playerGoals > 0) {
       await prisma.matchEvent.create({
         data: {
           matchId,
@@ -103,6 +134,9 @@ const simulateMatchStats = async (
   }
 };
 
+/**
+ * Randomly select N elements from array
+ */
 const selectRandom = <T>(arr: T[], count: number): T[] => {
   const res: T[] = [];
   for (let i = 0; i < count; i++) {

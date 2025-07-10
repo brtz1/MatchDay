@@ -1,6 +1,7 @@
 // src/services/createSaveGame.ts
 
 import prisma from '../utils/prisma';
+import { DivisionTier } from '@prisma/client';
 
 export async function createSaveGame(name: string, coachName: string): Promise<number> {
   // Fetch all live teams (already generated from baseTeams)
@@ -31,7 +32,7 @@ export async function createSaveGame(name: string, coachName: string): Promise<n
         saveGameId: saveGame.id,
         baseTeamId: team.id, // from baseTeam originally
         name: team.name,
-        division: team.division?.name || `D${team.division?.level || 4}`,
+        division: (`D${team.division?.level || 4}`) as DivisionTier,
         morale: team.coach?.morale ?? 75,
         currentSeason: 1,
       },

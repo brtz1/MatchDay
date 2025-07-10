@@ -1,17 +1,16 @@
-// prisma/seed.ts
+// backend/prisma/seed.ts
 
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
 const prisma = new PrismaClient();
-
 const SALARY_MULTIPLIER = 1000;
 
 function generatePlayerRating(teamRating: number, index: number): number {
   const variance = Math.floor(Math.random() * 5);
   const sign = index % 2 === 0 ? 1 : -1;
-  return Math.max(30, Math.min(99, teamRating + (sign * variance)));
+  return Math.max(30, Math.min(99, teamRating + sign * variance));
 }
 
 function calculateSalary(rating: number, behavior: number): number {
@@ -21,7 +20,7 @@ function calculateSalary(rating: number, behavior: number): number {
 
 async function main() {
   const filePath = path.resolve(__dirname, '../src/data/teams.json');
-  console.log('Resolved file path:', filePath);
+  console.log('📁 Loading team data from:', filePath);
 
   const raw = fs.readFileSync(filePath, 'utf-8');
   const json = JSON.parse(raw);
@@ -60,6 +59,5 @@ main()
   })
   .catch((e) => {
     console.error('❌ Error during base team seed:', e);
-    prisma.$disconnect();
-    process.exit(1);
+    return prisma.$disconnect().finally(() => process.exit(1));
   });

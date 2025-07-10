@@ -18,16 +18,14 @@ export async function generateLeagueFixtures(season: number) {
     },
   });
 
-  let matchdayCounter = 1;
-
   for (const division of divisions) {
-    const teamIds = division.teams.map(t => t.id);
-    const fixtures = createRoundRobinFixtures(teamIds);
+    const teamIds = division.teams.map((team) => team.id);
+    const fixtures = createDoubleRoundRobinFixtures(teamIds);
 
     for (let i = 0; i < fixtures.length; i++) {
       const matchday = await prisma.matchday.create({
         data: {
-          number: matchdayCounter++,
+          number: i + 1,
           type: 'LEAGUE',
           date: new Date(),
         },
@@ -51,7 +49,7 @@ export async function generateLeagueFixtures(season: number) {
 export async function generateCupFixtures(season: number) {
   const teams = await prisma.team.findMany();
   const shuffled = teams.sort(() => Math.random() - 0.5);
-  let roundTeams = shuffled.map(t => t.id);
+  let roundTeams = shuffled.map((team) => team.id);
 
   for (let round = 0; round < 7; round++) {
     const roundName = CUP_ROUND_NAMES[round];
@@ -82,11 +80,18 @@ export async function generateCupFixtures(season: number) {
       });
     }
 
-    // Only winners progress to next round
     roundTeams = roundMatches.map(([home, away]) =>
       Math.random() < 0.5 ? home : away
     );
   }
+}
+
+function createDoubleRoundRobinFixtures(teamIds: number[]): number[][][] {
+  const firstLeg = createRoundRobinFixtures(teamIds);
+  const secondLeg = firstLeg.map((round) =>
+    round.map(([home, away]) => [away, home])
+  );
+  return [...firstLeg, ...secondLeg];
 }
 
 function createRoundRobinFixtures(teamIds: number[]): number[][][] {
@@ -106,7 +111,6 @@ function createRoundRobinFixtures(teamIds: number[]): number[][][] {
       if (home !== -1 && away !== -1) roundMatches.push([home, away]);
     }
 
-    // Rotate teams
     teams.splice(1, 0, teams.pop()!);
     schedule.push(roundMatches);
   }

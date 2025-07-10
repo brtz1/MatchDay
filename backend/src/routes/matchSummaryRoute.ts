@@ -21,15 +21,15 @@ router.get('/match-summary/:matchdayId', async (req, res) => {
       },
     });
 
-    const summary = matches.map((m) => ({
-      matchId: m.id,
-      home: m.homeTeam.name,
-      away: m.awayTeam.name,
-      score: `${m.homeScore ?? 0} - ${m.awayScore ?? 0}`,
-      events: m.events.map((e) => ({
-        minute: e.minute,
-        type: e.eventType,
-        desc: e.description,
+    const summary = matches.map((SaveGameMatch) => ({
+      matchId: SaveGameMatch.id,
+      home: SaveGameMatch.homeTeam.name,
+      away: SaveGameMatch.awayTeam.name,
+      score: `${SaveGameMatch.homeScore ?? 0} - ${SaveGameMatch.awayScore ?? 0}`,
+      events: SaveGameMatch.events.map((MatchEvent) => ({
+        minute: MatchEvent.minute,
+        type: MatchEvent.eventType,
+        desc: MatchEvent.description,
       })),
     }));
 

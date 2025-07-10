@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
 
     const teamCounts: { [key: string]: number } = {};
 
-    baseTeams.forEach(({ country }) => {
+    baseTeams.forEach(({ country }: { country: string }) => {
       if (!country) return;
       teamCounts[country] = (teamCounts[country] || 0) + 1;
     });

@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
+import { match } from 'node:assert/strict';
+import { Stats } from 'node:fs';
 
 const router = Router();
 
@@ -21,24 +23,24 @@ router.get('/summary/:matchdayId', async (req, res) => {
       },
     });
 
-    const summary = matches.map(match => ({
-      matchId: match.id,
+    const summary = matches.map(SaveGameMatch => ({
+      matchId: SaveGameMatch.id,
       home: {
-        id: match.homeTeamId,
-        name: match.homeTeam.name,
-        score: match.homeScore ?? 0,
+        id: SaveGameMatch.homeTeamId,
+        name: SaveGameMatch.homeTeam.name,
+        score: SaveGameMatch.homeScore ?? 0,
       },
       away: {
-        id: match.awayTeamId,
-        name: match.awayTeam.name,
-        score: match.awayScore ?? 0,
+        id: SaveGameMatch.awayTeamId,
+        name: SaveGameMatch.awayTeam.name,
+        score: SaveGameMatch.awayScore ?? 0,
       },
-      events: match.events.map(e => ({
-        minute: e.minute,
-        type: e.eventType,
-        description: e.description,
+      events: SaveGameMatch.events.map(MatchEvent => ({
+        minute: MatchEvent.minute,
+        type: MatchEvent.eventType,
+        description: MatchEvent.description,
       })),
-      stats: match.playerStats.map(s => ({
+      stats: SaveGameMatch.playerStats.map(s => ({
         playerId: s.playerId,
         name: s.player.name,
         position: s.player.position,

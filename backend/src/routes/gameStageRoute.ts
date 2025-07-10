@@ -1,10 +1,11 @@
 import express from 'express';
 import prisma from '../utils/prisma';
+import { GameStage } from '@prisma/client'; // Use enum directly
 
 const router = express.Router();
 
-// Define legal game stage transitions
-const stageFlow: Record<string, string> = {
+// Define legal game stage transitions using the enum
+const stageFlow: Record<GameStage, GameStage> = {
   ACTION: 'MATCHDAY',
   MATCHDAY: 'HALFTIME',
   HALFTIME: 'RESULTS',
@@ -21,7 +22,7 @@ router.post('/advance-stage', async (req, res) => {
       return res.status(404).json({ error: 'No GameState found' });
     }
 
-    const currentStage = current.gameStage as keyof typeof stageFlow;
+    const currentStage = current.gameStage;
     const nextStage = stageFlow[currentStage] || 'ACTION';
 
     const updated = await prisma.gameState.update({

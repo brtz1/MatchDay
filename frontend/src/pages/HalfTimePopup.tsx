@@ -1,14 +1,31 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
-export default function HalfTimePopup({
-  matchId,
-  onClose,
-}: {
+interface MatchEvent {
+  playerId: number;
+  eventType: 'GOAL' | 'INJURY' | 'RED_CARD' | string;
+}
+
+interface MatchPlayer {
+  id: number;
+  name: string;
+  position: string;
+}
+
+interface MatchState {
+  homeLineup: number[];
+  homeReserves: number[];
+  homePlayers: MatchPlayer[];
+  events: MatchEvent[];
+}
+
+interface HalfTimePopupProps {
   matchId: number;
   onClose: () => void;
-}) {
-  const [data, setData] = useState<any>(null);
+}
+
+export default function HalfTimePopup({ matchId, onClose }: HalfTimePopupProps) {
+  const [data, setData] = useState<MatchState | null>(null);
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
   const [selectedIn, setSelectedIn] = useState<number | null>(null);
 
@@ -18,19 +35,20 @@ export default function HalfTimePopup({
     });
   }, [matchId]);
 
-  function playerLabel(pid: number, players: any[], events: any[]) {
-    const p = players.find((pl) => pl.id === pid);
-    const e = events.find((ev) => ev.playerId === pid);
+  function playerLabel(pid: number): JSX.Element {
+    const player = data?.homePlayers.find((p) => p.id === pid);
+    const event = data?.events.find((e) => e.playerId === pid);
+
     const highlight =
-      e?.eventType === 'INJURY'
+      event?.eventType === 'INJURY'
         ? 'bg-orange-300'
-        : e?.eventType === 'RED_CARD'
+        : event?.eventType === 'RED_CARD'
         ? 'bg-red-500 text-white'
         : 'bg-gray-200';
 
     return (
       <span className={`px-2 py-1 rounded ${highlight}`}>
-        {p?.name ?? `#${pid}`} ({p?.position ?? '?'})
+        {player?.name ?? `#${pid}`} ({player?.position ?? '?'})
       </span>
     );
   }
@@ -40,14 +58,14 @@ export default function HalfTimePopup({
     try {
       await axios.post('/api/substitute', {
         matchId,
-        team: 'home', // assumes user controls home team
+        team: 'home',
         outPlayerId: selectedOut,
         inPlayerId: selectedIn,
       });
       await axios.post('/api/resume-match', { matchId });
       onClose();
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -60,7 +78,7 @@ export default function HalfTimePopup({
 
         <h3 className="font-semibold mt-2 mb-1">Current Lineup</h3>
         <div className="flex flex-wrap gap-2 mb-4">
-          {data.homeLineup.map((pid: number) => (
+          {data.homeLineup.map((pid) => (
             <button
               key={pid}
               onClick={() => setSelectedOut(pid)}
@@ -68,14 +86,14 @@ export default function HalfTimePopup({
                 selectedOut === pid ? 'bg-blue-300' : ''
               }`}
             >
-              {playerLabel(pid, data.homePlayers, data.events)}
+              {playerLabel(pid)}
             </button>
           ))}
         </div>
 
         <h3 className="font-semibold mt-2 mb-1">Reserves</h3>
         <div className="flex flex-wrap gap-2 mb-4">
-          {data.homeReserves.map((pid: number) => (
+          {data.homeReserves.map((pid) => (
             <button
               key={pid}
               onClick={() => setSelectedIn(pid)}
@@ -83,7 +101,7 @@ export default function HalfTimePopup({
                 selectedIn === pid ? 'bg-green-300' : ''
               }`}
             >
-              {playerLabel(pid, data.homePlayers, data.events)}
+              {playerLabel(pid)}
             </button>
           ))}
         </div>

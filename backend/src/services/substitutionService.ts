@@ -74,13 +74,13 @@ export async function runAISubstitutions(matchId: number) {
   for (const side of ['home', 'away'] as const) {
     const isHome = side === 'home';
     let lineup = isHome ? [...state.homeLineup] : [...state.awayLineup];
-    let reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
+    const reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
     let subsMade = isHome ? state.homeSubsMade : state.awaySubsMade;
 
     if (subsMade >= 3 || reserves.length === 0) continue;
 
     const injured = events.filter(
-      e => e.eventType === 'INJURY' && e.playerId && lineup.includes(e.playerId)
+      MatchEvent => MatchEvent.eventType === 'INJURY' && MatchEvent.playerId && lineup.includes(MatchEvent.playerId)
     );
 
     for (const e of injured) {

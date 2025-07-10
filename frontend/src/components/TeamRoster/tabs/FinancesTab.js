@@ -1,0 +1,5 @@
+import { jsxs as _jsxs, jsx as _jsx } from "react/jsx-runtime";
+export default function FinancesTab({ finances, budget }) {
+    return (_jsxs("div", { className: "space-y-4", children: [_jsxs("div", { className: "text-lg font-semibold", children: ["Budget: $", budget.toLocaleString()] }), _jsxs("div", { children: [_jsx("h3", { className: "text-md font-medium mb-2", children: "Recent Transactions" }), _jsx("ul", { className: "divide-y divide-gray-200", children: finances.map((tx, index) => (_jsxs("li", { className: "py-2 flex justify-between", children: [_jsx("span", { children: tx.description }), _jsxs("span", { className: tx.amount >= 0 ? 'text-green-600' : 'text-red-600', children: [tx.amount >= 0 ? '+' : '', "$", tx.amount.toLocaleString()] })] }, index))) })] })] }));
+}
+//# sourceMappingURL=FinancesTab.js.map

@@ -11,7 +11,7 @@ export function runAuction(
   for (const team of teams) {
     const avgRating =
       team.players.length > 0
-        ? team.players.reduce((sum, p) => sum + p.rating, 0) / team.players.length
+        ? team.players.reduce((sum, saveGamePlayer) => sum + saveGamePlayer.rating, 0) / team.players.length
         : 50;
 
     const morale = team.coach?.morale ?? 50;

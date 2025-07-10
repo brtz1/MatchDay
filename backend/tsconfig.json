@@ -2,18 +2,21 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "rootDir": "./src",
-    "outDir": "./dist",
+    "rootDir": "src",
+    "outDir": "dist",
     "moduleResolution": "node",
+    "resolveJsonModule": true,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "strict": true,
     "sourceMap": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "baseUrl": "./src",
     "paths": {
       "@/*": ["*"]
     }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "../hello-prisma", "../prisma", "../tests", "prisma", "tests", "**/*.spec.ts"]
+  "include": ["src", "src/prisma"],
+  "exclude": ["node_modules", "dist"]
 }

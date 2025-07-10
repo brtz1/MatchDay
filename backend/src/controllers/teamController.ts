@@ -45,8 +45,8 @@ export const updateTeam = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Team not found' });
     }
     // Perform update
-    const { name, country, budget } = req.body;
-    const updatedTeam = await teamService.updateTeam(id, { name, country, budget });
+    const { name, country } = req.body;
+    const updatedTeam = await teamService.updateTeam(id, { name, country });
     res.status(200).json(updatedTeam);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update team' });

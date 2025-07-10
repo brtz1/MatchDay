@@ -5,42 +5,84 @@ import HalfTimePopup from './HalfTimePopup';
 
 const socket = io('http://localhost:4000');
 
+interface Team {
+  id: number;
+  name: string;
+  primaryColor: string;
+}
+
+interface Match {
+  id: number;
+  homeTeam: Team;
+  awayTeam: Team;
+  homeScore: number | null;
+  awayScore: number | null;
+  division: string;
+}
+
+interface MatchEvent {
+  matchId: number;
+  description: string;
+}
+
+interface GameStateResponse {
+  currentMatchday: number;
+}
+
 export default function MatchdayLive() {
-  const [events, setEvents] = useState<Record<number, any>>({});
-  const [matches, setMatches] = useState<any[]>([]);
+  const [events, setEvents] = useState<Record<number, MatchEvent>>({});
+  const [matches, setMatches] = useState<Match[]>([]);
   const [popupMatchId, setPopupMatchId] = useState<number | null>(null);
 
   useEffect(() => {
-    axios.get('/api/gamestate').then(async (gs) => {
-      const md = await axios.get(`/api/match-events/${gs.data.currentMatchday}`);
-      const allMatches = await axios.get(`/api/matches/${gs.data.currentMatchday}`);
-      setMatches(allMatches.data);
-      const grouped: Record<number, any> = {};
-      for (const ev of md.data) {
-        grouped[ev.matchId] = ev;
-      }
-      setEvents(grouped);
-    });
+    const fetchInitialData = async () => {
+      try {
+        const gs = await axios.get<GameStateResponse>('/api/gamestate');
+        const matchday = gs.data.currentMatchday;
 
-    socket.on('match-event', (ev) => {
+        const [matchEventsRes, matchesRes] = await Promise.all([
+          axios.get<MatchEvent[]>(`/api/match-events/${matchday}`),
+          axios.get<Match[]>(`/api/matches/${matchday}`),
+        ]);
+
+        setMatches(matchesRes.data);
+
+        const grouped: Record<number, MatchEvent> = {};
+        for (const ev of matchEventsRes.data) {
+          grouped[ev.matchId] = ev;
+        }
+        setEvents(grouped);
+      } catch (err) {
+        console.error('Failed to fetch matchday data:', err);
+      }
+    };
+
+    fetchInitialData();
+
+    const handleMatchEvent = (ev: MatchEvent) => {
       if (ev.matchId) {
         setEvents((prev) => ({ ...prev, [ev.matchId]: ev }));
       }
-    });
+    };
 
-    return () => socket.off('match-event');
+    socket.on('match-event', handleMatchEvent);
+
+    return () => {
+      socket.off('match-event', handleMatchEvent);
+    };
   }, []);
 
-  const groupedByDivision = matches.reduce((acc, match) => {
-    const div = match.division || 'Other';
-    if (!acc[div]) acc[div] = [];
-    acc[div].push(match);
+  const groupedByDivision = matches.reduce<Record<string, Match[]>>((acc, match) => {
+    const division = match.division || 'Other';
+    if (!acc[division]) acc[division] = [];
+    acc[division].push(match);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {});
 
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Live Matchday Broadcast</h1>
+
       {Object.entries(groupedByDivision).map(([division, games]) => (
         <div key={division} className="mb-6">
           <h2 className="text-xl font-semibold mb-2">{division}</h2>
@@ -76,10 +118,7 @@ export default function MatchdayLive() {
       ))}
 
       {popupMatchId && (
-        <HalfTimePopup
-          matchId={popupMatchId}
-          onClose={() => setPopupMatchId(null)}
-        />
+        <HalfTimePopup matchId={popupMatchId} onClose={() => setPopupMatchId(null)} />
       )}
     </div>
   );

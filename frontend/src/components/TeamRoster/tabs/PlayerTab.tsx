@@ -1,9 +1,9 @@
-import { Player } from '@/types';
+import { SaveGamePlayer } from '@prisma/client';
 
 interface PlayerTabProps {
-  players: Player[];
-  selectedPlayer: Player | null;
-  onSelectPlayer: (player: Player) => void;
+  players: SaveGamePlayer[];
+  selectedPlayer: SaveGamePlayer | null;
+  onSelectPlayer: (player: SaveGamePlayer) => void;
 }
 
 export default function PlayerTab({ players, selectedPlayer, onSelectPlayer }: PlayerTabProps) {
@@ -19,7 +19,9 @@ export default function PlayerTab({ players, selectedPlayer, onSelectPlayer }: P
         >
           <div className="flex justify-between">
             <span>{player.name}</span>
-            <span className="text-sm text-gray-500">{player.position} – {player.rating}</span>
+            <span className="text-sm text-gray-500">
+              {player.position} – {player.rating}
+            </span>
           </div>
         </div>
       ))}

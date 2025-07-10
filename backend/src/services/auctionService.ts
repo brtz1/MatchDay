@@ -24,18 +24,18 @@ export async function handleAuction(player: Player): Promise<number | null> {
 
   if (eligibleTeams.length === 0) return null;
 
-  const mappedTeams = eligibleTeams.map(team => ({
-    id: team.id,
-    name: team.name,
-    country: team.country,
-    divisionId: team.divisionId,
-    stadiumSize: team.stadiumSize,
-    ticketPrice: team.ticketPrice,
-    rating: team.rating,
-    primaryColor: team.primaryColor,
-    secondaryColor: team.secondaryColor,
-    coach: team.coach ? { morale: team.coach.morale } : undefined,
-    players: team.players.map(p => ({ rating: p.rating })),
+  const mappedTeams = eligibleTeams.map(SaveGameTeam => ({
+    id: SaveGameTeam.id,
+    name: SaveGameTeam.name,
+    country: SaveGameTeam.country,
+    divisionId: SaveGameTeam.divisionId,
+    stadiumSize: SaveGameTeam.stadiumSize,
+    ticketPrice: SaveGameTeam.ticketPrice,
+    rating: SaveGameTeam.rating,
+    primaryColor: SaveGameTeam.primaryColor,
+    secondaryColor: SaveGameTeam.secondaryColor,
+    coach: SaveGameTeam.coach ? { morale: SaveGameTeam.coach.morale } : undefined,
+    players: SaveGameTeam.players.map(p => ({ rating: p.rating })),
 }));
 
   const winningTeamId = runAuction(player, mappedTeams);

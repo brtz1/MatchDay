@@ -1,70 +1,79 @@
 // src/utils/playerSync.ts
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prisma';
 
 /**
- * Creates players for a team using base data and adjusted ratings.
+ * Sync all players from base teams with ratings and salaries into SaveGamePlayers
  */
 export async function syncPlayersWithNewTeamRating(
-  teamId: number,
-  players: {
+  saveGameId: number,
+  baseTeams: {
     id: number;
-    name: string;
-    position: string;
-    nationality: string;
-    salary: number;
-    behavior: number;
+    players: {
+      id: number;
+      name: string;
+      position: string;
+      behavior: number;
+    }[];
   }[],
-  teamRating: number
+  divisionMap: Record<string, { id: number }[]>
 ): Promise<void> {
-  const newRatings = generatePlayerRatingsForTeam(teamRating, players.length);
+  for (const [division, baseTeamList] of Object.entries(divisionMap)) {
+    for (const baseTeam of baseTeamList) {
+      const teamId = baseTeam.id;
+      const matchingBase = baseTeams.find(bt => bt.id === teamId);
+      if (!matchingBase) continue;
 
-  for (let i = 0; i < players.length; i++) {
-    const p = players[i];
-    const updatedRating = newRatings[i];
-    const salary = calculateSalary(updatedRating, p.behavior);
+      const playerCount = matchingBase.players.length;
+      const teamAvgRating = getDivisionBaseRating(division);
+      const ratings = generatePlayerRatingsForTeam(teamAvgRating, playerCount);
 
-    await prisma.player.create({
-      data: {
-        name: p.name,
-        position: p.position,
-        nationality: p.nationality,
-        rating: updatedRating,
-        salary,
-        behavior: p.behavior,
-        contractUntil: 1,
-        teamId,
-      },
-    });
+      for (let i = 0; i < playerCount; i++) {
+        const basePlayer = matchingBase.players[i];
+        const rating = ratings[i];
+        const salary = calculateSalary(rating, basePlayer.behavior);
+
+        await prisma.saveGamePlayer.updateMany({
+          where: {
+            saveGameId,
+            basePlayerId: basePlayer.id,
+            teamId,
+          },
+          data: {
+            rating,
+            salary,
+          },
+        });
+      }
+    }
   }
 }
 
-/**
- * Generates randomized ratings centered around teamRating.
- */
+function getDivisionBaseRating(division: string): number {
+  switch (division) {
+    case 'D1': return 85;
+    case 'D2': return 75;
+    case 'D3': return 65;
+    case 'D4': return 55;
+    default: return 60;
+  }
+}
+
 function generatePlayerRatingsForTeam(teamRating: number, count: number): number[] {
   const ratings: number[] = [];
   for (let i = 0; i < count; i++) {
-    const variance = Math.floor(Math.random() * 11) - 5; // ±5
+    const variance = Math.floor(Math.random() * 11) - 5;
     ratings.push(clamp(teamRating + variance));
   }
   return ratings;
 }
 
-/**
- * Salary is based on player rating and behavior type.
- */
 function calculateSalary(rating: number, behavior: number): number {
   const base = rating * 50;
   const behaviorFactor = behavior >= 4 ? 0.9 : behavior === 1 ? 1.1 : 1.0;
   return Math.round(base * behaviorFactor);
 }
 
-/**
- * Ratings stay between 30 and 99.
- */
 function clamp(value: number): number {
   return Math.max(30, Math.min(99, value));
 }

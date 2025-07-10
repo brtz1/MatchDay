@@ -7,9 +7,9 @@ export const transferPlayer = async (
   toTeamId: number,
   fee: number
 ) => {
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async ($transaction) => {
     // Validate player
-    const player = await tx.player.findUnique({
+    const player = await $transaction.player.findUnique({
       where: { id: playerId },
     });
 
@@ -18,7 +18,7 @@ export const transferPlayer = async (
     }
 
     // Validate destination team
-    const toTeam = await tx.team.findUnique({
+    const toTeam = await $transaction.team.findUnique({
       where: { id: toTeamId },
     });
 
@@ -32,7 +32,7 @@ export const transferPlayer = async (
     // }
 
     // Update player's teamId
-    await tx.player.update({
+    await $transaction.player.update({
       where: { id: playerId },
       data: {
         teamId: toTeamId,
@@ -40,7 +40,7 @@ export const transferPlayer = async (
     });
 
     // Record transfer in history
-    const transfer = await tx.transfer.create({
+    const transfer = await $transaction.transfer.create({
       data: {
         playerId,
         fromTeamId,

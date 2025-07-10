@@ -1,0 +1,7 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState } from 'react';
+export default function TeamRosterTabs() {
+    const [activeTab, setActiveTab] = useState("Game");
+    return (_jsxs("div", { className: "bg-white rounded shadow p-2", children: [_jsx("div", { className: "flex gap-2 mb-2 text-xs", children: ["Game", "Player", "Formation", "Opponent", "Finances", "Sell", "Renew"].map(tab => (_jsx("button", { onClick: () => setActiveTab(tab), className: `px-2 py-1 rounded ${activeTab === tab ? "bg-accent text-primary font-bold" : "bg-gray-200"}`, children: tab }, tab))) }), _jsxs("div", { className: "border-t pt-2 text-sm", children: [activeTab === "Game" && _jsx("p", { children: "Next match info, morale, budget." }), activeTab === "Player" && _jsx("p", { children: "Player stats, renew contract." }), activeTab === "Formation" && _jsx("p", { children: "Choose formation, proceed to matchday." }), activeTab === "Opponent" && _jsx("p", { children: "Opponent info." }), activeTab === "Finances" && _jsx("p", { children: "Balance, salaries, ticket prices." }), activeTab === "Sell" && _jsx("p", { children: "Set minimum price and sell player." }), activeTab === "Renew" && _jsx("p", { children: "Propose new contract for player." })] })] }));
+}
+//# sourceMappingURL=Tabs.js.map

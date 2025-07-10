@@ -20,25 +20,25 @@ router.get('/match-events/:matchdayId', async (req, res) => {
       },
     });
 
-    const grouped = matches.map(match => ({
-      matchId: match.id,
+    const grouped = matches.map(SaveGameMatch => ({
+      matchId: SaveGameMatch.id,
       homeTeam: {
-        id: match.homeTeam.id,
-        name: match.homeTeam.name,
-        primaryColor: match.homeTeam.primaryColor,
-        secondaryColor: match.homeTeam.secondaryColor,
+        id: SaveGameMatch.homeTeam.id,
+        name: SaveGameMatch.homeTeam.name,
+        primaryColor: SaveGameMatch.homeTeam.primaryColor,
+        secondaryColor: SaveGameMatch.homeTeam.secondaryColor,
       },
       awayTeam: {
-        id: match.awayTeam.id,
-        name: match.awayTeam.name,
-        primaryColor: match.awayTeam.primaryColor,
-        secondaryColor: match.awayTeam.secondaryColor,
+        id: SaveGameMatch.awayTeam.id,
+        name: SaveGameMatch.awayTeam.name,
+        primaryColor: SaveGameMatch.awayTeam.primaryColor,
+        secondaryColor: SaveGameMatch.awayTeam.secondaryColor,
       },
-      events: match.events.map(e => ({
-        id: e.id,
-        minute: e.minute,
-        type: e.eventType,
-        description: e.description,
+      events: SaveGameMatch.events.map(MatchEvent => ({
+        id: MatchEvent.id,
+        minute: MatchEvent.minute,
+        type: MatchEvent.eventType,
+        description: MatchEvent.description,
       })),
     }));
 

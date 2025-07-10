@@ -1,11 +1,30 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
+interface StandingsTeam {
+  name: string;
+  points: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
+interface DivisionStanding {
+  division: string;
+  teams: StandingsTeam[];
+}
+
 export default function StandingsPage() {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<DivisionStanding[]>([]);
 
   useEffect(() => {
-    axios.get('/api/standings').then((res) => setData(res.data));
+    axios
+      .get<DivisionStanding[]>('/api/standings')
+      .then((res) => setData(res.data))
+      .catch((err) => console.error('Failed to load standings:', err));
   }, []);
 
   return (
