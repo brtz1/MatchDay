@@ -1,71 +1,125 @@
 // src/services/teamService.ts
+
 import prisma from '../utils/prisma';
-import { DivisionTier } from '@prisma/client';
+import { SaveGameTeam, DivisionTier } from '@prisma/client';
 
 /**
- * Get all save game teams (with players)
+ * Fetches all teams for a given save game.
+ * @param saveGameId – ID of the SaveGame
  */
-const getAllTeams = async () => {
+export async function getAllTeams(saveGameId: number): Promise<SaveGameTeam[]> {
   return prisma.saveGameTeam.findMany({
-    include: {
-      players: true,
-    },
+    where: { saveGameId },
+    include: { players: true },
   });
-};
+}
 
 /**
- * Get a single save game team by ID (with players)
+ * Fetches a single team by ID within a save game.
+ * @param saveGameId – ID of the SaveGame
+ * @param teamId – ID of the SaveGameTeam
  */
-const getTeamById = async (id: number) => {
-  return prisma.saveGameTeam.findUnique({
-    where: { id },
-    include: {
-      players: true,
-    },
+export async function getTeamById(
+  saveGameId: number,
+  teamId: number
+): Promise<SaveGameTeam | null> {
+  return prisma.saveGameTeam.findFirst({
+    where: { id: teamId, saveGameId },
+    include: { players: true },
   });
-};
+}
 
 /**
- * Create a team in saveGame context
+ * Data required to create a SaveGameTeam.
  */
-const createTeam = async (teamData: {
-  name: string;
+export interface CreateTeamDto {
   saveGameId: number;
   baseTeamId: number;
-  morale?: number;
+  name: string;
   division: DivisionTier;
-}) => {
-  const { name, saveGameId, baseTeamId, morale = 50, division } = teamData;
+  morale?: number;
+  currentSeason?: number;
+  localIndex: number;
+}
+
+/**
+ * Creates a new team in a save game.
+ * @param data – the CreateTeamDto
+ */
+export async function createTeam(
+  data: CreateTeamDto
+): Promise<SaveGameTeam> {
+  const {
+    saveGameId,
+    baseTeamId,
+    name,
+    division,
+    morale = 50,
+    currentSeason = 1,
+    localIndex,
+  } = data;
   return prisma.saveGameTeam.create({
     data: {
-      name,
-      baseTeamId,
-      morale,
-      currentSeason: 1,
       saveGameId,
-      division, // Include division in the data
+      baseTeamId,
+      name,
+      division,
+      morale,
+      currentSeason,
+      localIndex,
     },
   });
-};
+}
 
 /**
- * Update a save game team
+ * Fields allowed to update on a SaveGameTeam.
  */
-const updateTeam = async (id: number, teamData: Partial<{ name: string; country:  string; rating: number }>) => {
+export type UpdateTeamDto = Partial<Pick<SaveGameTeam, 'name' | 'morale' | 'currentSeason'>>;
+
+/**
+ * Updates a team within a save game.
+ * @param saveGameId – ID of the SaveGame
+ * @param teamId – ID of the SaveGameTeam
+ * @param updates – the fields to update
+ */
+export async function updateTeam(
+  saveGameId: number,
+  teamId: number,
+  updates: UpdateTeamDto
+): Promise<SaveGameTeam> {
+  // Verify existence
+  const existing = await prisma.saveGameTeam.findFirst({
+    where: { id: teamId, saveGameId },
+  });
+  if (!existing) {
+    throw new Error(`Team ${teamId} not found in save ${saveGameId}`);
+  }
   return prisma.saveGameTeam.update({
-    where: { id },
-    data: teamData,
+    where: { id: teamId },
+    data: updates,
   });
-};
+}
 
 /**
- * Delete a save game team
+ * Deletes a team from a save game.
+ * @param saveGameId – ID of the SaveGame
+ * @param teamId – ID of the SaveGameTeam
  */
-const deleteTeam = async (id: number) => {
-  return prisma.saveGameTeam.delete({
-    where: { id },
+export async function deleteTeam(
+  saveGameId: number,
+  teamId: number
+): Promise<SaveGameTeam> {
+  // Verify existence
+  const existing = await prisma.saveGameTeam.findFirst({
+    where: { id: teamId, saveGameId },
   });
-};
+  if (!existing) {
+    throw new Error(`Team ${teamId} not found in save ${saveGameId}`);
+  }
+  return prisma.saveGameTeam.delete({
+    where: { id: teamId },
+  });
+}
 
 export default {
   getAllTeams,

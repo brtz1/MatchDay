@@ -4,61 +4,105 @@ import prisma from '../utils/prisma';
 import { SaveGamePlayer } from '@prisma/client';
 
 /**
- * Get all players for a given save game
+ * Fetches all players in a given save game.
+ * @param saveGameId – ID of the SaveGame to scope the query.
  */
-const getAllPlayers = async (saveGameId: number): Promise<SaveGamePlayer[]> => {
+export async function getAllPlayers(saveGameId: number): Promise<SaveGamePlayer[]> {
   return prisma.saveGamePlayer.findMany({
     where: { saveGameId },
-    include: {
-      team: true,
-    },
+    include: { team: true },
   });
-};
+}
 
 /**
- * Get a single player by ID (must be from a save game)
+ * Fetches a single player by ID within a save game.
+ * @param saveGameId – ID of the SaveGame to scope the query.
+ * @param playerId – ID of the SaveGamePlayer to fetch.
  */
-const getPlayerById = async (id: number): Promise<SaveGamePlayer | null> => {
-  return prisma.saveGamePlayer.findUnique({
-    where: { id },
-    include: {
-      team: true,
-    },
+export async function getPlayerById(
+  saveGameId: number,
+  playerId: number
+): Promise<SaveGamePlayer | null> {
+  return prisma.saveGamePlayer.findFirst({
+    where: { id: playerId, saveGameId },
+    include: { team: true },
   });
-};
+}
 
 /**
- * Create a new player within a save game
+ * Data needed to create a new SaveGamePlayer.
  */
-const createPlayer = async (playerData: any): Promise<SaveGamePlayer> => {
+export interface CreatePlayerDto {
+  saveGameId: number;
+  basePlayerId: number;
+  name: string;
+  position: string;
+  rating: number;
+  salary: number;
+  behavior: number;
+  contractUntil: number;
+  teamId: number;
+  localIndex: number;
+}
+
+/**
+ * Creates a new player in a save game.
+ * @param data – DTO for the new player.
+ */
+export async function createPlayer(
+  data: CreatePlayerDto
+): Promise<SaveGamePlayer> {
   return prisma.saveGamePlayer.create({
-    data: playerData,
+    data,
   });
-};
+}
 
 /**
- * Update a save game player
+ * Partial data allowed for updates to a SaveGamePlayer.
  */
-const updatePlayer = async (id: number, playerData: any): Promise<SaveGamePlayer> => {
+export type UpdatePlayerDto = Partial<
+  Omit<CreatePlayerDto, 'saveGameId' | 'basePlayerId' | 'localIndex'>
+>;
+
+/**
+ * Updates an existing SaveGamePlayer.
+ * @param playerId – ID of the player to update.
+ * @param saveGameId – ID of the SaveGame to scope the update.
+ * @param updates – fields to update.
+ */
+export async function updatePlayer(
+  saveGameId: number,
+  playerId: number,
+  updates: UpdatePlayerDto
+): Promise<SaveGamePlayer> {
+  // Ensure the player belongs to this save game
+  const existing = await prisma.saveGamePlayer.findFirst({
+    where: { id: playerId, saveGameId },
+  });
+  if (!existing) throw new Error(`Player ${playerId} not found in save ${saveGameId}`);
+
   return prisma.saveGamePlayer.update({
-    where: { id },
-    data: playerData,
+    where: { id: playerId },
+    data: updates,
   });
-};
+}
 
 /**
- * Delete a player from a save game
+ * Deletes a player from a save game.
+ * @param saveGameId – ID of the SaveGame to scope the deletion.
+ * @param playerId – ID of the player to delete.
  */
-const deletePlayer = async (id: number): Promise<SaveGamePlayer> => {
-  return prisma.saveGamePlayer.delete({
-    where: { id },
+export async function deletePlayer(
+  saveGameId: number,
+  playerId: number
+): Promise<SaveGamePlayer> {
+  // Ensure the player belongs to this save game
+  const existing = await prisma.saveGamePlayer.findFirst({
+    where: { id: playerId, saveGameId },
   });
-};
+  if (!existing) throw new Error(`Player ${playerId} not found in save ${saveGameId}`);
 
-export default {
-  getAllPlayers,
-  getPlayerById,
-  createPlayer,
-  updatePlayer,
-  deletePlayer,
-};
+  return prisma.saveGamePlayer.delete({
+    where: { id: playerId },
+  });
+}

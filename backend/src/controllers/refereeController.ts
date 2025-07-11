@@ -1,26 +1,35 @@
-import { Request, Response } from 'express';
-import refereeService from '../services/refereeService';
+import { Request, Response, NextFunction } from 'express';
+import * as refereeService from '@/services/refereeService';
 
-// Get all referees
-export const getAllReferees = async (req: Request, res: Response) => {
+/**
+ * GET /api/referees
+ * Fetch all referees (static data).
+ */
+export async function getAllReferees(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const referees = await refereeService.getAllReferees();
     res.status(200).json(referees);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch referees' });
+    console.error('❌ Error fetching referees:', error);
+    next(error);
   }
-};
+}
 
-// Get referee by ID
-export const getRefereeById = async (req: Request, res: Response) => {
+/**
+ * GET /api/referees/:id
+ * Fetch a single referee by ID (static data).
+ */
+export async function getRefereeById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const id = Number(req.params.id);
   try {
-    const id = parseInt(req.params.id);
     const referee = await refereeService.getRefereeById(id);
     if (!referee) {
-      return res.status(404).json({ error: 'Referee not found' });
+      res.status(404).json({ error: 'Referee not found' });
+      return;
     }
     res.status(200).json(referee);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch referee' });
+    console.error(`❌ Error fetching referee ${id}:`, error);
+    next(error);
   }
-};
+}

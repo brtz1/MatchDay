@@ -1,4 +1,5 @@
-// src/index.ts
+import 'module-alias/register';
+
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -7,46 +8,56 @@ import http from 'http';
 import cors from 'cors';
 import { Server } from 'socket.io';
 
-import routes from './routes/Routes';
-import gameStateRoute from './routes/gameStateRoute';
+import newGameRoute from './routes/newGameRoute';
 import saveGameRoute from './routes/saveGameRoute';
 import teamRoute from './routes/teamRoute';
-import countryRoute from './routes/countryRoute';
+import playerRoute from './routes/playerRoute';
+import transferRoute from './routes/transferRoute';
+import matchRoute from './routes/matchRoute';
+import matchdayRoute from './routes/matchdayRoute';
+import gameStateRoute from './routes/gameStateRoute';
+import matchStateRoute from './routes/matchStateRoute';
 import manualSaveRoute from './routes/manualSaveRoute';
+import countryRoute from './routes/countryRoute';
 
 const app = express();
 
+// CORS configuration
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
 }));
 app.use(express.json());
 
-app.use('/api', routes);
-app.use('/api/gamestate', gameStateRoute); // ✅ Ensure this is present
+// API routes
+app.use('/api/new-game', newGameRoute);
 app.use('/api/save-game', saveGameRoute);
-app.use('/team', teamRoute);
-app.use('/api/countries', countryRoute);
+app.use('/api/save-game-teams', teamRoute);
+app.use('/api/players', playerRoute);
+app.use('/api/transfers', transferRoute);
+app.use('/api/matches', matchRoute);
+app.use('/api/matchdays', matchdayRoute);
+app.use('/api/gamestate', gameStateRoute);
+app.use('/api/matchstate', matchStateRoute);
 app.use('/api/manual-save', manualSaveRoute);
+app.use('/api/countries', countryRoute);
 
-// Define PORT before using it and ensure it's a number
+// Create HTTP & Socket.io server
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-;
-
-// Socket setup
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
     credentials: true,
   },
 });
 
+// Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
+  console.log(`✅ Socket connected: ${socket.id}`);
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log(`❌ Socket disconnected: ${socket.id}`);
   });
 });
 

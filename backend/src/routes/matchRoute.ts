@@ -1,15 +1,21 @@
-import { Router } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { getCurrentSaveGameId } from '../services/gameState';
 
-const router = Router();
+const router = express.Router();
 
 /**
- * Get all matches in current save game
+ * GET /api/matches
+ * Fetch all matches for the current save game.
  */
-router.get('/', async (_req, res) => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
     const matches = await prisma.saveGameMatch.findMany({
       where: { saveGameId },
       include: {
@@ -17,124 +23,136 @@ router.get('/', async (_req, res) => {
         awayTeam: true,
       },
     });
-    res.json(matches);
+
+    res.status(200).json(matches);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch matches' });
+    console.error('❌ Error fetching matches:', error);
+    next(error);
   }
 });
 
 /**
- * Get a single match by ID from current save game
+ * GET /api/matches/:matchId
+ * Fetch a single match by ID within the current save game.
  */
-router.get('/:matchId', async (req, res) => {
-  const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
+router.get('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
+  const matchId = Number(req.params.matchId);
+  if (isNaN(matchId)) {
+    res.status(400).json({ error: 'Invalid match ID' });
+    return;
+  }
 
   try {
     const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
     const match = await prisma.saveGameMatch.findFirst({
-      where: {
-        id: matchId,
-        saveGameId,
-      },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-      },
+      where: { id: matchId, saveGameId },
+      include: { homeTeam: true, awayTeam: true },
     });
 
-    if (!match) return res.status(404).json({ error: 'Match not found' });
-    res.json(match);
+    if (!match) {
+      res.status(404).json({ error: 'Match not found' });
+      return;
+    }
+
+    res.status(200).json(match);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch match' });
+    console.error(`❌ Error fetching match ${matchId}:`, error);
+    next(error);
   }
 });
 
 /**
- * Simulate a match (basic example)
+ * POST /api/matches/:matchId/simulate
+ * Simulate an existing match with random score and mark as played.
  */
-router.post('/:matchId/simulate', async (req, res) => {
-  const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
+router.post('/:matchId/simulate', async (req: Request, res: Response, next: NextFunction) => {
+  const matchId = Number(req.params.matchId);
+  if (isNaN(matchId)) {
+    res.status(400).json({ error: 'Invalid match ID' });
+    return;
+  }
 
   try {
     const saveGameId = await getCurrentSaveGameId();
-    const match = await prisma.saveGameMatch.findFirst({
-      where: {
-        id: matchId,
-        saveGameId,
-      },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-      },
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
+    const existing = await prisma.saveGameMatch.findFirst({
+      where: { id: matchId, saveGameId },
     });
+    if (!existing) {
+      res.status(404).json({ error: 'Match not found' });
+      return;
+    }
 
-    if (!match) return res.status(404).json({ error: 'Match not found' });
-
-    const homeScore = Math.floor(Math.random() * 4);
-    const awayScore = Math.floor(Math.random() * 4);
+    const homeScore = Math.floor(Math.random() * 5);
+    const awayScore = Math.floor(Math.random() * 5);
 
     const updated = await prisma.saveGameMatch.update({
       where: { id: matchId },
-      data: {
-        homeScore,
-        awayScore,
-        played: true, // ✅ updated field
-      },
+      data: { homeScore, awayScore, played: true },
     });
 
-    res.json(updated);
+    res.status(200).json(updated);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to simulate match' });
+    console.error(`❌ Error simulating match ${matchId}:`, error);
+    next(error);
   }
 });
 
 /**
- * Create a new match in current save game
+ * POST /api/matches
+ * Create a new match under the current save game.
  */
-router.post('/', async (req, res) => {
-  const {
-    homeTeamId,
-    awayTeamId,
-    matchDate,
-  } = req.body;
-
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { homeTeamId, awayTeamId, matchDate } = req.body;
     const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
     const newMatch = await prisma.saveGameMatch.create({
       data: {
         saveGameId,
-        homeTeamId,
-        awayTeamId,
+        homeTeamId: Number(homeTeamId),
+        awayTeamId: Number(awayTeamId),
         matchDate: new Date(matchDate),
       },
     });
+
     res.status(201).json(newMatch);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to create match' });
+    console.error('❌ Error creating match:', error);
+    next(error);
   }
 });
 
 /**
- * Delete a match
+ * DELETE /api/matches/:matchId
+ * Delete a match by ID.
  */
-router.delete('/:matchId', async (req, res) => {
-  const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
+router.delete('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
+  const matchId = Number(req.params.matchId);
+  if (isNaN(matchId)) {
+    res.status(400).json({ error: 'Invalid match ID' });
+    return;
+  }
 
   try {
-    await prisma.saveGameMatch.delete({
-      where: { id: matchId },
-    });
-    res.json({ message: 'Match deleted' });
+    await prisma.saveGameMatch.delete({ where: { id: matchId } });
+    res.status(200).json({ message: 'Match deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete match' });
+    console.error(`❌ Error deleting match ${matchId}:`, error);
+    next(error);
   }
 });
 

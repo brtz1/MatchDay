@@ -1,70 +1,175 @@
-import { Request, Response } from 'express';
-import teamService from '../services/teamService';
+// src/controllers/teamController.ts
 
-// Get all teams
-export const getAllTeams = async (req: Request, res: Response) => {
+import { Request, Response, NextFunction } from 'express';
+import {
+  getAllTeams as fetchAllTeams,
+  getTeamById as fetchTeamById,
+  createTeam as createTeamService,
+  updateTeam as updateTeamService,
+  deleteTeam as deleteTeamService,
+} from '@/services/teamService';
+import { DivisionTier } from '@prisma/client';
+
+/**
+ * GET /api/teams?saveGameId=#
+ */
+export async function getAllTeams(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const teams = await teamService.getAllTeams();
+    const saveGameId = Number(req.query.saveGameId);
+    if (isNaN(saveGameId)) {
+      res.status(400).json({ error: 'Missing or invalid saveGameId' });
+      return;
+    }
+    const teams = await fetchAllTeams(saveGameId);
     res.status(200).json(teams);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch teams' });
+    console.error('❌ Error fetching teams:', error);
+    next(error);
   }
-};
+}
 
-// Get team by ID
-export const getTeamById = async (req: Request, res: Response) => {
+/**
+ * GET /api/teams/:id?saveGameId=#
+ */
+export async function getTeamById(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const id = parseInt(req.params.id);
-    const team = await teamService.getTeamById(id);
-    if (!team) {
-      return res.status(404).json({ error: 'Team not found' });
+    const teamId = Number(req.params.id);
+    const saveGameId = Number(req.query.saveGameId);
+    if (isNaN(saveGameId) || isNaN(teamId)) {
+      res.status(400).json({ error: 'Missing or invalid saveGameId or teamId' });
+      return;
     }
-    res.status(200).json(team);  // fixed status code to 200
+    const team = await fetchTeamById(saveGameId, teamId);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+    res.status(200).json(team);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch team' });
+    console.error(`❌ Error fetching team ${req.params.id}:`, error);
+    next(error);
   }
-};
+}
 
-// Create a new team
-export const createTeam = async (req: Request, res: Response) => {
+/**
+ * POST /api/teams
+ * Body: { saveGameId, baseTeamId, name, division, morale, currentSeason, localIndex }
+ */
+export async function createTeam(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const newTeam = await teamService.createTeam(req.body);
+    const {
+      saveGameId,
+      baseTeamId,
+      name,
+      division,
+      morale,
+      currentSeason,
+      localIndex,
+    } = req.body;
+    const dto = {
+      saveGameId: Number(saveGameId),
+      baseTeamId: Number(baseTeamId),
+      name: String(name),
+      division: division as DivisionTier,
+      morale: morale !== undefined ? Number(morale) : 50,
+      currentSeason: currentSeason !== undefined ? Number(currentSeason) : 1,
+      localIndex: Number(localIndex),
+    };
+    if (isNaN(dto.saveGameId) || isNaN(dto.baseTeamId) || isNaN(dto.localIndex)) {
+      res.status(400).json({ error: 'saveGameId, baseTeamId, and localIndex must be numbers' });
+      return;
+    }
+    const newTeam = await createTeamService(dto);
     res.status(201).json(newTeam);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create team' });
+    console.error('❌ Error creating team:', error);
+    next(error);
   }
-};
+}
 
-// Update a team
-export const updateTeam = async (req: Request, res: Response) => {
+/**
+ * PUT /api/teams/:id?saveGameId=#
+ * Body: { name?, division?, morale?, currentSeason? }
+ */
+export async function updateTeam(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const id = parseInt(req.params.id);
-    // Check if team exists
-    const existing = await teamService.getTeamById(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Team not found' });
+    const teamId = Number(req.params.id);
+    const saveGameId = Number(req.query.saveGameId);
+    if (isNaN(saveGameId) || isNaN(teamId)) {
+      res.status(400).json({ error: 'Missing or invalid saveGameId or teamId' });
+      return;
     }
-    // Perform update
-    const { name, country } = req.body;
-    const updatedTeam = await teamService.updateTeam(id, { name, country });
+    const existing = await fetchTeamById(saveGameId, teamId);
+    if (!existing) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+    const updates: {
+      name?: string;
+      division?: DivisionTier;
+      morale?: number;
+      currentSeason?: number;
+    } = {};
+    if (req.body.name !== undefined) {
+      updates.name = String(req.body.name);
+    }
+    if (req.body.division !== undefined) {
+      updates.division = req.body.division as DivisionTier;
+    }
+    if (req.body.morale !== undefined) {
+      updates.morale = Number(req.body.morale);
+    }
+    if (req.body.currentSeason !== undefined) {
+      updates.currentSeason = Number(req.body.currentSeason);
+    }
+    const updatedTeam = await updateTeamService(saveGameId, teamId, updates);
     res.status(200).json(updatedTeam);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update team' });
+    console.error(`❌ Error updating team ${req.params.id}:`, error);
+    next(error);
   }
-};
+}
 
-// Delete a team
-export const deleteTeam = async (req: Request, res: Response) => {
+/**
+ * DELETE /api/teams/:id?saveGameId=#
+ */
+export async function deleteTeam(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const id = parseInt(req.params.id);
-    // Check if team exists
-    const existing = await teamService.getTeamById(id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Team not found' });
+    const teamId = Number(req.params.id);
+    const saveGameId = Number(req.query.saveGameId);
+    if (isNaN(saveGameId) || isNaN(teamId)) {
+      res.status(400).json({ error: 'Missing or invalid saveGameId or teamId' });
+      return;
     }
-    await teamService.deleteTeam(id);
+    const existing = await fetchTeamById(saveGameId, teamId);
+    if (!existing) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+    await deleteTeamService(saveGameId, teamId);
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete team' });
+    console.error(`❌ Error deleting team ${req.params.id}:`, error);
+    next(error);
   }
-};
+}

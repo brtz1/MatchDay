@@ -1,62 +1,72 @@
-// src/routes/playerRoute.ts
-
-import { Router } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { getCurrentSaveGameId } from '../services/gameState';
 
-const router = Router();
+const router = express.Router();
 
 /**
- * Get all players in the current save game
+ * GET /api/players
+ * Fetch all players in the current save game.
  */
-router.get('/', async (_req, res) => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentSaveGameId = await getCurrentSaveGameId();
+    const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
     const players = await prisma.saveGamePlayer.findMany({
-      where: {
-        saveGameId: currentSaveGameId,
-      },
+      where: { saveGameId },
+      include: { team: true },
     });
-    res.json(players);
+    res.status(200).json(players);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch players' });
+    console.error('❌ Error fetching players:', error);
+    next(error);
   }
 });
 
 /**
- * Get a single player by ID in the current save game
+ * GET /api/players/:playerId
+ * Fetch a single player by ID within the current save game.
  */
-router.get('/:playerId', async (req, res) => {
-  const playerId = parseInt(req.params.playerId);
+router.get('/:playerId', async (req: Request, res: Response, next: NextFunction) => {
+  const playerId = Number(req.params.playerId);
   if (isNaN(playerId)) {
-    return res.status(400).json({ error: 'Invalid player ID' });
+    res.status(400).json({ error: 'Invalid player ID' });
+    return;
   }
 
   try {
-    const currentSaveGameId = await getCurrentSaveGameId();
+    const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
     const player = await prisma.saveGamePlayer.findFirst({
-      where: {
-        id: playerId,
-        saveGameId: currentSaveGameId,
-      },
+      where: { id: playerId, saveGameId },
+      include: { team: true },
     });
 
     if (!player) {
-      return res.status(404).json({ error: 'Player not found' });
+      res.status(404).json({ error: 'Player not found' });
+      return;
     }
 
-    res.json(player);
+    res.status(200).json(player);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch player' });
+    console.error(`❌ Error fetching player ${playerId}:`, error);
+    next(error);
   }
 });
 
 /**
- * Prohibit creating players via API
+ * POST /api/players
+ * Prohibit creating players via API.
  */
-router.post('/', async (_req, res) => {
+router.post('/', (_req: Request, res: Response) => {
   res.status(403).json({ error: 'Player creation is only allowed at game start.' });
 });
 

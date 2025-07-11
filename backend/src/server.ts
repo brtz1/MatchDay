@@ -1,21 +1,30 @@
-// server.ts
+import dotenv from 'dotenv';
+dotenv.config();
 
 import app from './app';
 import importRoutes from './routes/importRoute';
 import { initializeGameState } from './services/gameState';
 
-const PORT = process.env.PORT || 4000;
+// Parse PORT from environment or default to 4000
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// Mount import routes
+app.use('/api/import', importRoutes);
 
-  // Auto-create GameState record on boot if missing
+// Bootstrap server
+async function startServer() {
+  // Ensure a GameState record exists
   try {
     await initializeGameState();
     console.log('✅ GameState initialized');
-  } catch (err) {
-    console.error('❌ Failed to initialize GameState:', err);
+  } catch (error) {
+    console.error('❌ Failed to initialize GameState:', error);
   }
 
-  app.use('/api/import', importRoutes);
-});
+  // Start HTTP server
+  app.listen(PORT, () => {
+    console.log(`🚀 MatchDay! backend running on port ${PORT}`);
+  });
+}
+
+startServer();

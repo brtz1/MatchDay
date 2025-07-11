@@ -1,17 +1,26 @@
-import { Router } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createSaveGame } from '../services/createSaveGame';
 
-const router = Router();
+const router = express.Router();
 
-router.post('/', async (req, res) => {
-  const { name, coachName } = req.body;
-
+/**
+ * POST /api/manual-save
+ * Body: { name: string; coachName?: string }
+ * Creates a manual save snapshot of the current game state.
+ */
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = await createSaveGame(name, coachName);
-    res.status(200).json({ saveId: id, saveName: name });
-  } catch (e: any) {
-    console.error('❌ Manual save failed:', e.message);
-    res.status(500).json({ error: 'Manual save failed' });
+    const { name, coachName } = req.body;
+    if (!name || typeof name !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid save name' });
+      return;
+    }
+
+    const saveId = await createSaveGame(name, coachName ?? null);
+    res.status(201).json({ saveId, saveName: name });
+  } catch (error) {
+    console.error('❌ Manual save failed:', error);
+    next(error);
   }
 });
 

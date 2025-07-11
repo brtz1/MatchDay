@@ -1,43 +1,64 @@
 // src/routes/matchSummaryRoute.ts
 
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
+import { getCurrentSaveGameId } from '../services/gameState';
 
 const router = Router();
 
-router.get('/match-summary/:matchdayId', async (req, res) => {
-  const matchdayId = parseInt(req.params.matchdayId);
-  if (isNaN(matchdayId)) return res.status(400).json({ error: 'Invalid matchday ID' });
+/**
+ * GET /api/match-summary/:matchdayId
+ * Returns a summary of all matches in the given matchday for the current save game.
+ */
+router.get(
+  '/:matchdayId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const matchdayId = Number(req.params.matchdayId);
+    if (isNaN(matchdayId)) {
+      res.status(400).json({ error: 'Invalid matchdayId' });
+      return;
+    }
 
-  try {
-    const matches = await prisma.match.findMany({
-      where: { matchdayId },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        events: {
-          orderBy: { minute: 'asc' },
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      // Throws if no active save game
+
+      const matches = await prisma.saveGameMatch.findMany({
+        where: { saveGameId, matchdayId },
+        include: {
+          homeTeam: { select: { name: true } },
+          awayTeam: { select: { name: true } },
+          MatchEvent: {
+            orderBy: { minute: 'asc' },
+            select: {
+              minute: true,
+              eventType: true,
+              description: true,
+              playerId: true,
+            },
+          },
         },
-      },
-    });
+      });
 
-    const summary = matches.map((SaveGameMatch) => ({
-      matchId: SaveGameMatch.id,
-      home: SaveGameMatch.homeTeam.name,
-      away: SaveGameMatch.awayTeam.name,
-      score: `${SaveGameMatch.homeScore ?? 0} - ${SaveGameMatch.awayScore ?? 0}`,
-      events: SaveGameMatch.events.map((MatchEvent) => ({
-        minute: MatchEvent.minute,
-        type: MatchEvent.eventType,
-        desc: MatchEvent.description,
-      })),
-    }));
+      const summary = matches.map((m) => ({
+        matchId: m.id,
+        home: m.homeTeam.name,
+        away: m.awayTeam.name,
+        score: `${m.homeScore ?? 0} - ${m.awayScore ?? 0}`,
+        events: m.MatchEvent.map((e) => ({
+          minute: e.minute,
+          type: e.eventType,
+          description: e.description,
+          playerId: e.playerId ?? undefined,
+        })),
+      }));
 
-    res.json(summary);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Failed to load match summary' });
+      res.status(200).json(summary);
+    } catch (error) {
+      console.error('❌ Error fetching match summary:', error);
+      next(error);
+    }
   }
-});
+);
 
 export default router;

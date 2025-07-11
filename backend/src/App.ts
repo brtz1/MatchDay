@@ -1,34 +1,53 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import teamRoutes from './routes/teamRoute';
-import playerRoutes from './routes/playerRoute';
-import refereeRoutes from './routes/refereeRoute';
-import matchRoutes from './routes/matchRoute';
-import seasonRoutes from './routes/seasonRoute';
-import transferRoutes from './routes/transferRoute';
-import statsRoutes from './routes/statsRoute';
+
+import newGameRoute from './routes/newGameRoute';
 import saveGameRoute from './routes/saveGameRoute';
+import teamRoute from './routes/teamRoute';
+import playerRoute from './routes/playerRoute';
+import refereeRoute from './routes/refereeRoute';
+import matchRoute from './routes/matchRoute';
+import matchdayRoute from './routes/matchdayRoute';
+import gameStateRoute from './routes/gameStateRoute';
+import matchStateRoute from './routes/matchStateRoute';
+import transferRoute from './routes/transferRoute';
+import statsRoute from './routes/statsRoute';
+import saveGamesRoute from './routes/manualSaveRoute';
+import countryRoute from './routes/countryRoute';
+import importRoute from './routes/importRoute';
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// Middleware
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json());
 
-// routes
-app.use('/api/teams', teamRoutes);
-app.use('/api/players', playerRoutes);
-app.use('/api/referees', refereeRoutes);
-app.use('/api/matches', matchRoutes);
-app.use('/api/season', seasonRoutes);
-app.use('/api/transfers', transferRoutes);
-app.use('/api/stats', statsRoutes);
-app.use('/api/savegames', saveGameRoute);
-
-// health check
+// Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'API is running!' });
+  res.json({ status: 'OK' });
 });
+
+// API routes
+app.use('/api/new-game', newGameRoute);
+app.use('/api/save-game', saveGameRoute);
+app.use('/api/save-game-teams', teamRoute);
+app.use('/api/teams', teamRoute);      // alias
+app.use('/api/players', playerRoute);
+app.use('/api/referees', refereeRoute);
+app.use('/api/matches', matchRoute);
+app.use('/api/matchdays', matchdayRoute);
+app.use('/api/gamestate', gameStateRoute);
+app.use('/api/matchstate', matchStateRoute);
+app.use('/api/transfers', transferRoute);
+app.use('/api/stats', statsRoute);
+app.use('/api/manual-save', saveGamesRoute);
+app.use('/api/countries', countryRoute);
+app.use('/api/import', importRoute);
 
 export default app;

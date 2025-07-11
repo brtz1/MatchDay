@@ -1,95 +1,80 @@
 // src/routes/transferRoute.ts
 
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
+import { transferPlayer } from '../services/transferService';
 
 const router = Router();
 
 /**
- * List all transfers
+ * GET /api/transfers
+ * List all transfers (most recent first).
  */
-router.get('/', async (_req, res) => {
-  try {
-    const transfers = await prisma.transfer.findMany({
-      include: {
-        player: true,
-        fromTeam: true,
-        toTeam: true,
-      },
-      orderBy: { date: 'desc' },
-    });
-    res.json(transfers);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch transfers' });
+router.get(
+  '/',
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const transfers = await prisma.transfer.findMany({
+        include: {
+          player: true,
+          fromTeam: true,
+          toTeam: true,
+        },
+        orderBy: { date: 'desc' },
+      });
+      res.status(200).json(transfers);
+    } catch (error) {
+      console.error('❌ Error fetching transfers:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Create a transfer
+ * POST /api/transfers
+ * Create a new player transfer.
+ * Body: { playerId: number; fromTeamId: number; toTeamId: number; fee: number }
  */
-router.post('/', async (req, res) => {
-  const { playerId, fromTeamId, toTeamId, fee } = req.body;
-
-  try {
-    const player = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!player) return res.status(404).json({ error: 'Player not found' });
-    if (player.teamId === null) return res.status(400).json({ error: 'Player is unattached' });
-
-    // Optional Rule: prevent transfer if player is not transferable right now
-    // Example rule: block if player was returned to team from failed auction
-    // You can later implement: if (player.isLockedUntilMatchday > currentMatchday) return error
-
-    const toTeam = await prisma.team.findUnique({
-      where: { id: toTeamId },
-    });
-
-    if (!toTeam) return res.status(404).json({ error: 'Destination team not found' });
-
-    // Perform transfer
-    await prisma.player.update({
-      where: { id: playerId },
-      data: {
-        teamId: toTeamId,
-        contractUntil: 1, // Reset contract if needed — adjust as required
-      },
-    });
-
-    const newTransfer = await prisma.transfer.create({
-      data: {
-        playerId,
-        fromTeamId,
-        toTeamId,
-        fee,
-      },
-    });
-
-    res.status(201).json(newTransfer);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to execute transfer' });
+router.post(
+  '/',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { playerId, fromTeamId, toTeamId, fee } = req.body;
+      if (
+        [playerId, fromTeamId, toTeamId, fee].some((v) => typeof v !== 'number')
+      ) {
+        res.status(400).json({ error: 'playerId, fromTeamId, toTeamId and fee must be numbers' });
+        return;
+      }
+      const result = await transferPlayer(playerId, fromTeamId, toTeamId, fee);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error('❌ Error executing transfer:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Delete a transfer record (admin)
+ * DELETE /api/transfers/:transferId
+ * Remove a transfer record.
  */
-router.delete('/:transferId', async (req, res) => {
-  const transferId = parseInt(req.params.transferId);
-  if (isNaN(transferId)) return res.status(400).json({ error: 'Invalid transfer id' });
-
-  try {
-    await prisma.transfer.delete({
-      where: { id: transferId },
-    });
-    res.json({ message: 'Transfer deleted' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete transfer' });
+router.delete(
+  '/:transferId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const transferId = Number(req.params.transferId);
+    if (isNaN(transferId)) {
+      res.status(400).json({ error: 'Invalid transferId' });
+      return;
+    }
+    try {
+      await prisma.transfer.delete({ where: { id: transferId } });
+      res.status(204).send();
+    } catch (error) {
+      console.error('❌ Error deleting transfer:', error);
+      next(error);
+    }
   }
-});
+);
 
 export default router;

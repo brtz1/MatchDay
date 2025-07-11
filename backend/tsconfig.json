@@ -13,10 +13,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": "./src",
-    "paths": {
-      "@/*": ["*"]
-    }
+    "paths": { "@/*": ["*"] }
   },
-  "include": ["src", "src/prisma"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

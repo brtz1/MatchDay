@@ -1,154 +1,202 @@
-import { Router } from 'express';
+// src/routes/teamRoute.ts
+
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
+import { getCurrentSaveGameId } from '../services/gameState';
 
 const router = Router();
 
 /**
- * Get all save game teams
+ * GET /api/teams
+ * List all teams in the current save game.
  */
-router.get('/', async (_req, res) => {
-  try {
-    const teams = await prisma.saveGameTeam.findMany();
-    res.json(teams);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch teams' });
+router.get(
+  '/',
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const teams = await prisma.saveGameTeam.findMany({
+        where: { saveGameId },
+      });
+      res.status(200).json(teams);
+    } catch (error) {
+      console.error('❌ Error fetching teams:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Get a single save game team by ID
+ * GET /api/teams/:teamId/players
+ * List all players for a specific team in the current save game.
  */
-router.get('/:teamId', async (req, res) => {
-  const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
-
-  try {
-    const team = await prisma.saveGameTeam.findUnique({
-      where: { id: teamId },
-      include: {
-        players: true,
-        baseTeam: true,
-      },
-    });
-
-    if (!team) return res.status(404).json({ error: 'Team not found' });
-
-    res.json({
-      id: team.id,
-      name: team.name,
-      primaryColor: team.baseTeam?.primaryColor ?? '#facc15',
-      secondaryColor: team.baseTeam?.secondaryColor ?? '#000000',
-      country: team.baseTeam?.country ?? 'Unknown',
-      division: { name: team.division },
-      coach: {
-        name: 'You',
-        level: 1,
-        morale: team.morale,
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch team details' });
+router.get(
+  '/:teamId/players',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const teamId = Number(req.params.teamId);
+    if (isNaN(teamId)) {
+      res.status(400).json({ error: 'Invalid team ID' });
+      return;
+    }
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const players = await prisma.saveGamePlayer.findMany({
+        where: { saveGameId, teamId },
+        orderBy: { position: 'asc' },
+      });
+      res.status(200).json(players);
+    } catch (error) {
+      console.error('❌ Error fetching players for team:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Get all players in a save game team
-   */
-router.get('/:teamId/players', async (req, res) => {
-  const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
-
-  try {
-    const players = await prisma.saveGamePlayer.findMany({
-      where: { teamId: teamId },
-      orderBy: { position: 'asc' },
-    });
-    res.json(players);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error fetching players' });
+ * GET /api/teams/:teamId/next-match
+ * Get the next unplayed match for a given team.
+ */
+router.get(
+  '/:teamId/next-match',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const teamId = Number(req.params.teamId);
+    if (isNaN(teamId)) {
+      res.status(400).json({ error: 'Invalid team ID' });
+      return;
+    }
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const nextMatch = await prisma.saveGameMatch.findFirst({
+        where: {
+          saveGameId,
+          played: false,
+          OR: [
+            { homeTeamId: teamId },
+            { awayTeamId: teamId },
+          ],
+        },
+        include: {
+          homeTeam: true,
+          awayTeam: true,
+          matchday: true,
+        },
+        orderBy: { matchDate: 'asc' },
+      });
+      if (!nextMatch) {
+        res.status(404).json({ error: 'No upcoming match found' });
+        return;
+      }
+      res.status(200).json(nextMatch);
+    } catch (error) {
+      console.error('❌ Error fetching next match:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Get next match for a team
+ * GET /api/teams/opponent/:teamId
+ * Fetch details for an opponent team by its ID.
  */
-router.get('/:teamId/next-match', async (req, res) => {
-  const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
-
-  try {
-    const nextMatch = await prisma.saveGameMatch.findFirst({
-      where: {
-        played: false,
-        OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
-      },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        matchday: true,
-      },
-      orderBy: { matchDate: 'asc' },
-    });
-
-    if (!nextMatch) return res.status(404).json({ error: 'No upcoming match found' });
-
-    res.json(nextMatch);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch next match' });
+router.get(
+  '/opponent/:teamId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const teamId = Number(req.params.teamId);
+    if (isNaN(teamId)) {
+      res.status(400).json({ error: 'Invalid team ID' });
+      return;
+    }
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const team = await prisma.saveGameTeam.findFirst({
+        where: { id: teamId, saveGameId },
+      });
+      if (!team) {
+        res.status(404).json({ error: 'Team not found' });
+        return;
+      }
+      res.status(200).json(team);
+    } catch (error) {
+      console.error('❌ Error fetching opponent team:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Get opponent team info
+ * GET /api/teams/:teamId/finances
+ * Returns total salary and breakdown for a team.
  */
-router.get('/opponent/:teamId', async (req, res) => {
-  const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
-
-  try {
-    const team = await prisma.saveGameTeam.findUnique({
-      where: { id: teamId },
-    });
-
-    if (!team) return res.status(404).json({ error: 'Team not found' });
-
-    res.json(team);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch opponent info' });
+router.get(
+  '/:teamId/finances',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const teamId = Number(req.params.teamId);
+    if (isNaN(teamId)) {
+      res.status(400).json({ error: 'Invalid team ID' });
+      return;
+    }
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const players = await prisma.saveGamePlayer.findMany({
+        where: { saveGameId, teamId },
+      });
+      const salaryTotal = players.reduce((sum, p) => sum + (p.salary || 0), 0);
+      const salaryByPlayer = players.map(p => ({
+        id: p.id,
+        name: p.name,
+        salary: p.salary,
+      }));
+      res.status(200).json({ salaryTotal, salaryByPlayer });
+    } catch (error) {
+      console.error('❌ Error fetching team finances:', error);
+      next(error);
+    }
   }
-});
+);
 
 /**
- * Get team finances (placeholder logic)
+ * GET /api/teams/:teamId
+ * Fetch high-level details for a specific team (for Team Roster screen).
  */
-router.get('/:teamId/finances', async (req, res) => {
-  const teamId = parseInt(req.params.teamId);
-  if (isNaN(teamId)) return res.status(400).json({ error: 'Invalid team ID' });
-
-  try {
-    const players = await prisma.saveGamePlayer.findMany({
-      where: { saveGameId: teamId },
-    });
-
-    const totalSalaries = players.reduce((sum, player) => sum + (player.salary || 0), 0);
-
-    res.json({
-      salaryTotal: totalSalaries,
-      salaryByPlayer: players.map(player => ({
-        id: player.id,
-        name: player.name,
-        salary: player.salary,
-      })),
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to load finances' });
+router.get(
+  '/:teamId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const teamId = Number(req.params.teamId);
+    if (isNaN(teamId)) {
+      res.status(400).json({ error: 'Invalid team ID' });
+      return;
+    }
+    try {
+      const saveGameId = await getCurrentSaveGameId();
+      const team = await prisma.saveGameTeam.findFirst({
+        where: { id: teamId, saveGameId },
+        include: {
+          baseTeam: true,
+          GameStates: true,
+        },
+      });
+      if (!team) {
+        res.status(404).json({ error: 'Team not found' });
+        return;
+      }
+      res.status(200).json({
+        id: team.id,
+        name: team.name,
+        primaryColor: team.baseTeam?.primaryColor ?? '#facc15',
+        secondaryColor: team.baseTeam?.secondaryColor ?? '#000000',
+        country: team.baseTeam?.country ?? 'Unknown',
+        division: { name: team.division },
+        coach: {
+          name: 'You',
+          level: 1,
+          morale: team.morale,
+        },
+      });
+    } catch (error) {
+      console.error('❌ Error fetching team details:', error);
+      next(error);
+    }
   }
-});
+);
 
 export default router;

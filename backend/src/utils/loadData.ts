@@ -4,20 +4,23 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Generic JSON loader with type safety
- * @param relativePath - Relative path to JSON file from project root
+ * Loads and parses a JSON file from disk.
+ *
+ * @param filePath - Path to the JSON file, relative to the project root
+ *                   (e.g. 'src/data/teams.json').
+ * @returns The parsed JSON as type T.
+ * @throws Error if the file does not exist or contains invalid JSON.
  */
-export const loadJSON = <T = any>(relativePath: string): T => {
-  const absolutePath = path.resolve(process.cwd(), relativePath);
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`File not found at: ${absolutePath}`);
+export function loadJSON<T>(filePath: string): T {
+  const fullPath = path.resolve(process.cwd(), filePath);
+  if (!fs.existsSync(fullPath)) {
+    throw new Error(`JSON file not found: ${fullPath}`);
   }
 
-  const content = fs.readFileSync(absolutePath, 'utf-8');
+  const raw = fs.readFileSync(fullPath, 'utf-8');
   try {
-    return JSON.parse(content) as T;
-  } catch (error) {
-    throw new Error(`Failed to parse JSON from ${absolutePath}: ${(error as Error).message}`);
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    throw new Error(`Failed to parse JSON from ${fullPath}: ${(err as Error).message}`);
   }
-};
+}

@@ -1,46 +1,46 @@
 // src/services/transferService.ts
-import prisma from '../utils/prisma';
 
-export const transferPlayer = async (
+import prisma from '../utils/prisma';
+import { Transfer } from '@prisma/client';
+
+/**
+ * Transfers a player between teams within a transaction.
+ * Updates the player's assignment and logs a Transfer record.
+ *
+ * @param playerId – ID of the player being transferred.
+ * @param fromTeamId – ID of the team the player is leaving (nullable).
+ * @param toTeamId – ID of the destination team.
+ * @param fee – Transfer fee amount.
+ * @returns The created Transfer record.
+ * @throws Error if the player or destination team is not found.
+ */
+export async function transferPlayer(
   playerId: number,
   fromTeamId: number | null,
   toTeamId: number,
   fee: number
-) => {
-  return prisma.$transaction(async ($transaction) => {
-    // Validate player
-    const player = await $transaction.player.findUnique({
-      where: { id: playerId },
-    });
-
+): Promise<Transfer> {
+  return prisma.$transaction(async (tx) => {
+    // 1. Validate player existence
+    const player = await tx.player.findUnique({ where: { id: playerId } });
     if (!player) {
-      throw new Error('Player not found');
+      throw new Error(`Player not found (ID: ${playerId})`);
     }
 
-    // Validate destination team
-    const toTeam = await $transaction.team.findUnique({
-      where: { id: toTeamId },
-    });
-
-    if (!toTeam) {
-      throw new Error('Destination team not found');
+    // 2. Validate destination team existence
+    const destinationTeam = await tx.team.findUnique({ where: { id: toTeamId } });
+    if (!destinationTeam) {
+      throw new Error(`Destination team not found (ID: ${toTeamId})`);
     }
 
-    // Optional: Prevent transfers for locked players (e.g. just returned from auction)
-    // if (player.locked) {
-    //   throw new Error('Player not eligible for transfer this matchday');
-    // }
-
-    // Update player's teamId
-    await $transaction.player.update({
+    // 3. Update player's team assignment
+    await tx.player.update({
       where: { id: playerId },
-      data: {
-        teamId: toTeamId,
-      },
+      data: { teamId: toTeamId },
     });
 
-    // Record transfer in history
-    const transfer = await $transaction.transfer.create({
+    // 4. Record the transfer
+    const transfer = await tx.transfer.create({
       data: {
         playerId,
         fromTeamId,
@@ -51,4 +51,4 @@ export const transferPlayer = async (
 
     return transfer;
   });
-};
+}

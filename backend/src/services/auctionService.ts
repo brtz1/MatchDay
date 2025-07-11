@@ -1,76 +1,73 @@
 // src/services/auctionService.ts
 
-import prisma from '../utils/prisma';;
-import { runAuction } from '../utils/auction';
-import { Player } from '@prisma/client';
+import prisma from '../utils/prisma';
+
+export interface AuctionResult {
+  playerId: number;
+  winnerTeamId: number;
+  fee: number;
+}
 
 /**
- * Handles the full auction logic for a player:
- * - Gets eligible AI teams (not the current team)
- * - Calls auction runner
- * - Transfers player to winning team or locks him to original team
+ * runAuction
+ *
+ * When a player is put up for auction, all other teams in the same save game
+ * bid once (fee = player.rating * 1000 to 2x that). The highest bid wins,
+ * and the player’s teamId is updated accordingly.
+ *
+ * @param playerId – the ID of the SaveGamePlayer to auction
+ * @returns details of the auction outcome
+ * @throws if the player is not found or no eligible teams exist
  */
-export async function handleAuction(player: Player): Promise<number | null> {
+export async function runAuction(playerId: number): Promise<AuctionResult> {
+  // 1. Load the player
+  const player = await prisma.saveGamePlayer.findUnique({
+    where: { id: playerId },
+    select: {
+      id: true,
+      saveGameId: true,
+      teamId: true,
+      rating: true,
+      name: true,
+    },
+  });
+  if (!player) {
+    throw new Error(`Player ${playerId} not found`);
+  }
   if (player.teamId == null) {
-    throw new Error('Player teamId is null, cannot run auction.');
-  }
-  const eligibleTeams = await prisma.team.findMany({
-    where: { id: { not: player.teamId } },
-    include: {
-      players: true,
-      coach: true,
-    },
-  });
-
-  if (eligibleTeams.length === 0) return null;
-
-  const mappedTeams = eligibleTeams.map(SaveGameTeam => ({
-    id: SaveGameTeam.id,
-    name: SaveGameTeam.name,
-    country: SaveGameTeam.country,
-    divisionId: SaveGameTeam.divisionId,
-    stadiumSize: SaveGameTeam.stadiumSize,
-    ticketPrice: SaveGameTeam.ticketPrice,
-    rating: SaveGameTeam.rating,
-    primaryColor: SaveGameTeam.primaryColor,
-    secondaryColor: SaveGameTeam.secondaryColor,
-    coach: SaveGameTeam.coach ? { morale: SaveGameTeam.coach.morale } : undefined,
-    players: SaveGameTeam.players.map(p => ({ rating: p.rating })),
-}));
-
-  const winningTeamId = runAuction(player, mappedTeams);
-
-  if (!winningTeamId) {
-    // No one wants the player, he stays and is locked until next matchday
-    await prisma.player.update({
-      where: { id: player.id },
-      data: {
-        teamId: player.teamId, // Stays in current team
-        contractUntil: player.contractUntil ?? 1, // Keep same value
-      },
-    });
-
-    return null;
+    throw new Error(`Player ${playerId} is not currently assigned to a team`);
   }
 
-  // Update player to winning team
-  await prisma.player.update({
-    where: { id: player.id },
-    data: {
-      teamId: winningTeamId,
-      contractUntil: 1, // New contract
-    },
+  // 2. Find all other teams in the same save game
+  const allTeams = await prisma.saveGameTeam.findMany({
+    where: { saveGameId: player.saveGameId },
+    select: { id: true },
+  });
+  const eligible = allTeams.filter((t) => t.id !== player.teamId);
+  if (eligible.length === 0) {
+    throw new Error(`No other teams in saveGame ${player.saveGameId} to bid`);
+  }
+
+  // 3. Each team bids: base = rating * 1000, variation up to base
+  const base = player.rating * 1000;
+  const bids = eligible.map((t) => ({
+    teamId: t.id,
+    fee: base + Math.floor(Math.random() * base),
+  }));
+
+  // 4. Determine highest bid
+  bids.sort((a, b) => b.fee - a.fee);
+  const winningBid = bids[0];
+
+  // 5. Transfer the player to the winning team
+  await prisma.saveGamePlayer.update({
+    where: { id: playerId },
+    data: { teamId: winningBid.teamId },
   });
 
-  // Log transfer
-  await prisma.transfer.create({
-    data: {
-      playerId: player.id,
-      fromTeamId: player.teamId,
-      toTeamId: winningTeamId,
-      fee: 0, // Fee not used
-    },
-  });
-
-  return winningTeamId;
+  return {
+    playerId,
+    winnerTeamId: winningBid.teamId,
+    fee: winningBid.fee,
+  };
 }

@@ -1,47 +1,80 @@
+// src/pages/TeamRoster.tsx
+
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import TeamRosterToolbar from "../components/TeamRoster/Toolbar";
 import PlayerRoster from "../components/TeamRoster/PlayerRoster";
 import TeamRosterTabs from "../components/TeamRoster/TeamRosterTabs";
 import { getFlagUrl } from "../utils/getFlagUrl";
-import { getTeamById, getPlayersByTeam, getTeamFinances } from "../services/teamService";
-import { Player, Team, Finance } from "../types"; // ✅ Adjusted to match real path
+import { getTeamById } from "../services/teamService";
+import { Player, Team as TeamType } from "../types";
+import { useTeamContext } from "../context/TeamContext";
 
 export default function TeamRoster() {
-  const { id } = useParams();
-  const teamId = Number(id);
+  const { teamId: rawId } = useParams<{ teamId?: string }>();
+  const navigate = useNavigate();
+  const { currentTeamId } = useTeamContext();
 
-  const [team, setTeam] = useState<Team | null>(null);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [finances, setFinances] = useState<Finance[]>([]);
+  // Parse URL param or fallback to context ID
+  const urlNum = rawId ? Number(rawId) : NaN;
+  const fallbackNum = currentTeamId;
+  const teamId = !Number.isNaN(urlNum) ? urlNum : fallbackNum;
+
+  const [team, setTeam] = useState<TeamType | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const [teamData, playerData, financeData] = await Promise.all([
-          getTeamById(teamId),
-          getPlayersByTeam(teamId),
-          getTeamFinances(teamId),
-]);
-        console.log("🏟️ Team:", teamData);
-        console.log("👥 Players:", playerData);
-        console.log("💰 Finance:", financeData);
-        
-        setTeam(teamData);
-        setPlayers(playerData);
-        setFinances([financeData]);
-      } catch (err) {
-        console.error("Failed to load team data:", err);
+    if (!teamId) {
+      console.warn("🚫 No team ID, redirecting home");
+      navigate("/", { replace: true });
+      return;
+    }
+    const id = teamId; // now definitely a number
+
+    async function fetchTeamData(retries = 3) {
+      console.log("🔍 fetching team", id);
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const data = await getTeamById(id);
+          const players = data?.players;
+          if (!data || !players || players.length === 0) {
+            throw new Error("team data not ready");
+          }
+          console.log("✅ team loaded", data);
+          setTeam({ ...data, players }); // assert players is defined
+          return;
+        } catch (err) {
+          console.warn(`⚠️ attempt ${attempt} failed`, err);
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
+      console.error("❌ failed to load team after retries");
     }
 
-    if (!isNaN(teamId)) {
-      fetchData();
-    }
-  }, [teamId]);
+    fetchTeamData();
+  }, [teamId, navigate]);
 
-  if (!team) return <p className="text-center mt-4">Loading team roster...</p>;
+  // still no valid teamId
+  if (!teamId) {
+    return (
+      <p className="text-center mt-4 text-red-500">
+        No valid team ID. Start a new game.
+      </p>
+    );
+  }
+  const players = team?.players ?? [];
+  
+  // waiting on data
+  if (!team) {
+    return (
+      <p className="text-center mt-4 text-yellow-400">
+        Loading roster for team {teamId}…
+      </p>
+    );
+  }
+
+  // now we know team and team.players are defined
+  const country = team.country ?? "";
 
   return (
     <div className="min-h-screen bg-green-700 text-white p-4 space-y-4">
@@ -55,25 +88,21 @@ export default function TeamRoster() {
         <h1 className="text-2xl font-bold flex items-center gap-2">
           {team.name}
           <img
-            src={getFlagUrl(team.country)}
-            alt={team.country}
-            className="inline w-6 h-4"
+            src={getFlagUrl(country)}
+            alt={country}
+            className="w-6 h-4"
           />
         </h1>
         <p className="text-xs text-black text-right">
-          Division: {team.division?.name ?? "Unknown"}{" | "}
-          Coach: {team.coach?.name ?? "Unknown"}
-          {team.coach?.level ? ` (Level: ${team.coach.level})` : ""}
-          {" | "}
-          Morale: {team.coach?.morale ?? "n/a"}{" | "}
-          Budget: €{team.budget?.toLocaleString?.() ?? "n/a"}
+          Division: {team.division ?? "Unknown"} |{" "}
+          Coach: {team.coach?.name ?? "You"} |{" "}
+          Morale: {team.coach?.morale ?? "n/a"}
         </p>
       </div>
 
       <TeamRosterToolbar />
 
       <div className="flex gap-4 h-[57vh]">
-        {/* Player roster 70% */}
         <div className="w-[65%] h-full">
           <PlayerRoster
             players={players}
@@ -81,16 +110,12 @@ export default function TeamRoster() {
             onSelectPlayer={setSelectedPlayer}
           />
         </div>
-
-        {/* Tabs 30% */}
         <div className="w-[35%] h-full overflow-y-auto">
           <TeamRosterTabs
             team={team}
             players={players}
-            finances={finances}
             selectedPlayer={selectedPlayer}
-            onSelectPlayer={setSelectedPlayer}
-          />
+            onSelectPlayer={setSelectedPlayer} finances={[]}          />
         </div>
       </div>
     </div>

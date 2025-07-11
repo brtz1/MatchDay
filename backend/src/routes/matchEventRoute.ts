@@ -1,12 +1,18 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 
 const router = express.Router();
 
-// GET /api/match-events/:matchdayId
-router.get('/match-events/:matchdayId', async (req, res) => {
-  const matchdayId = parseInt(req.params.matchdayId);
-  if (isNaN(matchdayId)) return res.status(400).json({ error: 'Invalid matchday ID' });
+/**
+ * GET /api/match-events/:matchdayId
+ * Fetches all matches for a matchday with their events, grouped by match.
+ */
+router.get('/match-events/:matchdayId', async (req: Request, res: Response, next: NextFunction) => {
+  const matchdayId = Number(req.params.matchdayId);
+  if (isNaN(matchdayId)) {
+    res.status(400).json({ error: 'Invalid matchday ID' });
+    return;
+  }
 
   try {
     const matches = await prisma.match.findMany({
@@ -20,32 +26,33 @@ router.get('/match-events/:matchdayId', async (req, res) => {
       },
     });
 
-    const grouped = matches.map(SaveGameMatch => ({
-      matchId: SaveGameMatch.id,
+    const grouped = matches.map((m) => ({
+      matchId: m.id,
       homeTeam: {
-        id: SaveGameMatch.homeTeam.id,
-        name: SaveGameMatch.homeTeam.name,
-        primaryColor: SaveGameMatch.homeTeam.primaryColor,
-        secondaryColor: SaveGameMatch.homeTeam.secondaryColor,
+        id: m.homeTeam.id,
+        name: m.homeTeam.name,
+        primaryColor: m.homeTeam.primaryColor,
+        secondaryColor: m.homeTeam.secondaryColor,
       },
       awayTeam: {
-        id: SaveGameMatch.awayTeam.id,
-        name: SaveGameMatch.awayTeam.name,
-        primaryColor: SaveGameMatch.awayTeam.primaryColor,
-        secondaryColor: SaveGameMatch.awayTeam.secondaryColor,
+        id: m.awayTeam.id,
+        name: m.awayTeam.name,
+        primaryColor: m.awayTeam.primaryColor,
+        secondaryColor: m.awayTeam.secondaryColor,
       },
-      events: SaveGameMatch.events.map(MatchEvent => ({
-        id: MatchEvent.id,
-        minute: MatchEvent.minute,
-        type: MatchEvent.eventType,
-        description: MatchEvent.description,
+      events: m.events.map((e) => ({
+        id: e.id,
+        minute: e.minute,
+        type: e.eventType,
+        description: e.description,
+        playerId: e.playerId,
       })),
     }));
 
-    res.json(grouped);
-  } catch (err) {
-    console.error('Error fetching match events:', err);
-    res.status(500).json({ error: 'Failed to load match events' });
+    res.status(200).json(grouped);
+  } catch (error) {
+    console.error('❌ Error fetching match events:', error);
+    next(error);
   }
 });
 

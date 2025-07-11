@@ -1,80 +1,123 @@
 // src/services/createSaveGame.ts
 
 import prisma from '../utils/prisma';
-import { DivisionTier } from '@prisma/client';
+import { getCurrentSaveGameId } from './gameState';
+import { SaveGame, SaveGameTeam, SaveGamePlayer, SaveGameMatch } from '@prisma/client';
 
-export async function createSaveGame(name: string, coachName: string): Promise<number> {
-  // Fetch all live teams (already generated from baseTeams)
-  const teams = await prisma.team.findMany({
-    include: {
-      players: true,
-      coach: true,
-      division: true,
-    },
-  });
-
-  const matches = await prisma.match.findMany();
-
-  // Create saveGame entry
-  const saveGame = await prisma.saveGame.create({
-    data: {
-      name,
-      coachName,
-    },
-  });
-
-  // Step 1: Create SaveGameTeams
-  const saveTeamMap = new Map<number, number>(); // liveTeamId -> saveTeamId
-
-  for (const team of teams) {
-    const saveTeam = await prisma.saveGameTeam.create({
-      data: {
-        saveGameId: saveGame.id,
-        baseTeamId: team.id, // from baseTeam originally
-        name: team.name,
-        division: (`D${team.division?.level || 4}`) as DivisionTier,
-        morale: team.coach?.morale ?? 75,
-        currentSeason: 1,
-      },
-    });
-
-    saveTeamMap.set(team.id, saveTeam.id);
+/**
+ * Snapshot the current save into a brand-new SaveGame.
+ *
+ * Copies all teams, players, and matches (with their scores)
+ * from the active save into a new SaveGame record, preserving
+ * localIndex values (0–127 for teams; 0–19 for players).
+ *
+ * @param name - the name for the new save slot
+ * @param coachName - optional coach name override
+ * @returns the new saveGame.id
+ */
+export async function createSaveGame(
+  name: string,
+  coachName?: string
+): Promise<number> {
+  // 1. Determine the current active save
+  const currentSaveId = await getCurrentSaveGameId();
+  if (typeof currentSaveId !== 'number') {
+    throw new Error('No active SaveGame to snapshot');
   }
 
-  // Step 2: Create SaveGamePlayers
-  for (const team of teams) {
-    const saveTeamId = saveTeamMap.get(team.id);
-    if (!saveTeamId) continue;
+  // 2. Fetch the full current save, including teams, players, and matches
+  const oldSave = await prisma.saveGame.findUnique({
+    where: { id: currentSaveId },
+    include: {
+      teams: {
+        include: { players: true },
+      },
+      matches: true,
+    },
+  });
+  if (!oldSave) {
+    throw new Error(`SaveGame ${currentSaveId} not found`);
+  }
 
-    for (const p of team.players) {
+  // 3. Create a fresh SaveGame record
+  const newSave = await prisma.saveGame.create({
+    data: { name, coachName },
+  });
+
+  // 4. Duplicate teams
+  const teamIdMap = new Map<number, number>(); // oldTeam.id → newTeam.id
+  for (const oldTeam of oldSave.teams) {
+    const {
+      baseTeamId,
+      name: teamName,
+      division,
+      morale,
+      currentSeason,
+      localIndex,
+    } = oldTeam;
+    const newTeam = await prisma.saveGameTeam.create({
+      data: {
+        saveGameId: newSave.id,
+        baseTeamId,
+        name: teamName,
+        division,
+        morale,
+        currentSeason,
+        localIndex,
+      },
+    });
+    teamIdMap.set(oldTeam.id, newTeam.id);
+  }
+
+  // 5. Duplicate players
+  for (const oldTeam of oldSave.teams) {
+    const newTeamId = teamIdMap.get(oldTeam.id)!;
+    for (const oldPlayer of oldTeam.players) {
+      const {
+        basePlayerId,
+        name: playerName,
+        position,
+        rating,
+        salary,
+        behavior,
+        contractUntil,
+        localIndex,
+      } = oldPlayer;
       await prisma.saveGamePlayer.create({
         data: {
-          saveGameId: saveGame.id,
-          basePlayerId: p.id,
-          name: p.name,
-          position: p.position,
-          rating: p.rating,
-          salary: p.salary,
-          behavior: p.behavior,
-          contractUntil: p.contractUntil ?? 1,
-          teamId: saveTeamId,
+          saveGameId: newSave.id,
+          basePlayerId,
+          name: playerName,
+          position,
+          rating,
+          salary,
+          behavior,
+          contractUntil,
+          localIndex,
+          teamId: newTeamId,
         },
       });
     }
   }
 
-  // Step 3: Create SaveGameMatches
-  for (const match of matches) {
+  // 6. Duplicate matches
+  for (const oldMatch of oldSave.matches) {
+    const newHomeId = teamIdMap.get(oldMatch.homeTeamId)!;
+    const newAwayId = teamIdMap.get(oldMatch.awayTeamId)!;
     await prisma.saveGameMatch.create({
       data: {
-        saveGameId: saveGame.id,
-        homeTeamId: match.homeTeamId,
-        awayTeamId: match.awayTeamId,
-        matchDate: match.matchDate,
-        played: match.isPlayed,
+        saveGameId: newSave.id,
+        homeTeamId: newHomeId,
+        awayTeamId: newAwayId,
+        homeScore: oldMatch.homeScore,
+        awayScore: oldMatch.awayScore,
+        matchDate: oldMatch.matchDate,
+        played: oldMatch.played,
+        matchdayId: oldMatch.matchdayId ?? undefined,
       },
     });
   }
 
-  return saveGame.id;
+  // 7. Return the new save ID
+  return newSave.id;
 }

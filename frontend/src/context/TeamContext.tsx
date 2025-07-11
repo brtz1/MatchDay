@@ -1,13 +1,6 @@
+// src/context/TeamContext.tsx
 import { createContext, useContext, useState } from "react";
-
-interface Player {
-  id: number;
-  name: string;
-  position: string;
-  rating: number;
-  salary: number;
-  nationality: string;
-}
+import { Player } from "../types";
 
 interface TeamContextType {
   selectedPlayer: Player | null;
@@ -16,6 +9,12 @@ interface TeamContextType {
   setSellMode: (value: boolean) => void;
   renewMode: boolean;
   setRenewMode: (value: boolean) => void;
+
+  currentTeamId: number | null;
+  setCurrentTeamId: (id: number) => void;
+
+  saveGameId: number | null;
+  setSaveGameId: (id: number) => void;
 }
 
 const TeamContext = createContext<TeamContextType>({
@@ -25,12 +24,18 @@ const TeamContext = createContext<TeamContextType>({
   setSellMode: () => {},
   renewMode: false,
   setRenewMode: () => {},
+  currentTeamId: null,
+  setCurrentTeamId: () => {},
+  saveGameId: null,
+  setSaveGameId: () => {},
 });
 
 export function TeamProvider({ children }: { children: React.ReactNode }) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [sellMode, setSellMode] = useState(false);
   const [renewMode, setRenewMode] = useState(false);
+  const [currentTeamId, setCurrentTeamId] = useState<number | null>(null);
+  const [saveGameId, setSaveGameId] = useState<number | null>(null);
 
   return (
     <TeamContext.Provider
@@ -41,6 +46,10 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
         setSellMode,
         renewMode,
         setRenewMode,
+        currentTeamId,
+        setCurrentTeamId,
+        saveGameId,
+        setSaveGameId,
       }}
     >
       {children}

@@ -1,15 +1,26 @@
+// src/services/refereeService.ts
+
 import prisma from '../utils/prisma';
 import { Referee } from '@prisma/client';
 
-const getAllReferees = async (): Promise<Referee[]> => {
+/**
+ * Fetches all referees (read-only).
+ * @returns an array of Referee records.
+ */
+export async function getAllReferees(): Promise<Referee[]> {
   return prisma.referee.findMany();
-};
+}
 
-const getRefereeById = async (id: number): Promise<Referee | null> => {
+/**
+ * Fetches a single referee by ID (read-only).
+ * @param id – the Referee.id to fetch.
+ * @returns the Referee record or null if not found.
+ */
+export async function getRefereeById(id: number): Promise<Referee | null> {
   return prisma.referee.findUnique({
     where: { id },
   });
-};
+}
 
 export default {
   getAllReferees,

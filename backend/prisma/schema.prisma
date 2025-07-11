@@ -187,6 +187,7 @@ model SaveGameTeam {
   SaveGame      SaveGame         @relation(fields: [saveGameId], references: [id])
   baseTeam      BaseTeam         @relation(fields: [baseTeamId], references: [id])
   players       SaveGamePlayer[]
+  localIndex    Int?
   homeMatches   SaveGameMatch[]  @relation("HomeTeamSave")
   awayMatches   SaveGameMatch[]  @relation("AwayTeamSave")
   GameStates    GameState[]
@@ -201,6 +202,7 @@ model SaveGamePlayer {
   rating        Int
   salary        Int
   teamId        Int?
+  localIndex    Int?
   contractUntil Int
   behavior      Int           @default(3)
   SaveGame      SaveGame      @relation(fields: [saveGameId], references: [id])

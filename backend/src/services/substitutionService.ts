@@ -1,8 +1,37 @@
-import prisma from '../utils/prisma';
+// src/services/substitutionService.ts
 
-export async function getMatchLineup(matchId: number) {
-  const matchState = await prisma.matchState.findUnique({ where: { matchId } });
-  if (!matchState) throw new Error('No match state');
+import prisma from '../utils/prisma';
+import {
+  Player,
+  MatchEvent as PrismaMatchEvent,
+} from '@prisma/client';
+
+export interface MatchLineup {
+  matchId: number;
+  homeLineup: number[];
+  awayLineup: number[];
+  homeReserves: number[];
+  awayReserves: number[];
+  homeSubsMade: number;
+  awaySubsMade: number;
+  isPaused: boolean;
+  homePlayers: Player[];
+  awayPlayers: Player[];
+  events: {
+    id: number;
+    minute: number;
+    eventType: string;
+    description: string;
+    playerId?: number;
+  }[];
+}
+
+/**
+ * Fetches the current match state plus available players and events.
+ */
+export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
+  const state = await prisma.matchState.findUnique({ where: { matchId } });
+  if (!state) throw new Error(`MatchState not found for match ${matchId}`);
 
   const match = await prisma.match.findUnique({
     where: { id: matchId },
@@ -11,8 +40,7 @@ export async function getMatchLineup(matchId: number) {
       awayTeam: { include: { players: true } },
     },
   });
-
-  if (!match) throw new Error('Match not found');
+  if (!match) throw new Error(`Match ${matchId} not found`);
 
   const events = await prisma.matchEvent.findMany({
     where: { matchId },
@@ -20,81 +48,116 @@ export async function getMatchLineup(matchId: number) {
   });
 
   return {
-    ...matchState,
+    matchId,
+    homeLineup: state.homeLineup,
+    awayLineup: state.awayLineup,
+    homeReserves: state.homeReserves,
+    awayReserves: state.awayReserves,
+    homeSubsMade: state.homeSubsMade,
+    awaySubsMade: state.awaySubsMade,
+    isPaused: state.isPaused,
     homePlayers: match.homeTeam.players,
     awayPlayers: match.awayTeam.players,
-    events,
+    events: events.map((e: PrismaMatchEvent) => ({
+      id: e.id,
+      minute: e.minute,
+      eventType: e.eventType,
+      description: e.description,
+      playerId: e.playerId ?? undefined,
+    })),
   };
 }
 
+/**
+ * Substitutes one player for another on the specified side.
+ */
 export async function submitSubstitution(
   matchId: number,
-  team: 'home' | 'away',
+  side: 'home' | 'away',
   outPlayerId: number,
   inPlayerId: number
-) {
+): Promise<void> {
   const state = await prisma.matchState.findUnique({ where: { matchId } });
-  if (!state) throw new Error('No match state');
+  if (!state) throw new Error(`MatchState not found for match ${matchId}`);
 
-  const isHome = team === 'home';
+  const isHome = side === 'home';
   const lineup = isHome ? [...state.homeLineup] : [...state.awayLineup];
   const reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
   const subsMade = isHome ? state.homeSubsMade : state.awaySubsMade;
 
-  if (subsMade >= 3) throw new Error('Max substitutions reached');
+  if (subsMade >= 3) throw new Error('Maximum 3 substitutions allowed');
   if (!lineup.includes(outPlayerId)) throw new Error('Out player not in lineup');
   if (!reserves.includes(inPlayerId)) throw new Error('In player not in reserves');
 
-  const updatedLineup = lineup.map(id => (id === outPlayerId ? inPlayerId : id));
-  const updatedReserves = reserves.filter(id => id !== inPlayerId).concat(outPlayerId);
+  const updatedLineup = lineup.map((id) =>
+    id === outPlayerId ? inPlayerId : id
+  );
+  const updatedReserves = reserves.filter((id) => id !== inPlayerId).concat(outPlayerId);
 
   await prisma.matchState.update({
     where: { matchId },
     data: isHome
-      ? { homeLineup: updatedLineup, homeReserves: updatedReserves, homeSubsMade: subsMade + 1 }
-      : { awayLineup: updatedLineup, awayReserves: updatedReserves, awaySubsMade: subsMade + 1 },
+      ? {
+          homeLineup: updatedLineup,
+          homeReserves: updatedReserves,
+          homeSubsMade: subsMade + 1,
+        }
+      : {
+          awayLineup: updatedLineup,
+          awayReserves: updatedReserves,
+          awaySubsMade: subsMade + 1,
+        },
   });
-
-  return true;
 }
 
-export async function resumeMatch(matchId: number) {
+/**
+ * Resumes a paused match.
+ */
+export async function resumeMatch(matchId: number): Promise<void> {
   await prisma.matchState.update({
     where: { matchId },
     data: { isPaused: false },
   });
 }
 
-export async function runAISubstitutions(matchId: number) {
+/**
+ * Performs automatic substitutions for AI teams:
+ * prioritizes injured players, then fills remaining slots randomly.
+ */
+export async function runAISubstitutions(matchId: number): Promise<void> {
   const state = await prisma.matchState.findUnique({ where: { matchId } });
-  if (!state) return;
+  if (!state) throw new Error(`MatchState not found for match ${matchId}`);
 
-  const events = await prisma.matchEvent.findMany({ where: { matchId } });
+  const injuryEvents = await prisma.matchEvent.findMany({
+    where: { matchId, eventType: 'INJURY' },
+  });
 
   for (const side of ['home', 'away'] as const) {
     const isHome = side === 'home';
     let lineup = isHome ? [...state.homeLineup] : [...state.awayLineup];
-    const reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
+    let reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
     let subsMade = isHome ? state.homeSubsMade : state.awaySubsMade;
 
     if (subsMade >= 3 || reserves.length === 0) continue;
 
-    const injured = events.filter(
-      MatchEvent => MatchEvent.eventType === 'INJURY' && MatchEvent.playerId && lineup.includes(MatchEvent.playerId)
-    );
+    // Sub injured players first
+    const injured = injuryEvents
+      .map((e) => e.playerId)
+      .filter((pid): pid is number => pid !== null)
+      .filter((pid) => lineup.includes(pid));
 
-    for (const e of injured) {
+    for (const out of injured) {
       if (subsMade >= 3 || reserves.length === 0) break;
-      const out = e.playerId!;
-      const sub = reserves.shift()!;
-      lineup = lineup.map(id => (id === out ? sub : id));
+      const inn = reserves.shift()!;
+      lineup = lineup.map((id) => (id === out ? inn : id));
       subsMade++;
     }
 
+    // Fill remaining subs randomly
     while (subsMade < 3 && reserves.length > 0) {
       const out = lineup[Math.floor(Math.random() * lineup.length)];
-      const sub = reserves.shift()!;
-      lineup = lineup.map(id => (id === out ? sub : id));
+      const inn = reserves.shift()!;
+      lineup = lineup.map((id) => (id === out ? inn : id));
       subsMade++;
     }
 

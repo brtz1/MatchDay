@@ -40,7 +40,7 @@ export default function SaveGameList() {
             const data = await res.json();
             if (!data.coachTeamId)
                 throw new Error('Missing coach team ID from response');
-            navigate(`/teams/${data.coachTeamId}`);
+            navigate(`/save-game-teams/${data.coachTeamId}`);
         }
         catch (err) {
             console.error(err);

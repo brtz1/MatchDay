@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTeamContext } from '../context/TeamContext';
 
 export default function DrawPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { setCurrentTeamId, setSaveGameId } = useTeamContext();
 
   const [selectedCountries, setSelectedCountries] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coachName, setCoachName] = useState('');
   const [teamName, setTeamName] = useState('');
-  const [divisionPreview, setDivisionPreview] = useState<string[]>([]); // 👈 Add division info here
+  const [userTeamId, setUserTeamId] = useState<number | null>(null);
+  const [divisionPreview, setDivisionPreview] = useState<string[]>([]);
 
-  // Step 1: Retrieve selectedCountries
   useEffect(() => {
     const fromState = location.state?.selectedCountries;
     const fromStorage = localStorage.getItem('selectedCountries');
@@ -36,6 +38,13 @@ export default function DrawPage() {
     }
   }, [location.state, navigate]);
 
+  useEffect(() => {
+    if (userTeamId !== null && teamName !== '') {
+      setCurrentTeamId(userTeamId);
+      navigate(`/save-game-teams/${userTeamId}`, { replace: true });
+    }
+  }, [userTeamId, teamName, navigate, setCurrentTeamId]);
+
   const startGame = async () => {
     if (!coachName.trim()) {
       setError('Please enter your name');
@@ -57,17 +66,24 @@ export default function DrawPage() {
       });
 
       const data = await res.json();
-      console.log('🎲 Draw response:', data);
+      console.log('🎯 Draw response:', data);
 
-      if (!res.ok || !data.userTeamName) {
-        throw new Error(data.error || 'No team received from server');
+      if (!res.ok || !data.userTeamId || !data.userTeamName || !data.saveGameId) {
+        throw new Error(data.error || 'Invalid draw response from server');
       }
 
+      const teamId = Number(data.userTeamId);
+      if (isNaN(teamId)) throw new Error('Invalid userTeamId from backend');
+
+      setSaveGameId(data.saveGameId);
+      setUserTeamId(teamId);
       setTeamName(data.userTeamName);
-      setDivisionPreview(data.divisionPreview || []); // 👈 Add this in your backend
-      setLoading(false);
+      setDivisionPreview(data.divisionPreview || []);
       localStorage.removeItem('selectedCountries');
-    } finally {
+      setLoading(false);
+    } catch (err: any) {
+      console.error("❌ Error during team draw:", err);
+      setError(err.message || 'Something went wrong during draw');
       setLoading(false);
     }
   };
@@ -111,7 +127,12 @@ export default function DrawPage() {
           </div>
 
           <button
-            onClick={() => navigate('/team')}
+            onClick={() => {
+              if (userTeamId !== null) {
+                console.log("🟡 Manual navigate to", userTeamId);
+                navigate(`/save-game-teams/${userTeamId}`);
+              }
+            }}
             className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 px-8 rounded"
           >
             Let&apos;s Go!
