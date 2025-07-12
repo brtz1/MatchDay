@@ -1,0 +1,29 @@
+/* ----------------------------------------------------------------------------
+   Tailwind entry point
+   ----------------------------------------------------------------------------
+   IMPORTANT: keep only Tailwind directives here.  Global resets, fonts and
+   utility tweaks belong in index.css, not tailwind.css, so that the JIT
+   compiler can tree-shake unused classes correctly.
+---------------------------------------------------------------------------- */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ----------------------------------------------------------------------------
+   Custom component classes (compiled by Tailwind)
+   ---------------------------------------------------------------------------- */
+
+/* Glass-card utility used throughout the design-system */
+@layer components {
+  .glass-card {
+    @apply rounded-lg bg-white/10 backdrop-blur-md shadow;
+  }
+}
+
+/* Accent text colour */
+@layer utilities {
+  .text-accent {
+    @apply text-yellow-400;
+  }
+}

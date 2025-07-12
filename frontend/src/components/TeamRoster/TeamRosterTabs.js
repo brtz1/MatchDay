@@ -1,35 +1,36 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState } from 'react';
-import GameTab from './tabs/GameTab';
-import PlayerTab from './tabs/PlayerTab';
-import FormationTab from './tabs/FormationTab';
-import OpponentTab from './tabs/OpponentTab';
-import FinancesTab from './tabs/FinancesTab';
-import SellTab from './tabs/SellTab';
-import RenewTab from './tabs/RenewTab';
-const tabs = ['Game', 'Player', 'Formation', 'Opponent', 'Finances', 'Sell', 'Renew'];
-export default function TeamRosterTabs({ team, players, finances, selectedPlayer, onSelectPlayer, }) {
-    const [activeTab, setActiveTab] = useState('Game');
-    const renderTab = () => {
-        switch (activeTab) {
-            case 'Game':
-                return _jsx(GameTab, { team: team });
-            case 'Player':
-                return _jsx(PlayerTab, { players: players, selectedPlayer: selectedPlayer, onSelectPlayer: onSelectPlayer });
-            case 'Formation':
-                return _jsx(FormationTab, { players: players });
-            case 'Opponent':
-                return _jsx(OpponentTab, { teamId: team.id });
-            case 'Finances':
-                return _jsx(FinancesTab, { finances: finances, budget: team.budget });
-            case 'Sell':
-                return _jsx(SellTab, { selectedPlayer: selectedPlayer });
-            case 'Renew':
-                return _jsx(RenewTab, { selectedPlayer: selectedPlayer });
-            default:
-                return null;
-        }
-    };
-    return (_jsxs("div", { className: "h-full w-full flex flex-col", children: [_jsx("div", { className: "flex gap-2 border-b p-2", children: tabs.map((tab) => (_jsx("button", { onClick: () => setActiveTab(tab), className: `px-4 py-2 text-sm rounded-t ${activeTab === tab ? 'bg-primary text-white' : 'bg-gray-200'}`, children: tab }, tab))) }), _jsx("div", { className: "flex-1 overflow-auto bg-white p-4", children: renderTab() })] }));
+import { useState, Children, isValidElement, cloneElement, } from "react";
+import clsx from "clsx";
+import { twMerge } from "tailwind-merge";
+/**
+ * ---------------------------------------------------------------------------
+ * Component
+ * ---------------------------------------------------------------------------
+ */
+export default function TeamRosterTabs({ tabs, value, defaultValue = tabs[0]?.value, onChange, children, className, }) {
+    // Uncontrolled fallback
+    const [internal, setInternal] = useState(defaultValue);
+    const current = value ?? internal;
+    function handleSelect(v) {
+        onChange?.(v);
+        if (value === undefined)
+            setInternal(v);
+    }
+    // Development-time length guard
+    if (import.meta.env.DEV &&
+        Children.count(children) !== tabs.length) {
+        /* eslint-disable no-console */
+        console.warn("[TeamRosterTabs] children.length !== tabs.length");
+    }
+    return (_jsxs("div", { className: twMerge("flex h-full flex-col rounded-lg bg-white shadow dark:bg-gray-900", className), children: [_jsx("div", { className: "flex shrink-0 gap-1 border-b border-gray-200 p-2 text-xs dark:border-gray-800", children: tabs.map((tab) => (_jsx("button", { onClick: () => handleSelect(tab.value), className: clsx("rounded px-2 py-1 font-medium transition-colors", current === tab.value
+                        ? "bg-blue-600 text-white dark:bg-blue-500"
+                        : "bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"), children: tab.label }, tab.value))) }), _jsx("div", { className: "flex-1 overflow-auto p-2 text-sm", children: Children.map(children, (child, idx) => {
+                    if (!isValidElement(child))
+                        return null;
+                    const isActive = tabs[idx]?.value === current;
+                    return cloneElement(child, {
+                        hidden: !isActive,
+                    });
+                }) })] }));
 }
 //# sourceMappingURL=TeamRosterTabs.js.map

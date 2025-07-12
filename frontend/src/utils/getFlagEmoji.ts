@@ -1,20 +1,23 @@
-const countryMap: Record<string, string> = {
-  Portugal: "PT",
-  Spain: "ES",
-  Italy: "IT",
-  France: "FR",
-  Germany: "DE",
-  England: "GB",
-  Iran: "IR",
-  // add as needed
-};
+import { COUNTRY_TO_ISO } from "./countryCodes";
 
-export function getFlagEmoji(countryOrCode: string): string {
-  const code = countryMap[countryOrCode] ?? countryOrCode;
-  if (!code || code.length !== 2) return "🏳️";
-  const codePoints = code
-    .toUpperCase()
-    .split("")
-    .map((c) => 127397 + c.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
+/**
+ * Return the Unicode flag emoji for a country name *or* ISO-2 code.
+ * Falls back to white flag (🏳️) when not recognised.
+ *
+ *  getFlagEmoji("Portugal")  → 🇵🇹
+ *  getFlagEmoji("br")        → 🇧🇷
+ */
+export function getFlagEmoji(countryOrIso: string): string {
+  const iso =
+    (COUNTRY_TO_ISO[countryOrIso] ?? countryOrIso).slice(0, 2).toUpperCase();
+
+  if (iso.length !== 2) return "🏳️";
+
+  /* Regional-indicator symbols are 0x1F1E6 + ascii(A-Z) */
+  return String.fromCodePoint(
+    0x1f1e6 + iso.charCodeAt(0) - 65,
+    0x1f1e6 + iso.charCodeAt(1) - 65
+  );
 }
+
+export default getFlagEmoji;

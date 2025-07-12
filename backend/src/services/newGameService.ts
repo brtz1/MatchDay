@@ -1,92 +1,73 @@
-// src/services/newGameService.ts
+/* --------------------------------------------------------------------------
+   Start-new-game service
+   Draws 128 clubs → 4 visible divisions (8 each) + 96 in DIST tier.
+--------------------------------------------------------------------------- */
 
-import prisma from '../utils/prisma';
+import prisma from "../utils/prisma";
+import { GameStage, MatchdayType, DivisionTier } from "@prisma/client";
 import {
   assignTeamsToDivisions,
   TeamPoolEntry,
-} from '../utils/divisionAssigner';
-import { syncPlayersWithNewTeamRating } from '../utils/playerSync';
-import { GameStage, MatchdayType, DivisionTier } from '@prisma/client';
+} from "../utils/divisionAssigner";
+import { syncPlayersWithNewTeamRating } from "../utils/playerSync";
 
 export interface NewGameResult {
   saveGameId: number;
   coachTeamId: number;
   userTeamName: string;
-  divisionPreview: string[];
+  divisionPreview: string[]; // only D1–D4 for UI
 }
 
-/**
- * Starts a brand-new game:
- * 1. Loads base teams from the selected countries (must be ≥128).
- * 2. Assigns 32 teams into D1–D4 via `assignTeamsToDivisions`.
- * 3. Creates a SaveGame and its SaveGameTeam / SaveGamePlayer entries.
- * 4. Syncs player ratings/salaries via `syncPlayersWithNewTeamRating`.
- * 5. Picks a random coach team from Division 4.
- * 6. Initializes GameState for that save.
- *
- * @param selectedCountries list of country names to draw teams from
- * @returns IDs and summary of the new game setup
- */
 export async function startNewGame(
-  selectedCountries: string[]
+  selectedCountries: string[],
 ): Promise<NewGameResult> {
-  // 1. Load and validate base teams
+  /* -------------------------------- load base clubs */
   const baseTeams = await prisma.baseTeam.findMany({
     where: { country: { in: selectedCountries } },
     include: { players: true },
   });
   if (baseTeams.length < 128) {
-    throw new Error('At least 128 clubs are required to start a new game.');
+    throw new Error("Need at least 128 clubs across chosen countries.");
   }
 
-  // 2. Build pool and assign to divisions
-  const teamPool: TeamPoolEntry[] = baseTeams.map(t => ({
-    id: t.id,
-    name: t.name,
-    country: t.country,
-    baseRating: t.rating,
-  }));
-  const assignments = assignTeamsToDivisions(teamPool);
-
-  // 3. Group baseTeams by division
+  /* -------------------------------- visible tiers via rating sort */
+  const ordered = [...baseTeams].sort((a, b) => b.rating - a.rating);
   const divisionMap: Record<DivisionTier, typeof baseTeams> = {
-    D1: [],
-    D2: [],
-    D3: [],
-    D4: [],
+    D1: ordered.slice(0, 8),
+    D2: ordered.slice(8, 16),
+    D3: ordered.slice(16, 24),
+    D4: ordered.slice(24, 32),
+    DIST: ordered.slice(32, 128), // hidden district pool
   };
-  for (const { teamId, division } of assignments) {
-    const bt = baseTeams.find(t => t.id === teamId)!;
-    divisionMap[division].push(bt);
-  }
 
-  // 4. Create SaveGame
+  /* -------------------------------- create SaveGame */
   const saveGame = await prisma.saveGame.create({
-    data: {
-      name: `Save ${Date.now()}`,
-      coachName: null,
-    },
+    data: { name: `Save ${Date.now()}`, coachName: null },
   });
 
-  // 5. Create SaveGameTeam & SaveGamePlayer entries
+  /* -------------------------------- create SaveGameTeams & Players */
+  let idx = 0;
   const saveTeamIds: Record<number, number> = {};
-  for (const div of Object.values(DivisionTier)) {
-    const teamsInDiv = divisionMap[div];
-    for (let i = 0; i < teamsInDiv.length; i++) {
-      const base = teamsInDiv[i];
+
+  for (const [tier, teams] of Object.entries(divisionMap) as [
+    DivisionTier,
+    typeof baseTeams,
+  ][]) {
+    for (const base of teams) {
       const saveTeam = await prisma.saveGameTeam.create({
         data: {
           saveGameId: saveGame.id,
           baseTeamId: base.id,
           name: base.name,
-          division: div,
+          division: tier,
           morale: 75,
           currentSeason: 1,
-          localIndex: i,
+          localIndex: idx++, // 0-127 unique
         },
       });
       saveTeamIds[base.id] = saveTeam.id;
 
+      /* players */
       for (let j = 0; j < base.players.length; j++) {
         const p = base.players[j];
         await prisma.saveGamePlayer.create({
@@ -107,19 +88,18 @@ export async function startNewGame(
     }
   }
 
-  // 6. Sync true ratings/salaries based on division assignments
+  /* -------------------------------- adjust ratings & sync */
   await syncPlayersWithNewTeamRating(saveGame.id, baseTeams, divisionMap);
 
-  // 7. Pick a random coach team from Division 4
-  const d4SaveTeamIds = divisionMap.D4.map(bt => saveTeamIds[bt.id]);
-  const coachTeamId =
-    d4SaveTeamIds[Math.floor(Math.random() * d4SaveTeamIds.length)];
-  const userTeamName = divisionMap.D4.find(
-    bt => saveTeamIds[bt.id] === coachTeamId
-  )!.name;
+  /* -------------------------------- pick user team (random D4) */
+  const d4Ids = divisionMap.D4.map((bt) => saveTeamIds[bt.id]);
+  const coachTeamId = d4Ids[Math.floor(Math.random() * d4Ids.length)];
+  const userTeamName =
+    divisionMap.D4.find((bt) => saveTeamIds[bt.id] === coachTeamId)!.name;
 
-  // 8. Initialize GameState
-  await prisma.gameState.create({
+  /* -------------------------------- initialise GameState */
+  await prisma.gameState.update({
+    where: { id: (await prisma.gameState.findFirstOrThrow()).id },
     data: {
       currentSaveGameId: saveGame.id,
       coachTeamId,
@@ -129,16 +109,10 @@ export async function startNewGame(
     },
   });
 
-  // 9. Prepare a division preview for the frontend
-  const divisionPreview = Object.entries(divisionMap).map(
-    ([div, teams]) =>
-      `${div}: ${teams.map(bt => saveTeamIds[bt.id]).join(', ')}`
+  /* -------------------------------- D1-D4 preview for UI */
+  const divisionPreview = (["D1", "D2", "D3", "D4"] as DivisionTier[]).map(
+    (tier) => `${tier}: ${divisionMap[tier].map((bt) => saveTeamIds[bt.id]).join(", ")}`,
   );
 
-  return {
-    saveGameId: saveGame.id,
-    coachTeamId,
-    userTeamName,
-    divisionPreview,
-  };
+  return { saveGameId: saveGame.id, coachTeamId, userTeamName, divisionPreview };
 }

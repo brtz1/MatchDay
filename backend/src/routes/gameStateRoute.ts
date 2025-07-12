@@ -1,55 +1,37 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { getGameState, setGameStage } from '../services/gameState';
-import { GameStage } from '@prisma/client';
+import { Router, Request, Response, NextFunction } from "express";
+import {
+  ensureGameState,
+  advanceStage,
+} from "../services/gameState"; // <-- adjust alias if needed
 
-const router = express.Router();
+const router = Router();
 
-// Legal stage transitions
-const stageFlow: Record<GameStage, GameStage> = {
-  ACTION: 'MATCHDAY',
-  MATCHDAY: 'HALFTIME',
-  HALFTIME: 'RESULTS',
-  RESULTS: 'STANDINGS',
-  STANDINGS: 'ACTION',
-};
-
-/**
- * POST /api/gamestate/advance-stage
- * Advances the gameStage according to the defined flow.
- */
-router.post('/advance-stage', async (req: Request, res: Response, next: NextFunction) => {
+/* ------------------------------------------------------------------ GET /api/gamestate
+   Always returns a GameState row (creates default if table empty) */
+router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const current = await getGameState();
-    if (!current) {
-      return res.status(404).json({ error: 'No GameState found' });
-    }
-
-    const currentStage = current.gameStage;
-    const nextStage = stageFlow[currentStage] ?? 'ACTION';
-
-    const updated = await setGameStage(nextStage);
-    res.status(200).json({ message: `Advanced to ${updated.gameStage}`, gameStage: updated.gameStage });
-  } catch (error) {
-    console.error('❌ Error advancing game stage:', error);
-    next(error);
+    const state = await ensureGameState();
+    res.json(state);
+  } catch (err) {
+    console.error("❌ Error fetching game state:", err);
+    next(err);
   }
 });
 
-/**
- * GET /api/gamestate
- * Fetches the current GameState record.
- */
-router.get('/', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const state = await getGameState();
-    if (!state) {
-      return res.status(404).json({ error: 'GameState not initialized' });
+/* ------------------------------------------------------------------ POST /api/gamestate/advance-stage */
+router.post(
+  "/advance-stage",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const updated = await advanceStage();
+      res
+        .status(200)
+        .json({ message: `Advanced to ${updated.gameStage}`, gameStage: updated.gameStage });
+    } catch (err) {
+      console.error("❌ Error advancing game stage:", err);
+      next(err);
     }
-    res.status(200).json(state);
-  } catch (error) {
-    console.error('❌ Error fetching game state:', error);
-    next(error);
-  }
-});
+  },
+);
 
 export default router;

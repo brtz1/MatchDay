@@ -1,63 +1,101 @@
-// backend/prisma/seed.ts
+// prisma/seed.ts  – clean dev DB and reseed countries + base clubs
 
-import { PrismaClient } from '@prisma/client';
-import fs from 'fs';
-import path from 'path';
+import path from "path";
+import fs from "fs";
+import prisma from "../src/utils/prisma";
 
-const prisma = new PrismaClient();
-const SALARY_MULTIPLIER = 1000;
+const SALARY_MULTIPLIER = 1_000;
 
-function generatePlayerRating(teamRating: number, index: number): number {
-  const variance = Math.floor(Math.random() * 5);
-  const sign = index % 2 === 0 ? 1 : -1;
-  return Math.max(30, Math.min(99, teamRating + sign * variance));
+/* ---------------------------------------------------------------- helpers */
+function generatePlayerRating(teamRating: number, i: number) {
+  const v = Math.floor(Math.random() * 5);
+  const sign = i % 2 === 0 ? 1 : -1;
+  return Math.max(30, Math.min(99, teamRating + sign * v));
+}
+function calcSalary(r: number, beh: number) {
+  return Math.round(r * SALARY_MULTIPLIER * (1 + (beh - 3) * 0.1));
 }
 
-function calculateSalary(rating: number, behavior: number): number {
-  const multiplier = 1 + (behavior - 3) * 0.1;
-  return Math.round(rating * SALARY_MULTIPLIER * multiplier);
+/* ---------------------------------------------------------------- seed countries */
+async function seedCountries() {
+  const file = path.resolve(__dirname, "../src/data/countries.json");
+  const countries = JSON.parse(fs.readFileSync(file, "utf8"));
+
+  console.log("🌍 Seeding countries …");
+  await Promise.all(
+    countries.map((c: any) =>
+      prisma.country.upsert({
+        where: { iso2: c.iso2 },
+        update: { code: c.code, name: c.name, flag: c.flag, continent: c.continent },
+        create: { iso2: c.iso2, code: c.code, name: c.name, flag: c.flag, continent: c.continent },
+      }),
+    ),
+  );
+  console.log(`✅ Countries upserted: ${countries.length}`);
 }
 
-async function main() {
-  const filePath = path.resolve(__dirname, '../src/data/teams.json');
-  console.log('📁 Loading team data from:', filePath);
+/* ---------------------------------------------------------------- seed base teams */
+async function seedBaseTeamsAndPlayers() {
+  const file = path.resolve(__dirname, "../src/data/teams.json");
+  const json = JSON.parse(fs.readFileSync(file, "utf8"));
 
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const json = JSON.parse(raw);
-
+  console.log("⚽ Seeding base teams …");
   for (const team of json.teams) {
-    const createdTeam = await prisma.baseTeam.create({
+    await prisma.baseTeam.create({
       data: {
         name: team.name,
         country: team.country,
         rating: team.rating,
         coachName: team.coachName,
         players: {
-          create: team.players.map((player: any, index: number) => {
-            const rating = generatePlayerRating(team.rating, index);
+          create: team.players.map((p: any, idx: number) => {
+            const rating = generatePlayerRating(team.rating, idx);
             return {
-              name: player.name,
-              nationality: player.nationality,
-              position: player.position,
-              behavior: player.behavior,
+              name: p.name,
+              nationality: p.nationality,
+              position: p.position,
+              behavior: p.behavior,
               rating,
-              salary: calculateSalary(rating, player.behavior),
+              salary: calcSalary(rating, p.behavior),
             };
           }),
         },
       },
     });
-
-    console.log(`✅ Created base team: ${createdTeam.name}`);
   }
+  console.log(`✅ Base teams seeded: ${json.teams.length}`);
+}
+
+/* ---------------------------------------------------------------- main */
+async function main() {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("🧹 Clearing save-game & template tables …");
+
+    await prisma.$transaction([
+      /* Save-game layer (children → parents) */
+      prisma.gameState.deleteMany(),
+      prisma.saveGameMatch.deleteMany(),
+      prisma.saveGamePlayer.deleteMany(),
+      prisma.saveGameTeam.deleteMany(),
+      prisma.saveGame.deleteMany(),
+
+      /* Template layer */
+      prisma.basePlayer.deleteMany(),
+      prisma.baseTeam.deleteMany(),
+
+      /* Countries last */
+      prisma.country.deleteMany(),
+    ]);
+  }
+
+  await seedCountries();
+  await seedBaseTeamsAndPlayers();
 }
 
 main()
-  .then(() => {
-    console.log('🌱 Base team seed complete');
-    return prisma.$disconnect();
+  .then(() => console.log("🌱 Seed complete"))
+  .catch((err) => {
+    console.error("❌ Seed failed:", err);
+    process.exit(1);
   })
-  .catch((e) => {
-    console.error('❌ Error during base team seed:', e);
-    return prisma.$disconnect().finally(() => process.exit(1));
-  });
+  .finally(() => prisma.$disconnect());

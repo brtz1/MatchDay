@@ -28,3 +28,5 @@ EXPOSE 4000
 
 # Start the server
 CMD ["npm", "start"]
+
+ENV NODE_OPTIONS="--require ts-node/register --require tsconfig-paths/register"

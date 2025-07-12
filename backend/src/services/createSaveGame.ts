@@ -57,15 +57,15 @@ export async function createSaveGame(
     } = oldTeam;
     const newTeam = await prisma.saveGameTeam.create({
       data: {
-        saveGameId: newSave.id,
-        baseTeamId,
-        name: teamName,
-        division,
-        morale,
-        currentSeason,
-        localIndex,
-      },
-    });
+      saveGameId: newSave.id,
+      baseTeamId,
+      name: teamName,
+      division,           // must be a valid DivisionTier enum value
+      morale,
+      currentSeason,
+      localIndex,         // 0-127 – **always** set
+  },
+});
     teamIdMap.set(oldTeam.id, newTeam.id);
   }
 

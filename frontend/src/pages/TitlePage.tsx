@@ -1,32 +1,51 @@
-import { useNavigate } from 'react-router-dom';
+import * as React from "react";
+import { useNavigate } from "react-router-dom";
 
+import { AppButton } from "@/components/common/AppButton";
+import { AppCard } from "@/components/common/AppCard";
+
+/**
+ * MatchDay! landing page with logo and three primary actions.
+ */
 export default function TitlePage() {
   const navigate = useNavigate();
 
   return (
-    <div className="h-screen flex flex-col items-center justify-center bg-green-800 text-white">
-      <h1 className="text-6xl font-bold mb-10 tracking-wide">MatchDay! <span className="text-sm align-top">25</span></h1>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-green-800 px-4 text-white">
+      {/* Logo / title */}
+      <h1 className="mb-12 text-6xl font-bold tracking-wide">
+        MatchDay!{" "}
+        <span className="align-top text-sm text-white/70">25</span>
+      </h1>
 
-      <div className="flex flex-col space-y-4 w-64">
-        <button
-          onClick={() => navigate('/new-game')}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded"
+      {/* Action buttons */}
+      <AppCard
+        variant="outline"
+        className="flex w-full max-w-xs flex-col gap-4 bg-white/10 p-6"
+      >
+        <AppButton
+          onClick={() => navigate("/country-selection")}
+          className="w-full"
         >
           Start New Game
-        </button>
-        <button
-          onClick={() => navigate('/load')}
-          className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded"
+        </AppButton>
+
+        <AppButton
+          variant="secondary"
+          onClick={() => navigate("/load-game")}
+          className="w-full"
         >
           Load Game
-        </button>
-        <button
-          onClick={() => alert('Settings coming soon')}
-          className="bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-3 px-6 rounded"
+        </AppButton>
+
+        <AppButton
+          variant="ghost"
+          onClick={() => navigate("/settings")}
+          className="w-full"
         >
           Settings
-        </button>
-      </div>
+        </AppButton>
+      </AppCard>
     </div>
   );
 }

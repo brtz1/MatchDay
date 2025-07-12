@@ -1,124 +1,175 @@
-import { useEffect, useState } from 'react';
-import axios from 'axios';
+import * as React from "react";
+import { useState, MouseEvent } from "react";
+import clsx from "clsx";
+import type { Backend } from "@/types/backend";
+import Modal from "@/components/common/Modal";
+import { AppButton } from "@/components/common/AppButton";
+import MatchEventFeed, {
+  type MatchEvent,
+} from "@/components/MatchBroadcast/MatchEventFeed";
 
-interface MatchEvent {
-  playerId: number;
-  eventType: 'GOAL' | 'INJURY' | 'RED_CARD' | string;
-}
+/* -------------------------------------------------------------------------- */
+/* Props                                                                      */
+/* -------------------------------------------------------------------------- */
 
-interface MatchPlayer {
-  id: number;
-  name: string;
-  position: string;
-}
-
-interface MatchState {
-  homeLineup: number[];
-  homeReserves: number[];
-  homePlayers: MatchPlayer[];
-  events: MatchEvent[];
-}
-
-interface HalfTimePopupProps {
-  matchId: number;
+export interface HalfTimePopupProps {
+  /** Show / hide the modal. */
+  open: boolean;
+  /** Close handler (also resumes simulation). */
   onClose: () => void;
+
+  /** Events from minute 0-45 (or 0-105 in ET). */
+  events: MatchEvent[];
+
+  /** Current on-field players for the coached team. */
+  lineup: Backend.Player[];
+  /** Bench players eligible to come on. */
+  bench: Backend.Player[];
+
+  /** How many subs remain this matchday (max = 3). */
+  subsRemaining: number;
+
+  /**
+   * Called for each confirmed substitution.
+   * `out` is the id of the player leaving the pitch,
+   * `in` is the id of the player coming on.
+   */
+  onSubstitute: (args: { out: number; in: number }) => void;
 }
 
-export default function HalfTimePopup({ matchId, onClose }: HalfTimePopupProps) {
-  const [data, setData] = useState<MatchState | null>(null);
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export default function HalfTimePopup({
+  open,
+  onClose,
+  events,
+  lineup,
+  bench,
+  subsRemaining,
+  onSubstitute,
+}: HalfTimePopupProps) {
+  /* ────────────────────────────── Local state */
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
   const [selectedIn, setSelectedIn] = useState<number | null>(null);
 
-  useEffect(() => {
-    axios.get(`/api/match-state/${matchId}`).then((res) => {
-      setData(res.data);
-    });
-  }, [matchId]);
-
-  function playerLabel(pid: number): JSX.Element {
-    const player = data?.homePlayers.find((p) => p.id === pid);
-    const event = data?.events.find((e) => e.playerId === pid);
-
-    const highlight =
-      event?.eventType === 'INJURY'
-        ? 'bg-orange-300'
-        : event?.eventType === 'RED_CARD'
-        ? 'bg-red-500 text-white'
-        : 'bg-gray-200';
-
-    return (
-      <span className={`px-2 py-1 rounded ${highlight}`}>
-        {player?.name ?? `#${pid}`} ({player?.position ?? '?'})
-      </span>
-    );
-  }
-
-  async function makeSub() {
+  /* ────────────────────────────── Helpers */
+  function commitSub(e: MouseEvent) {
+    e.preventDefault();
     if (!selectedOut || !selectedIn) return;
-    try {
-      await axios.post('/api/substitute', {
-        matchId,
-        team: 'home',
-        outPlayerId: selectedOut,
-        inPlayerId: selectedIn,
-      });
-      await axios.post('/api/resume-match', { matchId });
-      onClose();
-    } catch (err) {
-      console.error(err);
-    }
+    onSubstitute({ out: selectedOut, in: selectedIn });
+    // reset selections
+    setSelectedOut(null);
+    setSelectedIn(null);
   }
 
-  if (!data) return null;
+  const disableCommit =
+    !selectedOut ||
+    !selectedIn ||
+    selectedOut === selectedIn ||
+    subsRemaining === 0;
 
+  /* ────────────────────────────── Render */
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
-      <div className="bg-white rounded p-6 w-[600px] max-h-[90vh] overflow-y-auto relative">
-        <h2 className="text-xl font-bold mb-4">Half-Time Substitutions</h2>
-
-        <h3 className="font-semibold mt-2 mb-1">Current Lineup</h3>
-        <div className="flex flex-wrap gap-2 mb-4">
-          {data.homeLineup.map((pid) => (
-            <button
-              key={pid}
-              onClick={() => setSelectedOut(pid)}
-              className={`border px-2 py-1 rounded ${
-                selectedOut === pid ? 'bg-blue-300' : ''
-              }`}
-            >
-              {playerLabel(pid)}
-            </button>
-          ))}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Half-Time"
+      size="lg"
+      isLocked={false}
+      className="flex flex-col gap-4"
+    >
+      {/* Top: event feed */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+            Match Events
+          </h3>
+          <MatchEventFeed events={events} maxHeightRem={18} />
         </div>
 
-        <h3 className="font-semibold mt-2 mb-1">Reserves</h3>
-        <div className="flex flex-wrap gap-2 mb-4">
-          {data.homeReserves.map((pid) => (
-            <button
-              key={pid}
-              onClick={() => setSelectedIn(pid)}
-              className={`border px-2 py-1 rounded ${
-                selectedIn === pid ? 'bg-green-300' : ''
-              }`}
-            >
-              {playerLabel(pid)}
-            </button>
-          ))}
+        {/* Substitutions */}
+        <div className="flex flex-col gap-3">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+            Substitutions (remaining {subsRemaining})
+          </h3>
+
+          {/* Lineup list */}
+          <RosterList
+            title="On Field"
+            players={lineup}
+            selected={selectedOut}
+            onSelect={setSelectedOut}
+          />
+
+          {/* Bench list */}
+          <RosterList
+            title="Bench"
+            players={bench}
+            selected={selectedIn}
+            onSelect={setSelectedIn}
+          />
+
+          <AppButton
+            onClick={commitSub}
+            disabled={disableCommit}
+            className="self-end"
+          >
+            Confirm Sub
+          </AppButton>
         </div>
+      </div>
 
-        <button
-          className="bg-blue-600 text-white px-4 py-2 rounded mr-2"
-          onClick={makeSub}
-        >
-          Confirm Sub & Resume Match
-        </button>
+      {/* Footer */}
+      <div className="mt-4 flex justify-end gap-2">
+        <AppButton variant="ghost" onClick={onClose}>
+          Resume Match
+        </AppButton>
+      </div>
+    </Modal>
+  );
+}
 
-        <button
-          className="absolute top-2 right-2 text-gray-500 hover:text-black"
-          onClick={onClose}
-        >
-          ✕
-        </button>
+/* -------------------------------------------------------------------------- */
+/* Helper – RosterList                                                        */
+/* -------------------------------------------------------------------------- */
+
+function RosterList({
+  title,
+  players,
+  selected,
+  onSelect,
+}: {
+  title: string;
+  players: Backend.Player[];
+  selected: number | null;
+  onSelect: (id: number | null) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+        {title}
+      </p>
+      <div className="max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
+        {players.map((p, idx) => (
+          <div
+            key={p.id}
+            onClick={() => onSelect(p.id)}
+            className={clsx(
+              "flex cursor-pointer items-center gap-2 px-2 py-[3px] text-xs transition-colors",
+              idx % 2 === 0
+                ? "bg-gray-50 dark:bg-gray-800/20"
+                : "bg-white dark:bg-gray-800",
+              selected === p.id &&
+                "bg-yellow-200 dark:bg-yellow-600/40"
+            )}
+          >
+            <span className="w-6 text-center font-mono">{p.position}</span>
+            <span className="flex-1 truncate">{p.name}</span>
+            <span className="w-6 text-right">{p.rating}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

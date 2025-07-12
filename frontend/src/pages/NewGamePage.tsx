@@ -1,48 +1,87 @@
-import { useEffect, useState } from 'react';
+// File: frontend/src/pages/NewGamePage.tsx
+import React, { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from '../services/axios';
 
-export default function TitlePage() {
-  const [canContinue, setCanContinue] = useState(false);
+interface Country {
+  code: string;
+  iso2: string;
+  name: string;
+  flag?: string;
+  continent: string;
+}
+
+export default function NewGamePage() {
   const navigate = useNavigate();
+  const [coachName, setCoachName] = useState('');
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    fetch('http://localhost:4000/api/gamestate')
-      .then(res => {
-        if (!res.ok) throw new Error();
-        return res.json();
-      })
-      .then(data => {
-        if (data && data.coachTeamId) setCanContinue(true);
-      })
-      .catch(() => setCanContinue(false));
+    axios.get<Country[]>('/api/countries')
+      .then(res => setCountries(res.data))
+      .catch(() => setError('Failed to load countries'));
   }, []);
 
-  return (
-    <div className="h-screen flex flex-col items-center justify-center bg-green-800 text-white">
-      <h1 className="text-6xl font-bold mb-10 tracking-wide">MatchDay! <span className="text-sm align-top">25</span></h1>
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!coachName || selectedCountries.length === 0) {
+      setError('Please enter your name and select at least one country.');
+      return;
+    }
+    try {
+      const { data } = await axios.post('/api/save-game', {
+        name: coachName,
+        coachName,
+        countries: selectedCountries,
+      });
+      navigate('/draw-results', { state: data });
+    } catch (err) {
+      console.error(err);
+      setError('Failed to start new game.');
+    }
+  };
 
-      <div className="space-y-4">
-        <button
-          onClick={() => navigate('/new-game')}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded"
-        >
-          Start New Game
-        </button>
-        <button
-          onClick={() => navigate('/load')}
-          className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded"
-        >
-          Load Game
-        </button>
-        {canContinue && (
-          <button
-            onClick={() => navigate('/team')}
-            className="bg-green-500 hover:bg-green-700 text-white font-bold py-3 px-8 rounded"
+  return (
+    <div className="p-4">
+      <h1 className="text-2xl mb-4">Start New Game</h1>
+      {error && <p className="text-red-600 mb-2">{error}</p>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block mb-1">Coach Name</label>
+          <input
+            type="text"
+            value={coachName}
+            onChange={e => setCoachName(e.target.value)}
+            className="w-full p-2 border rounded"
+          />
+        </div>
+        <div>
+          <label className="block mb-1">Select Countries</label>
+          <select
+            multiple
+            value={selectedCountries}
+            onChange={e => {
+              const opts = Array.from(e.target.selectedOptions, o => o.value);
+              setSelectedCountries(opts);
+            }}
+            className="w-full p-2 border rounded"
           >
-            Continue
-          </button>
-        )}
-      </div>
+            {countries.map(c => (
+              <option key={c.code} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Draw Teams
+        </button>
+      </form>
     </div>
   );
 }

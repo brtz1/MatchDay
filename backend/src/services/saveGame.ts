@@ -1,7 +1,7 @@
 // src/services/saveGame.ts
 
-import prisma from '../utils/prisma';
-import { DivisionTier, SaveGame } from '@prisma/client';
+import prisma from "../utils/prisma";
+import { DivisionTier, SaveGame } from "@prisma/client";
 
 /**
  * Creates a new SaveGame snapshot from the static BaseTeam/BasePlayer data.
@@ -21,19 +21,24 @@ export async function createSaveGameFromBase(saveName: string): Promise<SaveGame
   // 2. Load all BaseTeams with their players, sorted by rating descending
   const baseTeams = await prisma.baseTeam.findMany({
     include: { players: true },
-    orderBy: { rating: 'desc' },
+    orderBy: { rating: "desc" },
   });
 
   // 3. Partition into four divisions of 8 teams each by rating
+  //    + a DIST key to satisfy the enum
   const divisions: Record<DivisionTier, typeof baseTeams> = {
     D1: baseTeams.slice(0, 8),
     D2: baseTeams.slice(8, 16),
     D3: baseTeams.slice(16, 24),
     D4: baseTeams.slice(24, 32),
+    DIST: [], // no teams in DIST for this snapshot
   };
 
   // 4. Create SaveGameTeam & SaveGamePlayer entries
-  for (const [division, teams] of Object.entries(divisions) as [DivisionTier, typeof baseTeams][]) {
+  for (const [division, teams] of Object.entries(divisions) as [
+    DivisionTier,
+    typeof baseTeams,
+  ][]) {
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
       const base = teams[teamIndex];
       // SaveGameTeam

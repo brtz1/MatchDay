@@ -1,115 +1,140 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import * as React from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import axios from "@/services/axios";
+import { useTeamContext } from "@/store/TeamContext";
+import { AppCard } from "@/components/common/AppCard";
+import { AppButton } from "@/components/common/AppButton";
+import { ProgressBar } from "@/components/common/ProgressBar";
+
+/* -------------------------------------------------------------------------- */
+/* Types                                                                      */
+/* -------------------------------------------------------------------------- */
 
 interface SaveGame {
   id: number;
   name: string;
   coachName: string;
   createdAt: string;
-  teams: { name: string; division: string }[];
+  teams: { id: number; name: string; division: string }[];
 }
 
-export default function SaveGameList() {
+interface LoadResponse {
+  coachTeamId: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export default function LoadGamePage() {
+  const navigate = useNavigate();
+  const { setCurrentTeamId, setSaveGameId } = useTeamContext();
+
+  /* ── State */
   const [saves, setSaves] = useState<SaveGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  const navigate = useNavigate();
-
+  /* ── Fetch list */
   useEffect(() => {
-    fetch('http://localhost:4000/api/save-game?includeTeams=true')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch saves');
-        return res.json();
-      })
-      .then(data => {
-        setSaves(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setError('Could not load save games');
-        setLoading(false);
-      });
+    axios
+      .get<SaveGame[]>("/save-game", { params: { includeTeams: true } })
+      .then(({ data }) => setSaves(data))
+      .catch(() => setError("Could not load save-games"))
+      .finally(() => setLoading(false));
   }, []);
 
-  const loadSave = async (id: number, saveName: string) => {
-    const confirmed = window.confirm(`Load save "${saveName}"? Unsaved progress will be lost.`);
-    if (!confirmed) return;
+  /* ── Load chosen save */
+  async function handleLoad(id: number, name: string) {
+    if (
+      !window.confirm(
+        `Load save “${name}”? Unsaved progress will be lost.`
+      )
+    )
+      return;
 
     setLoadingId(id);
     try {
-      const res = await fetch('http://localhost:4000/api/save-game/load', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
+      const { data } = await axios.post<LoadResponse>(
+        "/save-game/load",
+        { id }
+      );
 
-      if (!res.ok) throw new Error('Failed to load game');
+      if (!data.coachTeamId) throw new Error("Missing coach team id");
 
-      const data = await res.json();
-      if (!data.coachTeamId) throw new Error('Missing coach team ID from response');
-
-      navigate(`/save-game-teams/${data.coachTeamId}`);
+      setSaveGameId(id);
+      setCurrentTeamId(data.coachTeamId);
+      navigate(`/team/${data.coachTeamId}`);
     } catch (err) {
-      console.error(err);
-      setError('Failed to load selected save game');
+      setError("Failed to load selected save-game");
       setLoadingId(null);
     }
-  };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Render                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   return (
-    <div className="min-h-screen bg-green-900 text-white flex flex-col items-center py-12 px-4">
-      <h1 className="text-4xl font-bold mb-6">Load Save Game</h1>
+    <div className="flex min-h-screen flex-col items-center gap-8 bg-green-900 px-4 py-12 text-white">
+      <h1 className="text-4xl font-bold">Load Save-Game</h1>
 
-      {loading && <p>Loading save games...</p>}
-      {error && <p className="text-red-400">{error}</p>}
-
-      {!loading && !error && (
-        <div className="w-full max-w-xl space-y-4">
+      {loading ? (
+        <ProgressBar className="w-64" />
+      ) : error ? (
+        <p className="font-semibold text-red-400">{error}</p>
+      ) : (
+        <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
-            const coachTeam = save.teams?.find(t => t.division === 'D4');
+            const coachTeam =
+              save.teams?.find((t) => t.division === "D4") ??
+              save.teams?.[0];
+
             return (
-              <div
+              <AppCard
                 key={save.id}
-                className="bg-white bg-opacity-10 rounded p-4 flex justify-between items-center shadow"
+                variant="outline"
+                className="flex items-center justify-between bg-white/10"
               >
                 <div>
                   <p className="text-xl font-semibold">{save.name}</p>
                   <p className="text-sm text-gray-300">
-                    Coach: {save.coachName || 'Unknown'} — Team: {coachTeam?.name || 'D4 team'}<br />
-                    Created: {new Date(save.createdAt).toLocaleString()}
+                    Coach: {save.coachName || "Unknown"} — Team:{" "}
+                    {coachTeam?.name || "N/A"} <br />
+                    Created:{" "}
+                    {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <button
-                  onClick={() => loadSave(save.id, save.name)}
-                  disabled={loadingId === save.id}
-                  className={`px-4 py-2 rounded bg-blue-500 hover:bg-blue-700 text-white font-semibold ${
-                    loadingId === save.id ? 'opacity-50 cursor-wait' : ''
-                  }`}
+
+                <AppButton
+                  onClick={() => handleLoad(save.id, save.name)}
+                  isLoading={loadingId === save.id}
                 >
-                  {loadingId === save.id ? 'Loading...' : 'Resume'}
-                </button>
-              </div>
+                  {loadingId === save.id ? "Loading…" : "Resume"}
+                </AppButton>
+              </AppCard>
             );
           })}
         </div>
       )}
 
-      <div className="mt-10 space-x-4">
-        <button
-          onClick={() => navigate('/')}
-          className="bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded text-white font-semibold"
+      {/* Footer actions */}
+      <div className="mt-10 flex gap-4">
+        <AppButton
+          variant="secondary"
+          onClick={() => navigate("/")}
         >
           Back to Menu
-        </button>
-        <button
-          onClick={() => navigate('/new-game')}
-          className="bg-yellow-500 hover:bg-yellow-600 px-6 py-2 rounded text-black font-semibold"
+        </AppButton>
+        <AppButton
+          variant="primary"
+          onClick={() => navigate("/country-selection")}
         >
           Start New Game
-        </button>
+        </AppButton>
       </div>
     </div>
   );

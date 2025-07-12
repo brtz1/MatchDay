@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "GameState" ALTER COLUMN "id" SET DEFAULT 1;

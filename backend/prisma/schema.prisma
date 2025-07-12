@@ -177,20 +177,25 @@ model SaveGame {
 }
 
 model SaveGameTeam {
-  id            Int              @id @default(autoincrement())
+  id            Int          @id @default(autoincrement())
   saveGameId    Int
   baseTeamId    Int
   name          String
   division      DivisionTier
   morale        Int
   currentSeason Int
-  SaveGame      SaveGame         @relation(fields: [saveGameId], references: [id])
-  baseTeam      BaseTeam         @relation(fields: [baseTeamId], references: [id])
-  players       SaveGamePlayer[]
-  localIndex    Int?
-  homeMatches   SaveGameMatch[]  @relation("HomeTeamSave")
-  awayMatches   SaveGameMatch[]  @relation("AwayTeamSave")
-  GameStates    GameState[]
+  localIndex    Int? // 0-127, REQUIRED
+
+  // relations
+  SaveGame    SaveGame         @relation(fields: [saveGameId], references: [id])
+  baseTeam    BaseTeam         @relation(fields: [baseTeamId], references: [id])
+  players     SaveGamePlayer[]
+  homeMatches SaveGameMatch[]  @relation("HomeTeamSave")
+  awayMatches SaveGameMatch[]  @relation("AwayTeamSave")
+  GameStates  GameState[]
+
+  /// One unique team per save at each localIndex
+  @@unique([saveGameId, localIndex])
 }
 
 model SaveGamePlayer {
@@ -251,14 +256,16 @@ model BasePlayer {
 }
 
 model GameState {
-  id                Int          @id @default(autoincrement())
-  season            Int          @default(1)
-  currentMatchday   Int          @default(1)
-  coachTeamId       Int
-  coachTeam         SaveGameTeam @relation(fields: [coachTeamId], references: [id])
+  id                Int           @id @default(1)
+  season            Int           @default(1)
+  currentMatchday   Int           @default(1)
+  coachTeamId       Int?
+  coachTeam         SaveGameTeam? @relation(fields: [coachTeamId], references: [id])
   currentSaveGameId Int
-  matchdayType      MatchdayType @default(LEAGUE) // use enum
-  gameStage         GameStage    @default(ACTION) // define new enum
+  matchdayType      MatchdayType  @default(LEAGUE)
+  gameStage         GameStage     @default(ACTION)
+
+  @@unique([id])
 }
 
 model MatchState {
@@ -272,6 +279,15 @@ model MatchState {
   homeSubsMade Int     @default(0)
   awaySubsMade Int     @default(0)
   isPaused     Boolean @default(false)
+}
+
+model Country {
+  id        Int     @id @default(autoincrement())
+  code      String  @unique // "ESP"
+  iso2      String  @unique // "ES"
+  name      String
+  flag      String? // 🇪🇸
+  continent String
 }
 
 enum MatchdayType {
@@ -292,4 +308,5 @@ enum DivisionTier {
   D2
   D3
   D4
+  DIST
 }

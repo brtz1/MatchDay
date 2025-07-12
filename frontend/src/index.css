@@ -1,7 +1,56 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/*  index.css
+    ----------
+    Global resets, fonts, dark-mode colours and small utility tweaks that
+    don’t belong in Tailwind’s JIT pipeline.
+*/
+
+/* 1) import the generated Tailwind output */
+@import "./styles/tailwind.css";
+
+/* 2) CSS reset adjustments ------------------------------------------------ */
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  -webkit-font-smoothing: antialiased;
+}
 
 body {
-  @apply bg-green-700 text-black;
+  font-family: "Inter", system-ui, sans-serif;
+  background-color: theme("colors.green.900");
+  color: theme("colors.white");
+}
+
+/* 3) Dark-mode background override (html.dark class is toggled by UiContext) */
+html.dark body {
+  background-color: theme("colors.gray.900");
+  color: theme("colors.gray.100");
+}
+
+/* 4) Scroll-bar styling --------------------------------------------------- */
+*::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: theme("colors.gray.400");
+  border-radius: 0.25rem;
+}
+html.dark *::-webkit-scrollbar-thumb {
+  background: theme("colors.gray.600");
+}
+
+/* 5) Text selection colours ---------------------------------------------- */
+::selection {
+  background: theme("colors.blue.600");
+  color: white;
+}
+html.dark ::selection {
+  background: theme("colors.blue.500");
 }
