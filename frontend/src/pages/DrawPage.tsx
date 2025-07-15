@@ -8,9 +8,7 @@ import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
-/* ------------------------------------------------------------------------- */
-/* Types                                                                     */
-/* ------------------------------------------------------------------------- */
+import { teamUrl, newGameUrl } from "@/utils/paths"; // ✅ Use centralized paths
 
 interface DrawResponse {
   userTeamId: number;
@@ -19,34 +17,24 @@ interface DrawResponse {
   divisionPreview: string[];
 }
 
-/* ------------------------------------------------------------------------- */
-/* Component                                                                 */
-/* ------------------------------------------------------------------------- */
-
 export default function DrawPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
   const { setCurrentTeamId, setSaveGameId } = useTeamContext();
 
-  const [selectedCountries, setSelectedCountries] =
-    useState<string[] | null>(null);
-
+  const [selectedCountries, setSelectedCountries] = useState<string[] | null>(null);
   const [coachName, setCoachName] = useState("");
-
   const [teamName, setTeamName] = useState("");
   const [userTeamId, setUserTeamId] = useState<number | null>(null);
   const [divisionPreview, setDivisionPreview] = useState<string[]>([]);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /* --------------------------------------------------------------------- 1
-     Bootstrap – pull selectedCountries from router state or localStorage   */
+  // Load countries from state or localStorage
   useEffect(() => {
     const fromState = location.state?.selectedCountries;
-    const fromStorage =
-      localStorage.getItem("selectedCountries") ?? "[]";
+    const fromStorage = localStorage.getItem("selectedCountries") ?? "[]";
 
     const parsed =
       fromState && Array.isArray(fromState) && fromState.length
@@ -56,21 +44,18 @@ export default function DrawPage() {
     if (parsed.length) {
       setSelectedCountries(parsed);
     } else {
-      navigate("/country-selection", { replace: true });
+      navigate(newGameUrl, { replace: true }); // ✅ Use constant
     }
   }, [location.state, navigate]);
 
-  /* --------------------------------------------------------------------- 2
-     Navigate to roster once draw finished                                   */
+  // Redirect to team roster after draw
   useEffect(() => {
     if (userTeamId) {
       setCurrentTeamId(userTeamId);
-      navigate(`/team/${userTeamId}`, { replace: true });
+      navigate(teamUrl(userTeamId), { replace: true }); // ✅ Use helper
     }
   }, [userTeamId, setCurrentTeamId, navigate]);
 
-  /* --------------------------------------------------------------------- 3
-     Draw team                                                               */
   async function handleDraw() {
     if (!coachName.trim()) {
       setError("Please enter your coach name");
@@ -88,8 +73,7 @@ export default function DrawPage() {
         countries: selectedCountries,
       });
 
-      const { userTeamId, userTeamName, saveGameId, divisionPreview } =
-        data;
+      const { userTeamId, userTeamName, saveGameId, divisionPreview } = data;
 
       if (!userTeamId || !saveGameId) {
         throw new Error("Invalid draw response from server");
@@ -102,14 +86,11 @@ export default function DrawPage() {
       localStorage.removeItem("selectedCountries");
       setLoading(false);
     } catch (err: any) {
-      setError(
-        err?.response?.data?.error ?? err.message ?? "Draw failed"
-      );
+      setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
       setLoading(false);
     }
   }
 
-  /* --------------------------------------------------------------------- Render */
   if (!selectedCountries) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-800 text-white">
@@ -133,7 +114,7 @@ export default function DrawPage() {
           <AppButton
             variant="secondary"
             className="w-full"
-            onClick={() => navigate("/country-selection")}
+            onClick={() => navigate(newGameUrl)} // ✅ Use constant
           >
             Back
           </AppButton>
@@ -142,21 +123,14 @@ export default function DrawPage() {
         <AppCard className="w-full max-w-xl space-y-6 bg-white/10">
           <div>
             <p className="mb-2 text-xl">You will coach</p>
-            <p className="text-4xl font-bold text-yellow-400">
-              {teamName}
-            </p>
+            <p className="text-4xl font-bold text-yellow-400">{teamName}</p>
           </div>
 
           <div className="rounded-lg bg-white/10 p-4 text-left">
-            <h2 className="mb-2 text-lg font-semibold">
-              Division Preview
-            </h2>
+            <h2 className="mb-2 text-lg font-semibold">Division Preview</h2>
             <ul className="space-y-1 text-sm text-gray-200">
               {divisionPreview.map((d, i) => (
-                <li
-                  key={i}
-                  className="border-b border-gray-700 py-1 last:border-b-0"
-                >
+                <li key={i} className="border-b border-gray-700 py-1 last:border-b-0">
                   {d}
                 </li>
               ))}
@@ -166,10 +140,7 @@ export default function DrawPage() {
           <AppButton
             variant="primary"
             className="w-full"
-            onClick={() =>
-              userTeamId &&
-              navigate(`/team/${userTeamId}`, { replace: true })
-            }
+            onClick={() => userTeamId && navigate(teamUrl(userTeamId), { replace: true })} // ✅ Use helper
           >
             Let&apos;s Go!
           </AppButton>
@@ -182,11 +153,7 @@ export default function DrawPage() {
             placeholder="Enter your coach name"
             className="w-full rounded-md border border-gray-300 p-3 text-black dark:border-gray-600"
           />
-          <AppButton
-            variant="primary"
-            className="w-full"
-            onClick={handleDraw}
-          >
+          <AppButton variant="primary" className="w-full" onClick={handleDraw}>
             Draw Team
           </AppButton>
         </AppCard>

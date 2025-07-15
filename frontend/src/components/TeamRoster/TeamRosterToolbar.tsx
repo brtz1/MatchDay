@@ -1,62 +1,26 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import * as React from "react";
-import { useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
-import clsx from "clsx";
-import { ChevronDown, Save } from "lucide-react";
-
 import { useTeamContext } from "@/store/TeamContext";
-import { AppButton } from "@/components/common/AppButton";
-import Tooltip from "@/components/ui/tooltip";
-import axios from "@/services/axios";
 
-/* -------------------------------------------------------------------------- */
-/* Types & menu schema                                                        */
-/* -------------------------------------------------------------------------- */
-
-interface MenuItem {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
+// Dummy logic — replace with your real save logic if needed
+function useSaveGame() {
+  const [saving, setSaving] = React.useState(false);
+  const handleManualSave = () => {
+    setSaving(true);
+    setTimeout(() => {
+      alert("Game saved! (placeholder)");
+      setSaving(false);
+    }, 1000);
+  };
+  return { handleManualSave, saving };
 }
 
-interface MenuBlock {
-  key: string;
-  label: string;
-  items: MenuItem[];
-}
-
-/* -------------------------------------------------------------------------- */
-/* Component                                                                   */
-/* -------------------------------------------------------------------------- */
-
-export default function TeamRosterToolbar() {
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+function TeamRosterToolbar() {
   const navigate = useNavigate();
   const { selectedPlayer, setSellMode } = useTeamContext();
+  const { handleManualSave, saving } = useSaveGame();
 
-  /* ─────────────────────────────── Actions */
-
-  async function handleManualSave() {
-    setSaving(true);
-    try {
-      const { data } = await axios.post("/manual-save", {
-        name: "Manual Save",
-        coachName: "Coach",
-      });
-      alert(`✅ Game saved as "${data.saveName}"`);
-    } catch (err: any) {
-      alert(`❌ Save failed: ${err?.response?.data?.error ?? err}`);
-    } finally {
-      setSaving(false);
-      setOpenMenu(null);
-    }
-  }
-
-  /* ─────────────────────────────── Menu definition */
-
-  const menuDefs: MenuBlock[] = [
+  const menuDefs = [
     {
       key: "matchday",
       label: "Matchday",
@@ -66,10 +30,7 @@ export default function TeamRosterToolbar() {
           onClick: handleManualSave,
           disabled: saving,
         },
-        {
-          label: "Load Game",
-          onClick: () => navigate("/load-game"),
-        },
+        { label: "Load Game", onClick: () => navigate("/load") },
         { label: "Exit without saving", onClick: () => alert("TODO") },
         { label: "Exit (Save)", onClick: () => alert("TODO") },
         { label: "About", onClick: () => alert("TODO") },
@@ -100,7 +61,7 @@ export default function TeamRosterToolbar() {
           },
         },
         { label: "Scout", onClick: () => alert("TODO") },
-        { label: "Search", onClick: () => navigate("/transfer-market") },
+        { label: "Search", onClick: () => navigate("/top-players") },
         { label: "Last Transfers", onClick: () => alert("TODO") },
       ],
     },
@@ -126,59 +87,29 @@ export default function TeamRosterToolbar() {
     },
   ];
 
-  /* ------------------------------------------------------------------------ */
-  /* Render                                                                   */
-  /* ------------------------------------------------------------------------ */
-
   return (
-    <nav className="relative flex gap-4 rounded bg-blue-600 p-2 text-xs text-white shadow dark:bg-blue-500">
+    <div className="flex gap-2">
       {menuDefs.map((menu) => (
-        <div key={menu.key} className="relative">
-          {/* top-level button */}
-          <AppButton
-            variant="ghost"
-            className="flex items-center gap-1 bg-transparent px-2 py-1 text-white hover:bg-white/10"
-            onClick={() => setOpenMenu((prev) => (prev === menu.key ? null : menu.key))}
-          >
+        <div key={menu.key} className="relative group">
+          <button className="rounded bg-white/10 px-3 py-1 text-sm shadow hover:bg-white/20">
             {menu.label}
-            <ChevronDown className="h-3 w-3" />
-          </AppButton>
-
-          {/* dropdown panel */}
-          {openMenu === menu.key && (
-            <ul className="absolute left-0 z-20 mt-1 min-w-[10rem] rounded-md border border-gray-200 bg-white py-1 text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-              {menu.items.map((item) => (
-                <li key={item.label}>
-                  <button
-                    disabled={item.disabled}
-                    onClick={item.onClick}
-                    className={clsx(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700",
-                      item.disabled ? "cursor-not-allowed opacity-50" : undefined
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          </button>
+          <div className="absolute z-10 hidden w-max flex-col space-y-1 rounded bg-black/80 p-2 text-xs text-white shadow group-hover:flex">
+            {menu.items.map((item, index) => (
+              <button
+                key={index}
+                onClick={item.onClick}
+                disabled={item.disabled}
+                className="text-left disabled:opacity-50"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
       ))}
-
-      {/* quick-save icon */}
-      <div className="ml-auto">
-        <Tooltip content="Quick save">
-          <AppButton
-            variant="ghost"
-            className="h-8 w-8 p-0 text-white hover:bg-white/10"
-            onClick={handleManualSave}
-            disabled={saving}
-          >
-            <Save className="h-4 w-4" />
-          </AppButton>
-        </Tooltip>
-      </div>
-    </nav>
+    </div>
   );
 }
+
+export default TeamRosterToolbar;

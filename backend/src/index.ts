@@ -9,6 +9,7 @@ import { Server } from "socket.io";
 
 import newGameRoute from "./routes/newGameRoute";
 import saveGameRoute from "./routes/saveGameRoute";
+import saveGameTeamsRoute from "./routes/saveGameTeamRoute";
 import teamRoute from "./routes/teamRoute";
 import playerRoute from "./routes/playerRoute";
 import transferRoute from "./routes/transferRoute";
@@ -21,6 +22,7 @@ import countryRoute from "./routes/countryRoute";
 
 /* 👇  NEW: bootstrap GameState so it always exists */
 import { ensureGameState } from "./services/gameState";
+
 
 async function main() {
   /* ------------------------------------------------ ensure GameState row */
@@ -40,7 +42,6 @@ async function main() {
   /* routes */
   app.use("/api/new-game", newGameRoute);
   app.use("/api/save-game", saveGameRoute);
-  app.use("/api/save-game-teams", teamRoute);
   app.use("/api/players", playerRoute);
   app.use("/api/transfers", transferRoute);
   app.use("/api/matches", matchRoute);
@@ -49,6 +50,7 @@ async function main() {
   app.use("/api/matchstate", matchStateRoute);
   app.use("/api/manual-save", manualSaveRoute);
   app.use("/api/countries", countryRoute);
+  app.use("/api/save-game-teams", saveGameTeamsRoute);
 
   /* ------------------------------------------------ HTTP & Socket.io */
   const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;

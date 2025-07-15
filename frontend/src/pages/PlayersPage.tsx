@@ -9,6 +9,10 @@ import { AppButton } from "@/components/common/AppButton";
 import DataTable, { type Column } from "@/components/common/DataTable";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
+/* ── Routing ───────────────────────────────────────────────────────── */
+import { useNavigate } from "react-router-dom";
+import { teamUrl } from "@/utils/paths"; // ✅ centralized team route
+
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -29,8 +33,7 @@ interface Team {
   name: string;
 }
 
-interface PlayerForm
-  extends Omit<Player, "id" | "team"> {
+interface PlayerForm extends Omit<Player, "id" | "team"> {
   teamId?: number;
 }
 
@@ -39,10 +42,8 @@ interface PlayerForm
 /* -------------------------------------------------------------------------- */
 
 export default function PlayersPage() {
-  /* ── State ------------------------------------------------------------- */
   const [players, setPlayers] = useState<Player[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-
   const [form, setForm] = useState<PlayerForm>({
     name: "",
     age: 18,
@@ -57,7 +58,8 @@ export default function PlayersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /* ── Fetch data -------------------------------------------------------- */
+  const navigate = useNavigate();
+
   useEffect(() => {
     async function bootstrap() {
       try {
@@ -76,7 +78,6 @@ export default function PlayersPage() {
     bootstrap();
   }, []);
 
-  /* ── Submit new player ------------------------------------------------- */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -99,7 +100,6 @@ export default function PlayersPage() {
     }
   }
 
-  /* ── Columns ----------------------------------------------------------- */
   const columns: Column<Player>[] = React.useMemo(
     () => [
       { header: "Name", accessor: "name", sortable: true },
@@ -120,14 +120,23 @@ export default function PlayersPage() {
       },
       {
         header: "Team",
-        accessor: (row) => row.team?.name ?? "Free Agent",
+        accessor: (row) =>
+          row.team ? (
+            <button
+              className="text-blue-600 underline hover:text-blue-800 dark:text-yellow-300 dark:hover:text-yellow-200"
+              onClick={() => navigate(teamUrl(row.team!.id))}
+            >
+              {row.team.name}
+            </button>
+          ) : (
+            "Free Agent"
+          ),
         sortable: true,
       },
     ],
-    []
+    [navigate]
   );
 
-  /* ── Render ------------------------------------------------------------ */
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
       <h1 className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">
@@ -158,7 +167,6 @@ export default function PlayersPage() {
           onSubmit={handleSubmit}
           className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
         >
-          {/* Name */}
           <input
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
             placeholder="Name"
@@ -167,7 +175,6 @@ export default function PlayersPage() {
             required
           />
 
-          {/* Age */}
           <input
             type="number"
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
@@ -175,13 +182,10 @@ export default function PlayersPage() {
             value={form.age}
             min={15}
             max={45}
-            onChange={(e) =>
-              setForm({ ...form, age: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, age: Number(e.target.value) })}
             required
           />
 
-          {/* Position */}
           <select
             value={form.position}
             onChange={(e) =>
@@ -195,7 +199,6 @@ export default function PlayersPage() {
             <option value="AT">AT</option>
           </select>
 
-          {/* Rating */}
           <input
             type="number"
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
@@ -203,37 +206,28 @@ export default function PlayersPage() {
             value={form.rating}
             min={1}
             max={99}
-            onChange={(e) =>
-              setForm({ ...form, rating: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, rating: Number(e.target.value) })}
             required
           />
 
-          {/* Value */}
           <input
             type="number"
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
             placeholder="Value (€)"
             value={form.value}
-            onChange={(e) =>
-              setForm({ ...form, value: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, value: Number(e.target.value) })}
             required
           />
 
-          {/* Salary */}
           <input
             type="number"
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
             placeholder="Salary (€)"
             value={form.salary}
-            onChange={(e) =>
-              setForm({ ...form, salary: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, salary: Number(e.target.value) })}
             required
           />
 
-          {/* Team select (full width) */}
           <select
             value={form.teamId ?? ""}
             onChange={(e) =>

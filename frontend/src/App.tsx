@@ -4,8 +4,8 @@ import * as React from "react";
 import { UiProvider } from "@/store/UiContext";
 import { GameStateProvider } from "@/store/GameStateStore";
 import { TeamProvider } from "@/store/TeamContext";
-import NewGamePage from "./pages/NewGamePage";
-import DrawResults from "./components/DrawResults";
+import NewGamePage from "@/pages/NewGamePage";
+import DrawResults from "@/components/DrawResults";
 
 /* Main router with all pages already wired */
 import AppRouter from "@/routes/AppRouter";

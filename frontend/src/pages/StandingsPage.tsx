@@ -1,15 +1,19 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import axios from "@/services/axios";
 import { AppCard } from "@/components/common/AppCard";
 import { ProgressBar } from "@/components/common/ProgressBar";
+
+import { teamUrl } from "@/utils/paths"; // ✅ central route helper
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
 interface StandingsTeam {
+  id: number;
   name: string;
   points: number;
   played: number;
@@ -21,7 +25,7 @@ interface StandingsTeam {
 }
 
 interface DivisionStanding {
-  division: string; // e.g. "Division 1"
+  division: string;
   teams: StandingsTeam[];
 }
 
@@ -33,6 +37,7 @@ export default function StandingsPage() {
   const [data, setData] = useState<DivisionStanding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     axios
@@ -42,7 +47,6 @@ export default function StandingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  /* ────────────────────────────────────────────────── Render */
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
       <h1 className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">
@@ -60,9 +64,7 @@ export default function StandingsPage() {
             variant="outline"
             className="overflow-x-auto"
           >
-            <h2 className="mb-2 text-xl font-semibold">
-              {div.division}
-            </h2>
+            <h2 className="mb-2 text-xl font-semibold">{div.division}</h2>
 
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
@@ -80,7 +82,7 @@ export default function StandingsPage() {
               <tbody>
                 {div.teams.map((team, idx) => (
                   <tr
-                    key={team.name}
+                    key={team.id}
                     className={
                       idx % 2 === 0
                         ? "bg-white dark:bg-gray-900"
@@ -88,7 +90,12 @@ export default function StandingsPage() {
                     }
                   >
                     <td className="px-2 py-1 text-left font-medium">
-                      {team.name}
+                      <button
+                        className="text-blue-600 underline hover:text-blue-800 dark:text-yellow-300 dark:hover:text-yellow-200"
+                        onClick={() => navigate(teamUrl(team.id))} // ✅ using helper
+                      >
+                        {team.name}
+                      </button>
                     </td>
                     <td className="text-center">{team.points}</td>
                     <td className="text-center">{team.played}</td>

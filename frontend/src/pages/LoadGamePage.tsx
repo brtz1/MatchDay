@@ -8,10 +8,10 @@ import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
-/* -------------------------------------------------------------------------- */
-/* Types                                                                      */
-/* -------------------------------------------------------------------------- */
+/* ── Centralized Paths ─────────────────────────────────────────────── */
+import { teamUrl, titlePageUrl, newGameUrl } from "@/utils/paths";
 
+/* ── Types ─────────────────────────────────────────────────────────── */
 interface SaveGame {
   id: number;
   name: string;
@@ -24,21 +24,16 @@ interface LoadResponse {
   coachTeamId: number;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Component                                                                  */
-/* -------------------------------------------------------------------------- */
-
+/* ── Component ─────────────────────────────────────────────────────── */
 export default function LoadGamePage() {
   const navigate = useNavigate();
   const { setCurrentTeamId, setSaveGameId } = useTeamContext();
 
-  /* ── State */
   const [saves, setSaves] = useState<SaveGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  /* ── Fetch list */
   useEffect(() => {
     axios
       .get<SaveGame[]>("/save-game", { params: { includeTeams: true } })
@@ -47,36 +42,24 @@ export default function LoadGamePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  /* ── Load chosen save */
   async function handleLoad(id: number, name: string) {
-    if (
-      !window.confirm(
-        `Load save “${name}”? Unsaved progress will be lost.`
-      )
-    )
-      return;
+    if (!window.confirm(`Load save “${name}”? Unsaved progress will be lost.`)) return;
 
     setLoadingId(id);
     try {
-      const { data } = await axios.post<LoadResponse>(
-        "/save-game/load",
-        { id }
-      );
+      const { data } = await axios.post<LoadResponse>("/save-game/load", { id });
 
       if (!data.coachTeamId) throw new Error("Missing coach team id");
 
       setSaveGameId(id);
       setCurrentTeamId(data.coachTeamId);
-      navigate(`/team/${data.coachTeamId}`);
+      navigate(teamUrl(data.coachTeamId));
     } catch (err) {
+      console.error(err);
       setError("Failed to load selected save-game");
       setLoadingId(null);
     }
   }
-
-  /* ---------------------------------------------------------------------- */
-  /* Render                                                                 */
-  /* ---------------------------------------------------------------------- */
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-8 bg-green-900 px-4 py-12 text-white">
@@ -90,8 +73,7 @@ export default function LoadGamePage() {
         <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
             const coachTeam =
-              save.teams?.find((t) => t.division === "D4") ??
-              save.teams?.[0];
+              save.teams.find((t) => t.division === "D4") ?? save.teams[0];
 
             return (
               <AppCard
@@ -102,10 +84,8 @@ export default function LoadGamePage() {
                 <div>
                   <p className="text-xl font-semibold">{save.name}</p>
                   <p className="text-sm text-gray-300">
-                    Coach: {save.coachName || "Unknown"} — Team:{" "}
-                    {coachTeam?.name || "N/A"} <br />
-                    Created:{" "}
-                    {new Date(save.createdAt).toLocaleString()}
+                    Coach: {save.coachName || "Unknown"} — Team: {coachTeam?.name || "N/A"} <br />
+                    Created: {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>
 
@@ -123,16 +103,10 @@ export default function LoadGamePage() {
 
       {/* Footer actions */}
       <div className="mt-10 flex gap-4">
-        <AppButton
-          variant="secondary"
-          onClick={() => navigate("/")}
-        >
+        <AppButton variant="secondary" onClick={() => navigate(titlePageUrl)}>
           Back to Menu
         </AppButton>
-        <AppButton
-          variant="primary"
-          onClick={() => navigate("/country-selection")}
-        >
+        <AppButton variant="primary" onClick={() => navigate(newGameUrl)}>
           Start New Game
         </AppButton>
       </div>

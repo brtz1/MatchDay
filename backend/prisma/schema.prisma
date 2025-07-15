@@ -202,6 +202,7 @@ model SaveGamePlayer {
   id            Int           @id @default(autoincrement())
   saveGameId    Int
   basePlayerId  Int
+  basePlayer    BasePlayer    @relation(fields: [basePlayerId], references: [id])
   name          String
   position      String
   rating        Int
@@ -210,6 +211,7 @@ model SaveGamePlayer {
   localIndex    Int?
   contractUntil Int
   behavior      Int           @default(3)
+
   SaveGame      SaveGame      @relation(fields: [saveGameId], references: [id])
   team          SaveGameTeam? @relation(fields: [teamId], references: [id])
 }
@@ -219,8 +221,8 @@ model SaveGameMatch {
   saveGameId Int
   homeTeamId Int
   awayTeamId Int
-  homeScore  Int?
-  awayScore  Int?
+  homeGoals  Int?
+  awayGoals  Int?
   matchDate  DateTime
   played     Boolean      @default(false)
   SaveGame   SaveGame     @relation(fields: [saveGameId], references: [id])
@@ -253,6 +255,7 @@ model BasePlayer {
   behavior    Int      @default(3)
   teamId      Int
   team        BaseTeam @relation(fields: [teamId], references: [id])
+  SaveGamePlayer  SaveGamePlayer[]
 }
 
 model GameState {

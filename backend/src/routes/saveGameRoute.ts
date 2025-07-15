@@ -38,10 +38,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       where: { country: { in: countries } },
       include: { players: true },
     });
-    if (baseTeams.length < 128) {
+    if (baseTeams.length < 40) {
       return res
         .status(400)
-        .json({ error: "Not enough teams in selected countries (min 128)" });
+        .json({ error: "Not enough teams in selected countries (min 40)" });
     }
 
     /* 2. Sort by rating */
@@ -148,7 +148,56 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-/* ------------------------------------------------------------------ POST /api/save-game/load (unchanged) */
-// keep your existing load handler here
+/* ------------------------------------------------------------------ POST /api/save-game/load */
+router.post("/load", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "Missing save game ID" });
+
+    // Fetch the SaveGame with associated teams
+    const saveGame = await prisma.saveGame.findUnique({
+      where: { id },
+      include: {
+        teams: {
+          where: { division: "D4" }, // D4 assumed to contain the coach team
+          orderBy: { localIndex: "asc" }, // fallback order
+        },
+      },
+    });
+
+    if (!saveGame || saveGame.teams.length === 0) {
+      return res.status(404).json({ error: "Save game not found or has no D4 teams" });
+    }
+
+    const coachTeam = saveGame.teams[0]; // pick first D4 team
+    const coachTeamId = coachTeam.id;
+
+    await prisma.gameState.upsert({
+      where: { id: 1 }, // always the same row
+      update: {
+        currentSaveGameId: id,
+        coachTeamId,
+        currentMatchday: 1,
+        matchdayType: MatchdayType.LEAGUE,
+        gameStage: GameStage.ACTION,
+        season: 1,
+      },
+      create: {
+        id: 1,
+        currentSaveGameId: id,
+        coachTeamId,
+        currentMatchday: 1,
+        matchdayType: MatchdayType.LEAGUE,
+        gameStage: GameStage.ACTION,
+        season: 1,
+      },
+    });
+
+    res.json({ coachTeamId });
+  } catch (err) {
+    console.error("❌ Error loading save game:", err);
+    next(err);
+  }
+});
 
 export default router;

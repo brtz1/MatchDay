@@ -15,6 +15,7 @@ import TeamRosterPage from "@/pages/TeamRosterPage";
 import MatchdayLivePage from "@/pages/MatchDayLivePage";
 import StandingsPage from "@/pages/StandingsPage";
 import TopPlayersPage from "@/pages/TopPlayersPage";
+import TransferMarketPage from "@/pages/TransferMarketPage";
 
 /* ── Admin / utilities (lazy-loaded) */
 const MatchesPage = React.lazy(() => import("@/pages/MatchesPage"));
@@ -23,15 +24,30 @@ const TeamsPage   = React.lazy(() => import("@/pages/TeamsPage"));
 const StatsPage   = React.lazy(() => import("@/pages/StatsPage"));
 const SettingsPage = React.lazy(() => import("@/pages/SettingsPage"));
 
-/* ── Layout chrome components */
-import AppHeader from "@/components/Layout/AppHeader";
-import SideNav   from "@/components/Layout/SideNav";
+/* ── Elifoot-style nav bar */
+import TopNavBar from "@/components/common/TopNavBar";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
+/* ── Route constants */
+import {
+  adminMatchesUrl,
+  adminPlayersUrl,
+  adminStatsUrl,
+  adminTeamsUrl,
+  drawPageUrl,
+  loadGameUrl,
+  matchdayUrl,
+  newGameUrl,
+  settingsUrl,
+  standingsUrl,
+  titlePageUrl,
+  topPlayersUrl,
+  transferMarketUrl,
+  teamUrl,
+} from "@/utils/paths";
+
 /**
- * ---------------------------------------------------------------------------
- * ScrollToTop – optional helper to reset viewport on route change
- * ---------------------------------------------------------------------------
+ * Scroll to top on route change
  */
 function ScrollToTop() {
   const { pathname } = window.location;
@@ -42,78 +58,54 @@ function ScrollToTop() {
 }
 
 /**
- * ---------------------------------------------------------------------------
- * Router
- * ---------------------------------------------------------------------------
+ * Router setup
  */
 export default function AppRouter() {
-  /* mobile side-nav drawer */
-  const [drawerOpen, setDrawerOpen] = React.useState(false);
-
   return (
     <BrowserRouter>
       <ScrollToTop />
+      <TopNavBar />
 
-      {/* App chrome */}
-      <AppHeader
-        showMenuButton
-        onMenuToggle={() => setDrawerOpen(true)}
-      />
-      <SideNav
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-      />
+      <div className="pt-12">
+        <React.Suspense
+          fallback={
+            <div className="p-6">
+              <ProgressBar className="w-64" />
+            </div>
+          }
+        >
+          <Routes>
+            {/* Public flow */}
+            <Route path={titlePageUrl} element={<TitlePage />} />
+            <Route path={newGameUrl} element={<CountrySelectionPage />} />
+            <Route path={drawPageUrl} element={<DrawPage />} />
+            <Route path={loadGameUrl} element={<LoadGamePage />} />
 
-      {/* Route outlet */}
-      <React.Suspense
-        fallback={
-          <div className="p-6">
-            <ProgressBar className="w-64" />
-          </div>
-        }
-      >
-        <Routes>
-          {/* Public flow */}
-          <Route path="/" element={<TitlePage />} />
-          <Route
-            path="/country-selection"
-            element={<CountrySelectionPage />}
-          />
-          <Route path="/draw" element={<DrawPage />} />
-          <Route path="/load-game" element={<LoadGamePage />} />
+            {/* Core gameplay */}
+            <Route path={teamUrl(":teamId")} element={<TeamRosterPage />} />
+            <Route path={matchdayUrl} element={<MatchdayLivePage />} />
+            <Route path={standingsUrl} element={<StandingsPage />} />
+            <Route path={topPlayersUrl} element={<TopPlayersPage />} />
+            <Route path={transferMarketUrl} element={<TransferMarketPage />} />
 
-          {/* Core gameplay */}
-          <Route path="/team/:teamId" element={<TeamRosterPage />} />
-          <Route path="/matchday" element={<MatchdayLivePage />} />
-          <Route path="/standings" element={<StandingsPage />} />
-          <Route
-            path="/stats/top-players"
-            element={<TopPlayersPage />}
-          />
+            {/* Team context */}
 
-          {/* Admin / maintenance */}
-          <Route path="/admin/matches" element={<MatchesPage />} />
-          <Route path="/admin/players" element={<PlayersPage />} />
-          <Route path="/admin/teams" element={<TeamsPage />} />
-          <Route path="/admin/player-stats" element={<StatsPage />} />
+            {/* Admin */}
+            <Route path={adminMatchesUrl} element={<MatchesPage />} />
+            <Route path={adminPlayersUrl} element={<PlayersPage />} />
+            <Route path={adminTeamsUrl} element={<TeamsPage />} />
+            <Route path={adminStatsUrl} element={<StatsPage />} />
 
-          {/* Settings */}
-          <Route path="/settings" element={<SettingsPage />} />
+            {/* Settings */}
+            <Route path={settingsUrl} element={<SettingsPage />} />
 
-          {/* Legacy redirects */}
-          <Route
-            path="/new-game"
-            element={<Navigate to="/country-selection" replace />}
-          />
-          <Route
-            path="/load"
-            element={<Navigate to="/load-game" replace />}
-          />
-
-          {/* 404 → title page */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </React.Suspense>
+            {/* Redirects */}
+            <Route path="/new-game" element={<Navigate to={newGameUrl} replace />} />
+            <Route path="/load" element={<Navigate to={loadGameUrl} replace />} />
+            <Route path="*" element={<Navigate to={titlePageUrl} replace />} />
+          </Routes>
+        </React.Suspense>
+      </div>
     </BrowserRouter>
   );
 }

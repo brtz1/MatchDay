@@ -92,12 +92,12 @@ router.post('/:matchId/simulate', async (req: Request, res: Response, next: Next
       return;
     }
 
-    const homeScore = Math.floor(Math.random() * 5);
-    const awayScore = Math.floor(Math.random() * 5);
+    const homeGoals = Math.floor(Math.random() * 5);
+    const awayGoals = Math.floor(Math.random() * 5);
 
     const updated = await prisma.saveGameMatch.update({
       where: { id: matchId },
-      data: { homeScore, awayScore, played: true },
+      data: { homeGoals, awayGoals, played: true }
     });
 
     res.status(200).json(updated);
@@ -152,6 +152,28 @@ router.delete('/:matchId', async (req: Request, res: Response, next: NextFunctio
     res.status(200).json({ message: 'Match deleted' });
   } catch (error) {
     console.error(`❌ Error deleting match ${matchId}:`, error);
+    next(error);
+  }
+});
+
+// GET /api/matches/all
+router.get('/all', async (_req, res, next) => {
+  try {
+    const saveGameId = await getCurrentSaveGameId();
+    const matches = await prisma.saveGameMatch.findMany({
+      where: { saveGameId },
+      include: {
+        homeTeam: { select: { id: true, name: true } },
+        awayTeam: { select: { id: true, name: true } },
+      },
+      orderBy: {
+  matchday: {
+    number: 'asc' // or use appropriate sortable field in matchday
+  }
+},
+    });
+    res.json(matches);
+  } catch (error) {
     next(error);
   }
 });

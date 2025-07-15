@@ -8,36 +8,37 @@ import { useTeamContext } from "@/store/TeamContext";
 
 /* ── UI ───────────────────────────────────────────────────────────── */
 import TeamRosterToolbar from "@/components/TeamRoster/TeamRosterToolbar";
-import PlayerRoster      from "@/components/TeamRoster/PlayerRoster";
-import type { TabDefinition } from "@/components/TeamRoster/TeamRosterTabs"
-import { ProgressBar }   from "@/components/common/ProgressBar";
-import { getFlagUrl }    from "@/utils/getFlagUrl";
-
-/* ── Types (no direct Prisma import) ──────────────────────────────── */
-import type { Backend } from "@/types/backend";
+import PlayerRoster from "@/components/TeamRoster/PlayerRoster";
+import type { TabDefinition } from "@/components/TeamRoster/TeamRosterTabs";
 import TeamRosterTabs from "@/components/TeamRoster/TeamRosterTabs";
+import { ProgressBar } from "@/components/common/ProgressBar";
+
+/* ── Types ────────────────────────────────────────────────────────── */
+import type { Backend } from "@/types/backend";
 type Player = Backend.Player;
-type Team   = Backend.Team & {
+type Team = {
+  id: number;
+  name: string;
+  colors: { primary: string; secondary: string };
+  stadiumCapacity: number;
+  division: number;
+  morale: number;
+  coachName?: string;
   players: Player[];
-  coach?: { name: string; morale: number };
 };
 
-/* ── Component ────────────────────────────────────────────────────── */
 export default function TeamRosterPage() {
-  /* router / context */
   const { teamId: teamIdParam } = useParams<{ teamId?: string }>();
-  const { currentTeamId }       = useTeamContext();
+  const { currentTeamId } = useTeamContext();
   const navigate = useNavigate();
 
   const numericId = teamIdParam ? Number(teamIdParam) : NaN;
-  const teamId    = !Number.isNaN(numericId) ? numericId : currentTeamId;
+  const teamId = !Number.isNaN(numericId) ? numericId : currentTeamId;
 
-  /* local state */
-  const [team, setTeam]                 = useState<Team | null>(null);
-  const [selectedPlayer, setSelected]   = useState<Player | null>(null);
-  const [loading, setLoading]           = useState(true);
+  const [team, setTeam] = useState<Team | null>(null);
+  const [selectedPlayer, setSelected] = useState<Player | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  /* fetch team (with retry if backend is still warming up) */
   useEffect(() => {
     if (!teamId) {
       navigate("/", { replace: true });
@@ -60,7 +61,6 @@ export default function TeamRosterPage() {
     })();
   }, [teamId, navigate]);
 
-  /* early exits */
   if (!teamId) {
     return (
       <p className="mt-6 text-center text-red-500">
@@ -76,17 +76,16 @@ export default function TeamRosterPage() {
     );
   }
 
-  /* colours & tab meta */
-  const primary   = team.primaryColor   ?? "#facc15";
-  const secondary = team.secondaryColor ?? "#000000";
-const tabs: TabDefinition[] = [
-  { value: "overview",  label: "Game"      },
-  { value: "player",    label: "Player"    },
-  { value: "formation", label: "Formation" },
-  { value: "finances",  label: "Finances"  },
-];
+  const primary = team.colors.primary ?? "#facc15";
+  const secondary = team.colors.secondary ?? "#000000";
 
-  /* render */
+  const tabs: TabDefinition[] = [
+    { value: "overview", label: "Game" },
+    { value: "player", label: "Player" },
+    { value: "formation", label: "Formation" },
+    { value: "finances", label: "Finances" },
+  ];
+
   return (
     <div className="min-h-screen space-y-4 bg-green-700 p-4 text-white">
       {/* banner */}
@@ -96,18 +95,9 @@ const tabs: TabDefinition[] = [
       >
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           {team.name}
-          {team.country && (
-            <img
-              src={getFlagUrl(team.country)}
-              alt={team.country}
-              className="h-4 w-6"
-            />
-          )}
         </h1>
         <p className="text-xs">
-          Division {team.division} &nbsp;|&nbsp; Coach 
-          {team.coach?.name ?? "You"} &nbsp;|&nbsp; Morale 
-          {team.coach?.morale ?? "–"}
+          Division {team.division} &nbsp;|&nbsp; Coach {team.coachName ?? "You"} &nbsp;|&nbsp; Morale {team.morale}
         </p>
       </div>
 
@@ -116,7 +106,6 @@ const tabs: TabDefinition[] = [
 
       {/* layout */}
       <div className="flex h-[60vh] gap-4">
-        {/* roster */}
         <div className="w-[65%]">
           <PlayerRoster
             players={team.players}
@@ -125,40 +114,20 @@ const tabs: TabDefinition[] = [
           />
         </div>
 
-        {/* side-panel */}
         <div className="w-[35%]">
           <TeamRosterTabs tabs={tabs}>
-            {/* ── Overview ─────────────────────────────── */}
+            {/* Overview */}
             <div className="space-y-2 text-sm">
-              <p>
-                Budget:&nbsp;
-                <span className="font-semibold">
-                  €{team.budget?.toLocaleString() ?? "—"}
-                </span>
-              </p>
-              <p>
-                Stadium:&nbsp;
-                <span className="font-semibold">
-                  {team.stadiumCapacity ?? "—"}
-                </span>
-              </p>
+              <p>Stadium: <span className="font-semibold">{team.stadiumCapacity ?? "—"}</span></p>
               <p>Next-fixture &amp; morale widgets coming soon…</p>
             </div>
 
-            {/* ── Player details ──────────────────────── */}
+            {/* Player details */}
             <div className="text-sm">
               {selectedPlayer ? (
                 <ul className="space-y-1">
-                  <li>
-                    Rating:&nbsp;
-                    <strong>{selectedPlayer.rating}</strong>
-                  </li>
-                  <li>
-                    Salary:&nbsp;
-                    <strong>
-                      €{selectedPlayer.salary.toLocaleString()}
-                    </strong>
-                  </li>
+                  <li>Rating: <strong>{selectedPlayer.rating}</strong></li>
+                  <li>Salary: <strong>€{selectedPlayer.salary.toLocaleString()}</strong></li>
                   <li>Nationality: {selectedPlayer.nationality}</li>
                 </ul>
               ) : (
@@ -166,10 +135,10 @@ const tabs: TabDefinition[] = [
               )}
             </div>
 
-            {/* ── Formation ───────────────────────────── */}
+            {/* Formation */}
             <div className="text-sm">Formation editor coming soon…</div>
 
-            {/* ── Finances ────────────────────────────── */}
+            {/* Finances */}
             <div className="text-sm">Financial breakdown coming soon…</div>
           </TeamRosterTabs>
         </div>

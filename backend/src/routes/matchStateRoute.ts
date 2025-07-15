@@ -92,12 +92,12 @@ router.post('/:matchId/simulate', async (req: Request, res: Response, next: Next
       return;
     }
 
-    const homeScore = Math.floor(Math.random() * 5);
-    const awayScore = Math.floor(Math.random() * 5);
+    const homeGoals = Math.floor(Math.random() * 5);
+    const awayGoals = Math.floor(Math.random() * 5);
 
     const updated = await prisma.saveGameMatch.update({
       where: { id: matchId },
-      data: { homeScore, awayScore, played: true },
+      data: { homeGoals, awayGoals, played: true },
     });
 
     res.status(200).json(updated);

@@ -1,3 +1,4 @@
+// src/components/common/DataTable.tsx
 import * as React from "react";
 import {
   useState,
@@ -9,67 +10,42 @@ import {
 import clsx from "clsx";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 
-/**
- * ---------------------------------------------------------------------------
- *  Types
- * ---------------------------------------------------------------------------
- */
-
 export interface Column<T> {
-  /** Column header text / JSX. */
   header: ReactNode;
-  /**
-   * Accessor for cell content.
-   *  – keyof T   reads `(row as any)[accessor]`
-   *  – fn(row)  custom render
-   */
   accessor: keyof T | ((row: T) => ReactNode);
-  /** Enable sortable behaviour. */
   sortable?: boolean;
-  /** Optional custom class for <td>. */
   cellClass?: string;
-  /** Optional custom class for <th>. */
   headerClass?: string;
 }
 
 export interface DataTableProps<T> {
-  /** Array of data rows. */
   data: T[];
-  /** Column definitions. */
   columns: Column<T>[];
-  /** Unique key generator (defaults to index). */
   rowKey?: (row: T, index: number) => string | number;
-  /** Optional row click handler. */
   onRowClick?: (row: T) => void;
-  /** Rows per page (pagination). Defaults to 10. */
+  onSelectRow?: (row: T) => void;
   pageSize?: number;
-  /** Show spinner when true. */
   isLoading?: boolean;
-  /** Message to display when `data.length === 0`. */
   emptyMessage?: string;
-  /** Tailwind classes for the wrapper div. */
   className?: string;
 }
 
-/**
- * ---------------------------------------------------------------------------
- *  Component
- * ---------------------------------------------------------------------------
- */
+/* ───────────────────────────────────────────────────────────────────────── */
 
 export function DataTable<T>({
   data,
   columns,
   rowKey = (_, i) => i,
   onRowClick,
+  onSelectRow,
   pageSize = 10,
   isLoading = false,
   emptyMessage = "No data",
   className,
 }: DataTableProps<T>) {
-  // ────────────────────────────────────────────────────────────────── Sorting
   const [sortKey, setSortKey] = useState<keyof T | string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  const [selectedKey, setSelectedKey] = useState<string | number | null>(null);
 
   function toggleSort(col: Column<T>) {
     if (!col.sortable) return;
@@ -95,7 +71,6 @@ export function DataTable<T>({
     });
   }, [data, sortKey, sortAsc]);
 
-  // ─────────────────────────────────────────────────────────────── Pagination
   const [page, setPage] = useState(0);
   const totalPages = Math.ceil(sorted.length / pageSize);
   const pageData = sorted.slice(page * pageSize, (page + 1) * pageSize);
@@ -104,12 +79,17 @@ export function DataTable<T>({
     setPage((p) => Math.max(0, Math.min(totalPages - 1, p + delta)));
   }
 
-  // Reset page when data changes
   React.useEffect(() => {
     setPage(0);
   }, [sorted.length]);
 
-  // ─────────────────────────────────────────────────────────────────── Render
+  function handleRowClick(row: T, index: number) {
+    const key = rowKey(row, index);
+    setSelectedKey(key);
+    onSelectRow?.(row);
+    onRowClick?.(row);
+  }
+
   return (
     <div className={clsx("w-full", className)}>
       <div className="overflow-x-auto rounded-2xl shadow-sm">
@@ -167,37 +147,40 @@ export function DataTable<T>({
                 </td>
               </tr>
             ) : (
-              pageData.map((row, i) => (
-                <Fragment key={rowKey(row, i)}>
-                  <tr
-                    className={clsx(
-                      "hover:bg-gray-50 dark:hover:bg-gray-800",
-                      onRowClick && "cursor-pointer"
-                    )}
-                    onClick={() => onRowClick?.(row)}
-                  >
-                    {columns.map((col, ci) => (
-                      <td
-                        key={ci}
-                        className={clsx(
-                          "whitespace-nowrap px-4 py-3 text-sm text-gray-900 dark:text-gray-100",
-                          col.cellClass
-                        )}
-                      >
-                        {typeof col.accessor === "function"
-                          ? col.accessor(row)
-                          : (row as any)[col.accessor]}
-                      </td>
-                    ))}
-                  </tr>
-                </Fragment>
-              ))
+              pageData.map((row, i) => {
+                const key = rowKey(row, i);
+                return (
+                  <Fragment key={key}>
+                    <tr
+                      className={clsx(
+                        "hover:bg-gray-50 dark:hover:bg-gray-800",
+                        (onSelectRow || onRowClick) && "cursor-pointer",
+                        selectedKey === key && "bg-blue-50 dark:bg-blue-900/30"
+                      )}
+                      onClick={() => handleRowClick(row, i)}
+                    >
+                      {columns.map((col, ci) => (
+                        <td
+                          key={ci}
+                          className={clsx(
+                            "whitespace-nowrap px-4 py-3 text-sm text-gray-900 dark:text-gray-100",
+                            col.cellClass
+                          )}
+                        >
+                          {typeof col.accessor === "function"
+                            ? col.accessor(row)
+                            : (row as any)[col.accessor]}
+                        </td>
+                      ))}
+                    </tr>
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Pagination controls */}
       {totalPages > 1 && (
         <div className="mt-3 flex items-center justify-center gap-2">
           <button

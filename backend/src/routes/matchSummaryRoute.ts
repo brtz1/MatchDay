@@ -44,7 +44,7 @@ router.get(
         matchId: m.id,
         home: m.homeTeam.name,
         away: m.awayTeam.name,
-        score: `${m.homeScore ?? 0} - ${m.awayScore ?? 0}`,
+        score: `${m.homeGoals ?? 0} - ${m.awayGoals ?? 0}`,
         events: m.MatchEvent.map((e) => ({
           minute: e.minute,
           type: e.eventType,

@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 import newGameRoute from './routes/newGameRoute';
 import saveGameRoute from './routes/saveGameRoute';
-import teamRoute from './routes/teamRoute';
+import teamRoute from './routes/saveGameTeamRoute';
 import playerRoute from './routes/playerRoute';
 import refereeRoute from './routes/refereeRoute';
 import matchRoute from './routes/matchRoute';
@@ -37,7 +37,6 @@ app.get('/api/health', (req, res) => {
 app.use('/api/new-game', newGameRoute);
 app.use('/api/save-game', saveGameRoute);
 app.use('/api/save-game-teams', teamRoute);
-app.use('/api/teams', teamRoute);      // alias
 app.use('/api/players', playerRoute);
 app.use('/api/referees', refereeRoute);
 app.use('/api/matches', matchRoute);

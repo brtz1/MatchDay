@@ -1,11 +1,13 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import axios from "@/services/axios";
 import DataTable, { type Column } from "@/components/common/DataTable";
 import { AppCard } from "@/components/common/AppCard";
 import { ProgressBar } from "@/components/common/ProgressBar";
 import { getFlagUrl } from "@/utils/getFlagUrl";
+import { playerUrl } from "@/utils/paths"; // ✅ centralized route
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -30,20 +32,30 @@ export default function TopPlayersPage() {
   const [players, setPlayers] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
-  /* ── Fetch ------------------------------------------------------------ */
   useEffect(() => {
     axios
-      .get<PlayerStats[]>("/stats/top") // endpoint returns league-wide leaders
+      .get<PlayerStats[]>("/stats/top")
       .then(({ data }) => setPlayers(data))
       .catch(() => setError("Failed to fetch player stats"))
       .finally(() => setLoading(false));
   }, []);
 
-  /* ── Columns ---------------------------------------------------------- */
   const columns: Column<PlayerStats>[] = React.useMemo(
     () => [
-      { header: "Name", accessor: "name", sortable: true },
+      {
+        header: "Name",
+        accessor: (row) => (
+          <button
+            className="text-blue-600 underline hover:text-blue-800 dark:text-yellow-300 dark:hover:text-yellow-200"
+            onClick={() => navigate(playerUrl(row.id))} // ✅ links to player profile
+          >
+            {row.name}
+          </button>
+        ),
+        sortable: true,
+      },
       {
         header: "Pos",
         accessor: "position",
@@ -89,10 +101,9 @@ export default function TopPlayersPage() {
         sortable: true,
       },
     ],
-    []
+    [navigate]
   );
 
-  /* ── Render ----------------------------------------------------------- */
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
       <h1 className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">
