@@ -1,23 +1,31 @@
-import api from './api';
-/**
- * Fetches a single team and its players (from saveGameTeam).
- */
-export const getTeamById = async (id) => {
-    const res = await api.get(`/save-game-teams/${id}`);
-    return res.data;
-};
-/**
- * Fetch the next scheduled match for a team.
- */
-export const getNextMatch = async (id) => {
-    const res = await api.get(`/save-game-teams/${id}/next-match`);
-    return res.data;
-};
-/**
- * Fetch info about the opponent for a specific match.
- */
-export const getOpponentInfo = async (id) => {
-    const res = await api.get(`/save-game-teams/opponent/${id}`);
-    return res.data;
-};
+// frontend/src/services/teamService.ts
+import axios from '@/services/axios';
+/* ------------------------------------------------------------------ API */
+const SAVE_GAME_TEAMS = '/save-game-teams';
+export async function getTeamById(id) {
+    const [teamRes, playersRes] = await Promise.all([
+        axios.get(`${SAVE_GAME_TEAMS}/${id}`),
+        axios.get(`${SAVE_GAME_TEAMS}/${id}/players`),
+    ]);
+    return {
+        ...teamRes.data,
+        players: playersRes.data,
+    };
+}
+export async function getNextMatch(id) {
+    const { data } = await axios.get(`${SAVE_GAME_TEAMS}/${id}/next-match`);
+    return data;
+}
+export async function getOpponentInfo(opponentTeamId) {
+    const { data } = await axios.get(`${SAVE_GAME_TEAMS}/opponent/${opponentTeamId}`);
+    return data;
+}
+export async function getTeamFinances(id) {
+    const { data } = await axios.get(`${SAVE_GAME_TEAMS}/${id}/finances`);
+    return data;
+}
+export async function getTeams() {
+    const { data } = await axios.get(`${SAVE_GAME_TEAMS}`);
+    return data;
+}
 //# sourceMappingURL=teamService.js.map

@@ -43,12 +43,18 @@ export function groupByPosition(players: Player[]): SquadByPosition {
 
 /** Sort players descending by rating (and value as tie-breaker). */
 export function sortPlayers(players: Player[]): Player[] {
-  return [...players].sort(
-    (a, b) =>
-      b.rating - a.rating || // highest rating first
-      b.value - a.value ||   // then market value
-      a.age - b.age          // then younger
-  );
+  return [...players].sort((a, b) => {
+    const ratingDiff = b.rating - a.rating;
+    if (ratingDiff !== 0) return ratingDiff;
+
+    const valueA = a.value ?? 0;
+    const valueB = b.value ?? 0;
+    if (valueA !== valueB) return valueB - valueA;
+
+    const ageA = a.age ?? 99;
+    const ageB = b.age ?? 99;
+    return ageA - ageB;
+  });
 }
 
 /** Average rating of a squad (0 if empty) rounded to one decimal place. */

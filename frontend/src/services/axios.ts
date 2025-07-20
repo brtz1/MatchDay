@@ -1,4 +1,5 @@
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
+import type { InternalAxiosRequestConfig } from "axios";
 
 /**
  * ---------------------------------------------------------------------------
@@ -9,12 +10,10 @@ import axios, { AxiosError } from "axios";
  *   1.  VITE_API_URL  → e.g. "https://prod.api.matchday.app"
  *   2.  fallback      → "http://localhost:4000"
  *
- * All requests automatically prepend `/api`.
+ * All requests automatically prepend `/api` — do NOT include `/api` in your paths.
  */
 const api = axios.create({
-  baseURL: `${
-    import.meta.env.VITE_API_URL ?? "http://localhost:4000"
-  }/api`,
+  baseURL: `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}/api`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -22,15 +21,20 @@ const api = axios.create({
 });
 
 /* ------------------------------------------------------------------------- */
-/* Response / error interceptors                                             */
+/* Interceptors                                                              */
 /* ------------------------------------------------------------------------- */
 
-/** Add auth token if you later store one in localStorage */
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("authToken");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+/** Add auth token if stored in localStorage */
+api.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = localStorage.getItem('token');
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 /** Global error handler → console + toast placeholder */
 api.interceptors.response.use(
@@ -39,9 +43,17 @@ api.interceptors.response.use(
     if (import.meta.env.DEV) {
       console.error("[axios]", err.response ?? err.message);
     }
-    // TODO: hook your toast/notification system here
+    // TODO: Add toast/notification hook here
     return Promise.reject(err);
   }
 );
+
+/**
+ * ---------------------------------------------------------------------------
+ * WARNING: DO NOT prepend `/api` manually to axios calls. Use relative paths.
+ *   ❌ axios.get('/api/teams')     ← BAD
+ *   ✅ axios.get('/teams')         ← GOOD
+ * ---------------------------------------------------------------------------
+ */
 
 export default api;

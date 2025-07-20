@@ -65,3 +65,8 @@ export function broadcastMinute(minute: number) {
   }
   io.emit('match-minute', { minute });
 }
+
+export function getSocketIO(): Server {
+  if (!io) throw new Error('Socket.IO not initialized');
+  return io;
+}

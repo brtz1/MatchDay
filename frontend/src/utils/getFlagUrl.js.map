@@ -1,1 +1,1 @@
-{"version":3,"file":"getFlagUrl.js","sourceRoot":"","sources":["getFlagUrl.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,UAAU,EAAE,MAAM,gBAAgB,CAAC;AAE5C,MAAM,UAAU,UAAU,CAAC,aAAqB;IAC9C,MAAM,IAAI,GAAG,UAAU,CAAC,aAAa,CAAC,IAAI,aAAa,CAAC;IACxD,IAAI,CAAC,IAAI,IAAI,IAAI,CAAC,MAAM,KAAK,CAAC;QAAE,OAAO,EAAE,CAAC;IAC1C,OAAO,2BAA2B,IAAI,CAAC,WAAW,EAAE,MAAM,CAAC;AAC7D,CAAC"}
+{"version":3,"file":"getFlagUrl.js","sourceRoot":"","sources":["getFlagUrl.ts"],"names":[],"mappings":"AAAA;;;GAGG;AACH,OAAO,EAAE,UAAU,EAAE,MAAM,gBAAgB,CAAC"}

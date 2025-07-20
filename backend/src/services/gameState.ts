@@ -1,4 +1,4 @@
-/** Central GameState service — compatible with BOTH old & new helpers */
+// backend/src/services/gameState.ts
 
 import prisma from "@/utils/prisma";
 import {
@@ -12,7 +12,6 @@ import {
 function defaultData(): Omit<GameStateModel, "id"> {
   return {
     season: 1,
-
     coachTeamId: null,
     currentSaveGameId: 0,
     currentMatchday: 1,
@@ -21,15 +20,32 @@ function defaultData(): Omit<GameStateModel, "id"> {
   };
 }
 
-/** Always returns a row (creates one if table empty) */
-export async function ensureGameState(): Promise<GameStateModel> {
-  return prisma.gameState.upsert({
-    where: { id: 1 },
-    create: { id: 1, ...defaultData() },
-    update: {},
-  });
+/** Determines whether a matchday is LEAGUE or CUP based on its number */
+function getMatchdayTypeForNumber(matchday: number): MatchdayType {
+  const cupDays = [3, 6, 8, 11, 14, 17, 20];
+  return cupDays.includes(matchday) ? MatchdayType.CUP : MatchdayType.LEAGUE;
 }
 
+/** Always returns a row (creates one if table empty) */
+export async function ensureGameState(update?: { saveGameId?: number }) {
+  let state = await prisma.gameState.findFirst();
+
+  if (!state) {
+    state = await prisma.gameState.create({
+      data: {
+        ...defaultData(),
+        currentSaveGameId: update?.saveGameId ?? 0,
+      },
+    });
+  } else if (update?.saveGameId !== undefined) {
+    state = await prisma.gameState.update({
+      where: { id: state.id },
+      data: { currentSaveGameId: update.saveGameId },
+    });
+  }
+
+  return state;
+}
 
 /** Preferred getter (includes coachTeam relation) */
 export async function getGameState() {
@@ -76,13 +92,15 @@ export async function setMatchday(
   const current = await ensureGameState();
   const next =
     typeof type === "string"
-      ? (MatchdayType[type as keyof typeof MatchdayType] ??
-        MatchdayType.LEAGUE)
+      ? (MatchdayType[type as keyof typeof MatchdayType] ?? MatchdayType.LEAGUE)
       : type;
 
   return prisma.gameState.update({
     where: { id: current.id },
-    data: { currentMatchday: matchdayId, matchdayType: next },
+    data: {
+      currentMatchday: matchdayId,
+      matchdayType: next,
+    },
   });
 }
 
@@ -112,12 +130,19 @@ export async function getCurrentSaveGameId(): Promise<number> {
   return state.currentSaveGameId;
 }
 
+/**
+ * Advances to the next matchday, and updates its type (CUP or LEAGUE)
+ */
 export async function advanceToNextMatchday() {
   const state = await ensureGameState();
+  const nextMatchday = state.currentMatchday + 1;
+  const nextType = getMatchdayTypeForNumber(nextMatchday);
+
   return prisma.gameState.update({
     where: { id: state.id },
     data: {
-      currentMatchday: state.currentMatchday + 1,
+      currentMatchday: nextMatchday,
+      matchdayType: nextType,
       gameStage: GameStage.ACTION,
     },
   });

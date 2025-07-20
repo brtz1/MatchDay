@@ -14,6 +14,10 @@ import statsRoute from './statsRoute';
 import seasonRoute from './seasonRoute';
 import importRoute from './importRoute';
 import countryRoute from './countryRoute';
+import cupRoute from './cupRoute';
+import standingsRoute from './standingsRoute';
+import matchEventRoute from './matchEventRoute';
+import matchSummaryRoute from './matchSummaryRoute';
 
 const router: Router = express.Router();
 
@@ -33,6 +37,8 @@ router.use('/manual-save', manualSaveRoute);
 router.use('/teams', teamRoute);
 router.use('/players', playerRoute);
 router.use('/referees', refereeRoute);
+router.use('/standings', standingsRoute);
+router.use('/match-events', matchEventRoute);
 
 // Matchday & Game Flow
 router.use('/matchdays', matchdayRoute);
@@ -43,10 +49,14 @@ router.use('/matchstate', matchStateRoute);
 router.use('/matches', matchRoute);
 router.use('/transfers', transferRoute);
 router.use('/stats', statsRoute);
+router.use('/match-summary', matchSummaryRoute);
 
 // Season & Utilities
 router.use('/season', seasonRoute);
 router.use('/countries', countryRoute);
 router.use('/import', importRoute);
+
+// 🏆 Cup
+router.use('/cup', cupRoute);
 
 export default router;

@@ -1,60 +1,57 @@
-import React, {
+import React, { 
   createContext,
   useContext,
   useReducer,
   useMemo,
   type ReactNode,
 } from "react";
-import { SaveGamePlayer } from "@prisma/client";
 
-/** -----------------------------------------------------------------------
- * Types
- * -------------------------------------------------------------------- */
+import type { Backend } from "@/types/backend";
+type SaveGamePlayer = Backend.Player;
 
-// Internal state managed by the reducer
+/* -------------------------------------------------------------------------- */
+/* Internal Types                                                             */
+/* -------------------------------------------------------------------------- */
+
 interface TeamState {
   selectedPlayer: SaveGamePlayer | null;
   sellMode: boolean;
   renewMode: boolean;
   currentTeamId: number | null;
   saveGameId: number | null;
-  selectedTeamId: number | null;
+  matchdayId: number | null;
 }
 
-// Public contract exposed by the context – do **not** change without
-// updating the rest of the app.
 export interface TeamContextType {
-  /** Currently highlighted player in the roster table. */
-  selectedPlayer: SaveGamePlayer | null;
-  setSelectedPlayer: (player: SaveGamePlayer | null) => void;
-
-  /** When true, TeamRoster enters the sell‑price UI for the selected player. */
-  sellMode: boolean;
-  setSellMode: (v: boolean) => void;
-
-  /** When true, TeamRoster shows contract‑renew UI for the selected player. */
-  renewMode: boolean;
-  setRenewMode: (v: boolean) => void;
-
-  /** Coach’s team id in the active save game. */
+  /** Currently coached team ID (null until set). */
   currentTeamId: number | null;
   setCurrentTeamId: (id: number | null) => void;
 
-  /** The save‑game id currently loaded. */
-  saveGameId: number | null;
-  setSaveGameId: (id: number | null) => void;
+  /** Active save-game ID (null until loaded). */
+  currentSaveGameId: number | null;
+  setCurrentSaveGameId: (id: number | null) => void;
 
-  /** Optionally track which other team’s roster is being viewed. */
-  selectedTeamId: number | null;
-  setSelectedTeamId: (id: number | null) => void;
+  /** Current matchday ID (null until set). */
+  currentMatchdayId: number | null;
+  setCurrentMatchdayId: (id: number | null) => void;
 
-  /** Handy helper to reset all temporary UI modes. */
+  /** Player selection for UI details. */
+  selectedPlayer: SaveGamePlayer | null;
+  setSelectedPlayer: (player: SaveGamePlayer | null) => void;
+
+  /** Toggle modes for selling or renewing players. */
+  sellMode: boolean;
+  setSellMode: (on: boolean) => void;
+  renewMode: boolean;
+  setRenewMode: (on: boolean) => void;
+
+  /** Reset both sell and renew modes. */
   resetModes: () => void;
 }
 
-/** -----------------------------------------------------------------------
- * Reducer helpers
- * -------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Reducer                                                                    */
+/* -------------------------------------------------------------------------- */
 
 type Action =
   | { type: "SELECT_PLAYER"; player: SaveGamePlayer | null }
@@ -62,7 +59,7 @@ type Action =
   | { type: "SET_RENEW_MODE"; renewMode: boolean }
   | { type: "SET_CURRENT_TEAM_ID"; id: number | null }
   | { type: "SET_SAVE_GAME_ID"; id: number | null }
-  | { type: "SET_SELECTED_TEAM_ID"; id: number | null }
+  | { type: "SET_MATCHDAY_ID"; id: number | null }
   | { type: "RESET_MODES" };
 
 const initialState: TeamState = {
@@ -71,7 +68,7 @@ const initialState: TeamState = {
   renewMode: false,
   currentTeamId: null,
   saveGameId: null,
-  selectedTeamId: null,
+  matchdayId: null,
 };
 
 function reducer(state: TeamState, action: Action): TeamState {
@@ -86,8 +83,8 @@ function reducer(state: TeamState, action: Action): TeamState {
       return { ...state, currentTeamId: action.id };
     case "SET_SAVE_GAME_ID":
       return { ...state, saveGameId: action.id };
-    case "SET_SELECTED_TEAM_ID":
-      return { ...state, selectedTeamId: action.id };
+    case "SET_MATCHDAY_ID":
+      return { ...state, matchdayId: action.id };
     case "RESET_MODES":
       return { ...state, sellMode: false, renewMode: false };
     default:
@@ -95,58 +92,50 @@ function reducer(state: TeamState, action: Action): TeamState {
   }
 }
 
-/** -----------------------------------------------------------------------
- * Context setup
- * -------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Context Setup                                                              */
+/* -------------------------------------------------------------------------- */
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
 export function TeamProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Memoise the context value so consumers only re‑render when a relevant
-  // piece of state actually changes.
-  const value: TeamContextType = useMemo(() => {
-    return {
+  const value: TeamContextType = useMemo(
+    () => ({
+      currentTeamId: state.currentTeamId,
+      setCurrentTeamId: (id) => dispatch({ type: "SET_CURRENT_TEAM_ID", id }),
+
+      currentSaveGameId: state.saveGameId,
+      setCurrentSaveGameId: (id) => dispatch({ type: "SET_SAVE_GAME_ID", id }),
+
+      currentMatchdayId: state.matchdayId,
+      setCurrentMatchdayId: (id) => dispatch({ type: "SET_MATCHDAY_ID", id }),
+
       selectedPlayer: state.selectedPlayer,
-      setSelectedPlayer: (player) =>
-        dispatch({ type: "SELECT_PLAYER", player }),
+      setSelectedPlayer: (player) => dispatch({ type: "SELECT_PLAYER", player }),
 
       sellMode: state.sellMode,
-      setSellMode: (sellMode) =>
-        dispatch({ type: "SET_SELL_MODE", sellMode }),
+      setSellMode: (sell) => dispatch({ type: "SET_SELL_MODE", sellMode: sell }),
 
       renewMode: state.renewMode,
-      setRenewMode: (renewMode) =>
-        dispatch({ type: "SET_RENEW_MODE", renewMode }),
-
-      currentTeamId: state.currentTeamId,
-      setCurrentTeamId: (id) =>
-        dispatch({ type: "SET_CURRENT_TEAM_ID", id }),
-
-      saveGameId: state.saveGameId,
-      setSaveGameId: (id) => dispatch({ type: "SET_SAVE_GAME_ID", id }),
-
-      selectedTeamId: state.selectedTeamId,
-      setSelectedTeamId: (id) =>
-        dispatch({ type: "SET_SELECTED_TEAM_ID", id }),
+      setRenewMode: (renew) => dispatch({ type: "SET_RENEW_MODE", renewMode: renew }),
 
       resetModes: () => dispatch({ type: "RESET_MODES" }),
-    };
-  }, [state]);
-
-  return (
-    <TeamContext.Provider value={value}>{children}</TeamContext.Provider>
+    }),
+    [state]
   );
+
+  return <TeamContext.Provider value={value}>{children}</TeamContext.Provider>;
 }
 
-/** -----------------------------------------------------------------------
- * Hook
- * -------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Hook                                                                       */
+/* -------------------------------------------------------------------------- */
 
 export function useTeamContext(): TeamContextType {
   const ctx = useContext(TeamContext);
-  if (ctx === undefined) {
+  if (!ctx) {
     throw new Error("useTeamContext must be used within a <TeamProvider>");
   }
   return ctx;

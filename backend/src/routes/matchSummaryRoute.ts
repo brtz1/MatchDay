@@ -1,4 +1,4 @@
-// src/routes/matchSummaryRoute.ts
+// backend/src/routes/matchSummaryRoute.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
@@ -15,14 +15,16 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     const matchdayId = Number(req.params.matchdayId);
     if (isNaN(matchdayId)) {
-      res.status(400).json({ error: 'Invalid matchdayId' });
-      return;
+      return res.status(400).json({ error: 'Invalid matchdayId' });
     }
 
     try {
       const saveGameId = await getCurrentSaveGameId();
-      // Throws if no active save game
+      if (!saveGameId) {
+        return res.status(400).json({ error: 'No active save game found' });
+      }
 
+      // Fetch all matches for this save & matchday, with events
       const matches = await prisma.saveGameMatch.findMany({
         where: { saveGameId, matchdayId },
         include: {
@@ -34,22 +36,22 @@ router.get(
               minute: true,
               eventType: true,
               description: true,
-              playerId: true,
             },
           },
         },
       });
 
+      // Map to the shape PostMatchSummary expects
       const summary = matches.map((m) => ({
         matchId: m.id,
         home: m.homeTeam.name,
         away: m.awayTeam.name,
-        score: `${m.homeGoals ?? 0} - ${m.awayGoals ?? 0}`,
+        // Use an en-dash or hyphen as you prefer:
+        score: `${m.homeGoals ?? 0} – ${m.awayGoals ?? 0}`,
         events: m.MatchEvent.map((e) => ({
           minute: e.minute,
           type: e.eventType,
-          description: e.description,
-          playerId: e.playerId ?? undefined,
+          desc: e.description,    // <-- renamed from `description` to `desc`
         })),
       }));
 

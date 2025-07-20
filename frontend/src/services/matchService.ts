@@ -5,6 +5,12 @@
  */
 
 import axios from "@/services/axios";
+import api from "./axios";
+
+export async function fetchMatchState(matchId: number) {
+  const res = await api.get(`/match-state/${matchId}`);
+  return res.data;
+}
 
 /* ------------------------------------------------------------------ Types */
 
@@ -41,6 +47,24 @@ const BASE = "/matches";
 async function getMatches(): Promise<MatchLite[]> {
   const { data } = await axios.get<MatchLite[]>(BASE);
   return data;
+}
+
+/**
+ * Sends formation selection to backend and returns assigned lineup and bench player IDs.
+ */
+export async function setFormation(
+  matchId: number,
+  teamId: number,
+  formation: string,
+  isHomeTeam: boolean
+): Promise<{ lineup: number[]; bench: number[] }> {
+  const response = await axios.post(`/api/matches/${matchId}/formation`, {
+    teamId,
+    formation,
+    isHomeTeam,
+  });
+
+  return response.data;
 }
 
 /**

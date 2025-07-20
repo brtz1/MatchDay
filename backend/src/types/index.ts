@@ -10,14 +10,17 @@ export type DivisionTier = 'D1' | 'D2' | 'D3' | 'D4';
 export interface PlayerDTO {
   id: number;
   name: string;
-  position: string;
+  position: 'GK' | 'DF' | 'MF' | 'AT';
   rating: number;
   salary: number;
   behavior: number;
   contractUntil: number;
-  nationality?: string;
-  teamName?: string;
+  nationality: string;
+  teamId: number | null;
+  teamName: string;
+  price: number;
 }
+
 
 export interface SaveGamePlayerDTO {
   id: number;

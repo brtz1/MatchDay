@@ -1,57 +1,25 @@
-import express, { Request, Response, NextFunction } from 'express';
-import prisma from '../utils/prisma';
+// backend/src/routes/matchEventRoute.ts
 
-const router = express.Router();
+import { Router, Request, Response, NextFunction } from 'express';
+import { getEventsByMatchId } from '@/services/matchEventService';
+
+const router = Router();
 
 /**
- * GET /api/match-events/:matchdayId
- * Fetches all matches for a matchday with their events, grouped by match.
+ * GET /api/match-events/:matchId
+ * Fetches all events for a given match, ordered by minute.
  */
-router.get('/match-events/:matchdayId', async (req: Request, res: Response, next: NextFunction) => {
-  const matchdayId = Number(req.params.matchdayId);
-  if (isNaN(matchdayId)) {
-    res.status(400).json({ error: 'Invalid matchday ID' });
-    return;
+router.get('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
+  const matchId = Number(req.params.matchId);
+  if (isNaN(matchId)) {
+    return res.status(400).json({ error: 'Invalid match ID' });
   }
 
   try {
-    const matches = await prisma.match.findMany({
-      where: { matchdayId },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        events: {
-          orderBy: { minute: 'asc' },
-        },
-      },
-    });
-
-    const grouped = matches.map((m) => ({
-      matchId: m.id,
-      homeTeam: {
-        id: m.homeTeam.id,
-        name: m.homeTeam.name,
-        primaryColor: m.homeTeam.primaryColor,
-        secondaryColor: m.homeTeam.secondaryColor,
-      },
-      awayTeam: {
-        id: m.awayTeam.id,
-        name: m.awayTeam.name,
-        primaryColor: m.awayTeam.primaryColor,
-        secondaryColor: m.awayTeam.secondaryColor,
-      },
-      events: m.events.map((e) => ({
-        id: e.id,
-        minute: e.minute,
-        type: e.eventType,
-        description: e.description,
-        playerId: e.playerId,
-      })),
-    }));
-
-    res.status(200).json(grouped);
+    const events = await getEventsByMatchId(matchId);
+    res.status(200).json(events);
   } catch (error) {
-    console.error('❌ Error fetching match events:', error);
+    console.error(`❌ Error fetching events for match ${matchId}:`, error);
     next(error);
   }
 });

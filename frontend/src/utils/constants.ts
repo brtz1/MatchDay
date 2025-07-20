@@ -27,16 +27,29 @@ export const LAYOUT = {
 /* ───────────────────────────────────────────  Gameplay  */
 
 /** Positions array in canonical order */
-export const POSITIONS: Position[] = ["GK", "DF", "MF", "AT"];
+export const POSITIONS: Position[] = [
+  Position.GK,
+  Position.DF,
+  Position.MF,
+  Position.AT,
+];
 
 /** Maximum substitutions allowed per match */
 export const MAX_SUBS = 3;
 
-/** Transfer window dates (month-day) – client-side only, server validates) */
+/** Transfer window dates (month-day) – client-side only, server validates */
 export const TRANSFER_WINDOWS = {
   summer: { open: "07-01", close: "08-31" },
   winter: { open: "01-01", close: "01-31" },
 } as const;
+
+/** Division tiers used in the game */
+export enum DivisionTier {
+  DIVISION_1 = 1,
+  DIVISION_2 = 2,
+  DIVISION_3 = 3,
+  DIVISION_4 = 4,
+}
 
 /* ───────────────────────────────────────────  API  */
 
@@ -64,4 +77,5 @@ export default {
   DEBOUNCE,
   APP_NAME,
   GITHUB_REPO,
+  DivisionTier,
 };

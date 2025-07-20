@@ -1,12 +1,10 @@
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
-
-import axios from "@/services/axios";
+import api from "@/services/axios";
 import { useSocketEvent } from "@/hooks/useSocket";
+
 import { AppCard } from "@/components/common/AppCard";
-import MatchTicker, {
-  type TickerGame,
-} from "@/components/MatchBroadcast/MatchTicker";
+import MatchTicker, { type TickerGame } from "@/components/MatchBroadcast/MatchTicker";
 import HalfTimePopup from "@/pages/HalfTimePopup";
 import { type MatchEvent } from "@/components/MatchBroadcast/MatchEventFeed";
 import { ProgressBar } from "@/components/common/ProgressBar";
@@ -19,15 +17,16 @@ interface TeamDTO {
   id: number;
   name: string;
   primaryColor: string;
+  secondaryColor: string;
 }
 
 interface MatchDTO {
   id: number;
   homeTeam: TeamDTO;
   awayTeam: TeamDTO;
-  homeScore: number | null;
-  awayScore: number | null;
-  minute: number;
+  homeGoals: number;
+  awayGoals: number;
+  minute?: number;
   division: string;
 }
 
@@ -40,6 +39,21 @@ interface MatchEventDTO {
 
 interface GameStateResponse {
   currentMatchday: number;
+  matchdayType: "LEAGUE" | "CUP";
+}
+
+export interface PlayerDTO {
+  id: number;
+  name: string;
+  position: string;
+  rating: number;
+  isInjured: boolean;
+}
+
+interface MatchStateDTO {
+  lineup: PlayerDTO[];
+  bench: PlayerDTO[];
+  subsRemaining: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -47,79 +61,125 @@ interface GameStateResponse {
 /* ------------------------------------------------------------------ */
 
 export default function MatchDayLivePage() {
-  /* Local state ------------------------------------------------------ */
   const [matches, setMatches] = useState<MatchDTO[]>([]);
-  const [eventsByMatch, setEventsByMatch] = useState<
-    Record<number, MatchEventDTO[]>
-  >({});
+  const [eventsByMatch, setEventsByMatch] = useState<Record<number, MatchEventDTO[]>>({});
   const [popupMatchId, setPopupMatchId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* Initial fetch ---------------------------------------------------- */
+  const [currentMatchday, setCurrentMatchday] = useState<number | null>(null);
+  const [matchdayType, setMatchdayType] = useState<"LEAGUE" | "CUP">("LEAGUE");
+
+  const [lineup, setLineup] = useState<PlayerDTO[]>([]);
+  const [bench, setBench] = useState<PlayerDTO[]>([]);
+  const [subsRemaining, setSubsRemaining] = useState<number>(3);
+
+  /* ---------------------------------------------------------------- */
+  /* Fetch fixtures, events & game state                              */
+  /* ---------------------------------------------------------------- */
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
-        const {
-          data: { currentMatchday },
-        } = await axios.get<GameStateResponse>("/gamestate");
+        // 1) Get current matchday
+        const { data: gs } = await api.get<GameStateResponse>('/gamestate');
+        setCurrentMatchday(gs.currentMatchday);
+        setMatchdayType(gs.matchdayType);
 
-        const [matchesRes, eventsRes] = await Promise.all([
-          axios.get<MatchDTO[]>(`/matches/${currentMatchday}`),
-          axios.get<MatchEventDTO[]>(`/match-events/${currentMatchday}`),
-        ]);
+        // 2) Fetch today's matches
+        const { data: fetchedMatches } = await api.get<MatchDTO[]>('/matches', {
+          params: { matchday: gs.currentMatchday },
+        });
+        setMatches(fetchedMatches);
 
-        setMatches(matchesRes.data);
-
+        // 3) Fetch all events for this matchday
+        const { data: allEvents } = await api.get<MatchEventDTO[]>(
+          `/match-events/${gs.currentMatchday}`
+        );
         const grouped: Record<number, MatchEventDTO[]> = {};
-        eventsRes.data.forEach((ev) => {
+        allEvents.forEach(ev => {
           (grouped[ev.matchId] ??= []).push(ev);
         });
         setEventsByMatch(grouped);
-      } catch {
-        setError("Failed to load live matchday data.");
+      } catch (e) {
+        console.error('Failed to load matchday data:', e);
+        setError('Failed to load live matchday data.');
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  /* Socket updates --------------------------------------------------- */
-  useSocketEvent<MatchEventDTO>("match-event", (ev) => {
-    setEventsByMatch((prev) => ({
+  /* ---------------------------------------------------------------- */
+  /* Fetch match state (lineup + bench) for half-time popup           */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (popupMatchId !== null) {
+      (async () => {
+        try {
+          const { data } = await api.get<MatchStateDTO>(
+            `/matchstate/${popupMatchId}`
+          );
+          setLineup(data.lineup);
+          setBench(data.bench);
+          setSubsRemaining(data.subsRemaining);
+        } catch (e) {
+          console.error('Failed to load match state:', e);
+        }
+      })();
+    }
+  }, [popupMatchId]);
+
+  /* ---------------------------------------------------------------- */
+  /* Substitution handler                                             */
+  /* ---------------------------------------------------------------- */
+  async function handleSub({ out, in: inId }: { out: number; in: number }) {
+    if (popupMatchId == null) return;
+    try {
+      // Assume user is home coach;
+      await api.post(`/matchstate/${popupMatchId}/substitute`, {
+        out,
+        in: inId,
+        isHomeTeam: true,
+      });
+      // Re-fetch updated match state
+      const { data } = await api.get<MatchStateDTO>(
+        `/matchstate/${popupMatchId}`
+      );
+      setLineup(data.lineup);
+      setBench(data.bench);
+      setSubsRemaining(data.subsRemaining);
+    } catch (e) {
+      console.error('Substitution failed:', e);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Real-time updates via WebSocket                                  */
+  /* ---------------------------------------------------------------- */
+  useSocketEvent<MatchEventDTO>('match-event', ev => {
+    setEventsByMatch(prev => ({
       ...prev,
       [ev.matchId]: [...(prev[ev.matchId] ?? []), ev],
     }));
   });
 
-  useSocketEvent<Partial<MatchDTO>>("match-tick", (live) => {
-    setMatches((prev) =>
-      prev.map((m) => (m.id === live.id ? { ...m, ...live } : m))
-    );
+  useSocketEvent<Partial<MatchDTO>>('match-tick', live => {
+    setMatches(prev => prev.map(m => m.id === live.id ? { ...m, ...live } : m));
   });
 
-  /* Derive ticker rows ---------------------------------------------- */
-  const tickerGames: TickerGame[] = matches.map((m) => {
-    const latest = eventsByMatch[m.id]?.at(-1);
-    return {
-      id: m.id,
-      division: m.division,
-      minute: m.minute ?? 0,
-      home: {
-        id: m.homeTeam.id,
-        name: m.homeTeam.name,
-        score: m.homeScore ?? 0,
-      },
-      away: {
-        id: m.awayTeam.id,
-        name: m.awayTeam.name,
-        score: m.awayScore ?? 0,
-      },
-      latestEvent: latest?.description ?? "",
-    };
-  });
+  /* ---------------------------------------------------------------- */
+  /* Prepare data for ticker & popup                                 */
+  /* ---------------------------------------------------------------- */
+  const tickerGames: TickerGame[] = matches.map(m => ({
+    id: m.id,
+    division: m.division,
+    minute: m.minute ?? 0,
+    home: { id: m.homeTeam.id, name: m.homeTeam.name, score: m.homeGoals },
+    away: { id: m.awayTeam.id, name: m.awayTeam.name, score: m.awayGoals },
+    latestEvent: eventsByMatch[m.id]?.slice(-1)[0]?.description ?? '',
+  }));
 
-  /* Build events for the selected match (id + text) ------------------ */
   const popupEvents: MatchEvent[] = useMemo(() => {
     if (popupMatchId == null) return [];
     return (eventsByMatch[popupMatchId] ?? []).map((ev, i) => ({
@@ -129,7 +189,9 @@ export default function MatchDayLivePage() {
     }));
   }, [eventsByMatch, popupMatchId]);
 
-  /* Loading / error UI ---------------------------------------------- */
+  /* ---------------------------------------------------------------- */
+  /* Loading/Error state                                             */
+  /* ---------------------------------------------------------------- */
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-900 text-white">
@@ -137,7 +199,6 @@ export default function MatchDayLivePage() {
       </div>
     );
   }
-
   if (error) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-900 text-red-300">
@@ -146,15 +207,21 @@ export default function MatchDayLivePage() {
     );
   }
 
-  /* Render ----------------------------------------------------------- */
+  /* ---------------------------------------------------------------- */
+  /* Main render                                                     */
+  /* ---------------------------------------------------------------- */
   return (
     <div className="flex min-h-screen flex-col gap-6 bg-green-900 p-4 text-white">
-      <h1 className="text-2xl font-bold">Live Matchday Broadcast</h1>
+      <h1 className="text-2xl font-bold">
+        {`Matchday ${currentMatchday} - ${
+          matchdayType === 'LEAGUE' ? 'League' : 'Cup'
+        }`}
+      </h1>
 
       <AppCard variant="outline" className="bg-white/10 p-4">
         <MatchTicker
           games={tickerGames}
-          onGameClick={(id) => setPopupMatchId(Number(id))}
+          onGameClick={id => setPopupMatchId(Number(id))}
         />
       </AppCard>
 
@@ -163,12 +230,10 @@ export default function MatchDayLivePage() {
           open
           onClose={() => setPopupMatchId(null)}
           events={popupEvents}
-          lineup={[]}        /* TODO: fetch real lineup   */
-          bench={[]}         /* TODO: fetch real bench    */
-          subsRemaining={3}  /* TODO: live value          */
-          onSubstitute={(payload) => {
-            console.log("Substitution sent:", payload);
-          }}
+          lineup={lineup}
+          bench={bench}
+          subsRemaining={subsRemaining}
+          onSubstitute={handleSub}
         />
       )}
     </div>

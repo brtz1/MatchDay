@@ -1,10 +1,7 @@
+// frontend/src/routes/AppRouter.tsx
+
 import * as React from "react";
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 /* ── Pages (eager-loaded) */
 import TitlePage from "@/pages/TitlePage";
@@ -16,66 +13,48 @@ import MatchdayLivePage from "@/pages/MatchDayLivePage";
 import StandingsPage from "@/pages/StandingsPage";
 import TopPlayersPage from "@/pages/TopPlayersPage";
 import TransferMarketPage from "@/pages/TransferMarketPage";
+import CupLogPage from "@/pages/CupLogPage";
+import PostMatchSummary from "@/pages/PostMatchSummary";
+import { resultsUrl } from "@/utils/paths";
 
 /* ── Admin / utilities (lazy-loaded) */
-const MatchesPage = React.lazy(() => import("@/pages/MatchesPage"));
-const PlayersPage = React.lazy(() => import("@/pages/PlayersPage"));
-const TeamsPage   = React.lazy(() => import("@/pages/TeamsPage"));
-const StatsPage   = React.lazy(() => import("@/pages/StatsPage"));
-const SettingsPage = React.lazy(() => import("@/pages/SettingsPage"));
+const MatchesPage   = React.lazy(() => import("@/pages/MatchesPage"));
+const PlayersPage   = React.lazy(() => import("@/pages/PlayersPage"));
+const TeamsPage     = React.lazy(() => import("@/pages/TeamsPage"));
+const StatsPage     = React.lazy(() => import("@/pages/StatsPage"));
+const SettingsPage  = React.lazy(() => import("@/pages/SettingsPage"));
 
-/* ── Elifoot-style nav bar */
+/* ── Common UI */
 import TopNavBar from "@/components/common/TopNavBar";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
 /* ── Route constants */
 import {
-  adminMatchesUrl,
-  adminPlayersUrl,
-  adminStatsUrl,
-  adminTeamsUrl,
-  drawPageUrl,
-  loadGameUrl,
+  teamUrl,
   matchdayUrl,
-  newGameUrl,
-  settingsUrl,
   standingsUrl,
-  titlePageUrl,
   topPlayersUrl,
   transferMarketUrl,
-  teamUrl,
+  cupUrl,
+  newGameUrl,
+  drawPageUrl,
+  loadGameUrl,
+  settingsUrl,
+  titlePageUrl,
+  adminMatchesUrl,
+  adminPlayersUrl,
+  adminTeamsUrl,
+  adminStatsUrl,
 } from "@/utils/paths";
 
-/**
- * Scroll to top on route change
- */
-function ScrollToTop() {
-  const { pathname } = window.location;
-  React.useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
-  return null;
-}
-
-/**
- * Router setup
- */
 export default function AppRouter() {
   return (
     <BrowserRouter>
-      <ScrollToTop />
       <TopNavBar />
-
       <div className="pt-12">
-        <React.Suspense
-          fallback={
-            <div className="p-6">
-              <ProgressBar className="w-64" />
-            </div>
-          }
-        >
+        <React.Suspense fallback={<ProgressBar className="w-64" />}>
           <Routes>
-            {/* Public flow */}
+            {/* Public */}
             <Route path={titlePageUrl} element={<TitlePage />} />
             <Route path={newGameUrl} element={<CountrySelectionPage />} />
             <Route path={drawPageUrl} element={<DrawPage />} />
@@ -87,10 +66,12 @@ export default function AppRouter() {
             <Route path={standingsUrl} element={<StandingsPage />} />
             <Route path={topPlayersUrl} element={<TopPlayersPage />} />
             <Route path={transferMarketUrl} element={<TransferMarketPage />} />
+            <Route path={cupUrl} element={<CupLogPage />} />
 
-            {/* Team context */}
+            {/* Post-Match Summary */}
+            <Route path={resultsUrl(":matchdayId")} element={<PostMatchSummary />} />
 
-            {/* Admin */}
+            {/* Admin / utilities */}
             <Route path={adminMatchesUrl} element={<MatchesPage />} />
             <Route path={adminPlayersUrl} element={<PlayersPage />} />
             <Route path={adminTeamsUrl} element={<TeamsPage />} />
@@ -99,9 +80,7 @@ export default function AppRouter() {
             {/* Settings */}
             <Route path={settingsUrl} element={<SettingsPage />} />
 
-            {/* Redirects */}
-            <Route path="/new-game" element={<Navigate to={newGameUrl} replace />} />
-            <Route path="/load" element={<Navigate to={loadGameUrl} replace />} />
+            {/* Fallback */}
             <Route path="*" element={<Navigate to={titlePageUrl} replace />} />
           </Routes>
         </React.Suspense>

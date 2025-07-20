@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState } from "react";
-import { useTeamContext } from "../../../context/TeamContext";
+import { useTeamContext } from "@/store/TeamContext";
 export default function RenewTab() {
     const { selectedPlayer, setRenewMode } = useTeamContext();
     const [wageOffer, setWageOffer] = useState("");

@@ -64,6 +64,7 @@ export const drawPageUrl = "/draw";
 export const loadGameUrl = "/load-game";
 export const settingsUrl = "/settings";
 export const titlePageUrl = "/";
+export const cupUrl = "/cup";
 
 /**
  * ADMIN PANELS
@@ -78,3 +79,10 @@ export const adminStatsUrl = "/admin/player-stats";
  */
 export const transferMarketUrl = "/transfer-market";
 
+/**
+ * POST–MATCH SUMMARY
+ * (Use matchday ID to build URL)
+ */
+export function resultsUrl(matchdayId: number | string): string {
+  return `/match-summary/${matchdayId}`;
+}

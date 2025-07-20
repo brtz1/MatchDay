@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getNextMatch, getOpponentInfo } from '../../../services/team';
+import { getNextMatch, getOpponentInfo } from '@/services/teamService';
 
 interface Opponent {
   id: number;
@@ -7,16 +7,30 @@ interface Opponent {
   coach?: { name: string; morale: number };
 }
 
+interface MatchLite {
+  id: number;
+  homeTeamId: number;
+  awayTeamId: number;
+  matchDate: string;
+  division?: string;
+}
+
+const COACH_TEAM_ID = 1;
+
 export default function OpponentTab() {
   const [opponent, setOpponent] = useState<Opponent | null>(null);
 
   useEffect(() => {
-    // first load the next match
-    getNextMatch(1).then(match => {
+    getNextMatch(COACH_TEAM_ID).then((match: MatchLite) => {
       if (!match) return;
-      // get opponent ID
-      const oppId = match.homeTeam.id === 1 ? match.awayTeam.id : match.homeTeam.id;
-      getOpponentInfo(oppId).then(setOpponent);
+      const opponentId =
+        match.homeTeamId === COACH_TEAM_ID
+          ? match.awayTeamId
+          : match.homeTeamId;
+
+      getOpponentInfo(opponentId).then(setOpponent);
+    }).catch((err: unknown) => {
+      console.error("Failed to load opponent:", err);
     });
   }, []);
 

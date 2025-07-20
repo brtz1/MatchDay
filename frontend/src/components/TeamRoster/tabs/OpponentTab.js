@@ -1,16 +1,19 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
-import { getNextMatch, getOpponentInfo } from '../../../services/team';
+import { getNextMatch, getOpponentInfo } from '@/services/teamService';
+const COACH_TEAM_ID = 1;
 export default function OpponentTab() {
     const [opponent, setOpponent] = useState(null);
     useEffect(() => {
-        // first load the next match
-        getNextMatch(1).then(match => {
+        getNextMatch(COACH_TEAM_ID).then((match) => {
             if (!match)
                 return;
-            // get opponent ID
-            const oppId = match.homeTeam.id === 1 ? match.awayTeam.id : match.homeTeam.id;
-            getOpponentInfo(oppId).then(setOpponent);
+            const opponentId = match.homeTeamId === COACH_TEAM_ID
+                ? match.awayTeamId
+                : match.homeTeamId;
+            getOpponentInfo(opponentId).then(setOpponent);
+        }).catch((err) => {
+            console.error("Failed to load opponent:", err);
         });
     }, []);
     if (!opponent)

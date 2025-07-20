@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 /* ── Services ─────────────────────────────────────────────────────── */
 import matchService from "@/services/matchService";
-import teamService from "@/services/teamService";
+import { getTeams } from "@/services/teamService";
 import refereeService from "@/services/refereeService";
 
 /* ── UI components ────────────────────────────────────────────────── */
@@ -61,7 +61,7 @@ export default function MatchesPage() {
       try {
         const [m, t, r] = await Promise.all([
           matchService.getMatches(),
-          teamService.getTeams(),
+          getTeams(),
           refereeService.getReferees(),
         ]);
         setMatches(m);

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import axios from "@/services/axios";
@@ -9,7 +9,7 @@ import { AppButton } from "@/components/common/AppButton";
 import DataTable, { type Column } from "@/components/common/DataTable";
 import { ProgressBar } from "@/components/common/ProgressBar";
 import { getFlagUrl } from "@/utils/getFlagUrl";
-import { teamUrl } from "@/utils/paths";
+import { teamUrl, loadGameUrl } from "@/utils/paths";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 interface Player {
@@ -34,7 +34,7 @@ interface Filter {
 
 /* ── Component ───────────────────────────────────────────────────────── */
 export default function TransferMarketPage() {
-  const { currentTeamId } = useTeamContext();
+  const { currentTeamId, currentSaveGameId } = useTeamContext(); // 🧠 include saveGameId
   const navigate = useNavigate();
 
   const [players, setPlayers] = useState<Player[]>([]);
@@ -43,13 +43,34 @@ export default function TransferMarketPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
 
+  // Redirect if no save loaded
+  useEffect(() => {
+    if (!currentTeamId) {
+      navigate(loadGameUrl);
+    }
+  }, [currentTeamId, navigate]);
+
   async function handleSearch() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await axios.get<Player[]>("/players/search", { params: filter });
+      const params = Object.entries(filter).reduce((acc, [key, value]) => {
+        if (value !== undefined && value !== "") {
+          acc[key] = value;
+        }
+        return acc;
+      }, {} as Record<string, any>);
+
+      if (!currentSaveGameId) {
+        throw new Error("No saveGameId available");
+      }
+
+      params.saveGameId = currentSaveGameId;
+
+      const { data } = await axios.get<Player[]>("/players/search", { params });
       setPlayers(data);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Failed to fetch players.");
     } finally {
       setLoading(false);
@@ -60,12 +81,12 @@ export default function TransferMarketPage() {
     if (currentTeamId) {
       navigate(teamUrl(currentTeamId));
     } else {
-      navigate("/");
+      navigate(loadGameUrl);
     }
   }
 
   function handleViewTeam() {
-    if (selectedPlayer) {
+    if (selectedPlayer?.teamId) {
       navigate(teamUrl(selectedPlayer.teamId));
     }
   }
@@ -94,14 +115,18 @@ export default function TransferMarketPage() {
         accessor: (row) => `€${row.price.toLocaleString()}`,
         cellClass: "text-right",
       },
-      {
-        header: "Team",
-        accessor: (row) => row.teamName,
-        cellClass: "text-left",
-      },
+      { header: "Team", accessor: "teamName", cellClass: "text-left" },
     ],
     []
   );
+
+  if (!currentTeamId) {
+    return (
+      <div className="p-12 flex justify-center">
+        <ProgressBar />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
@@ -121,7 +146,9 @@ export default function TransferMarketPage() {
           />
           <select
             value={filter.position ?? ""}
-            onChange={(e) => setFilter({ ...filter, position: e.target.value })}
+            onChange={(e) =>
+              setFilter({ ...filter, position: e.target.value || undefined })
+            }
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
           >
             <option value="">Any Position</option>
@@ -135,7 +162,10 @@ export default function TransferMarketPage() {
             placeholder="Max Price (€)"
             value={filter.priceMax ?? ""}
             onChange={(e) =>
-              setFilter({ ...filter, priceMax: Number(e.target.value) || undefined })
+              setFilter({
+                ...filter,
+                priceMax: e.target.value ? Number(e.target.value) : undefined,
+              })
             }
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
           />
@@ -144,7 +174,10 @@ export default function TransferMarketPage() {
             placeholder="Min Rating"
             value={filter.ratingMin ?? ""}
             onChange={(e) =>
-              setFilter({ ...filter, ratingMin: Number(e.target.value) || undefined })
+              setFilter({
+                ...filter,
+                ratingMin: e.target.value ? Number(e.target.value) : undefined,
+              })
             }
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
           />
@@ -153,22 +186,31 @@ export default function TransferMarketPage() {
             placeholder="Max Rating"
             value={filter.ratingMax ?? ""}
             onChange={(e) =>
-              setFilter({ ...filter, ratingMax: Number(e.target.value) || undefined })
+              setFilter({
+                ...filter,
+                ratingMax: e.target.value ? Number(e.target.value) : undefined,
+              })
             }
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
           />
           <input
             placeholder="Nationality"
             value={filter.nationality ?? ""}
-            onChange={(e) => setFilter({ ...filter, nationality: e.target.value })}
+            onChange={(e) =>
+              setFilter({ ...filter, nationality: e.target.value })
+            }
             className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
           />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-4">
           <AppButton onClick={handleSearch}>Search</AppButton>
-          <AppButton variant="secondary" onClick={handleViewTeam} disabled={!selectedPlayer}>
-            Team
+          <AppButton
+            variant="secondary"
+            onClick={handleViewTeam}
+            disabled={!selectedPlayer}
+          >
+            View Team
           </AppButton>
           <AppButton variant="secondary" onClick={handleBack}>
             Back

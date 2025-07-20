@@ -26,7 +26,12 @@ RUN npm run build
 # Expose application port
 EXPOSE 4000
 
-# Start the server
-CMD ["npm", "start"]
+# Copy entrypoint script
+COPY entrypoint.sh ./
+RUN chmod +x ./entrypoint.sh
 
+# Use the script as the container entrypoint
+ENTRYPOINT ["./entrypoint.sh"]
+
+# Needed for ts-node and paths (used during dev/testing)
 ENV NODE_OPTIONS="--require ts-node/register --require tsconfig-paths/register"

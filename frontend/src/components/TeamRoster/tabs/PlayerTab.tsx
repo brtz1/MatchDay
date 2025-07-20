@@ -1,12 +1,23 @@
-import { SaveGamePlayer } from '@prisma/client';
+// frontend/src/components/TeamRoster/tabs/PlayerTab.tsx
 
-interface PlayerTabProps {
-  players: SaveGamePlayer[];
-  selectedPlayer: SaveGamePlayer | null;
-  onSelectPlayer: (player: SaveGamePlayer) => void;
+interface Player {
+  id: number;
+  name: string;
+  position: "GK" | "DF" | "MF" | "AT";
+  rating: number;
 }
 
-export default function PlayerTab({ players, selectedPlayer, onSelectPlayer }: PlayerTabProps) {
+interface PlayerTabProps {
+  players: Player[];
+  selectedPlayer: Player | null;
+  onSelectPlayer: (player: Player) => void;
+}
+
+export default function PlayerTab({
+  players,
+  selectedPlayer,
+  onSelectPlayer,
+}: PlayerTabProps) {
   return (
     <div className="space-y-2">
       {players.map((player) => (
@@ -14,7 +25,9 @@ export default function PlayerTab({ players, selectedPlayer, onSelectPlayer }: P
           key={player.id}
           onClick={() => onSelectPlayer(player)}
           className={`p-2 rounded border cursor-pointer ${
-            selectedPlayer?.id === player.id ? 'bg-primary text-white' : 'hover:bg-gray-100'
+            selectedPlayer?.id === player.id
+              ? "bg-primary text-white"
+              : "hover:bg-gray-100"
           }`}
         >
           <div className="flex justify-between">

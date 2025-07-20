@@ -4,12 +4,15 @@ dotenv.config();
 import app from './app';
 import importRoutes from './routes/importRoute';
 import { initializeGameState } from './services/gameState';
+import cupRoute from './routes/cupRoute';
 
 // Parse PORT from environment or default to 4000
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
 // Mount import routes
 app.use('/api/import', importRoutes);
+
+app.use('/api/cup', cupRoute);
 
 // Bootstrap server
 async function startServer() {

@@ -25,9 +25,6 @@ import { ensureGameState } from "./services/gameState";
 
 
 async function main() {
-  /* ------------------------------------------------ ensure GameState row */
-  await ensureGameState(); // creates default if table empty
-
   /* ------------------------------------------------ Express app */
   const app = express();
 
@@ -39,7 +36,7 @@ async function main() {
   );
   app.use(express.json());
 
-  /* routes */
+  /* ------------------------------------------------ routes */
   app.use("/api/new-game", newGameRoute);
   app.use("/api/save-game", saveGameRoute);
   app.use("/api/players", playerRoute);
@@ -51,6 +48,14 @@ async function main() {
   app.use("/api/manual-save", manualSaveRoute);
   app.use("/api/countries", countryRoute);
   app.use("/api/save-game-teams", saveGameTeamsRoute);
+
+  /* ------------------------------------------------ ensure GameState row */
+  try {
+    await ensureGameState(); // creates default if table is empty
+  } catch (err) {
+    console.error("❌ Cannot ensure GameState. Likely DB not migrated yet.");
+    throw err;
+  }
 
   /* ------------------------------------------------ HTTP & Socket.io */
   const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
@@ -74,6 +79,7 @@ async function main() {
     console.log(`✅ MatchDay! backend running at http://localhost:${PORT}`);
   });
 }
+
 
 main().catch((err) => {
   console.error("❌ Fatal startup error:", err);

@@ -2,7 +2,7 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 
 import playersService from "@/services/playersService";
-import teamService from "@/services/teamService";
+import { getTeams } from "@/services/teamService";
 
 import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
@@ -65,7 +65,7 @@ export default function PlayersPage() {
       try {
         const [p, t] = await Promise.all([
           playersService.getPlayers(),
-          teamService.getTeams(),
+          getTeams(),
         ]);
         setPlayers(p);
         setTeams(t);

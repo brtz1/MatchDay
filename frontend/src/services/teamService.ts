@@ -1,104 +1,71 @@
-/**
- * teamService.ts
- * --------------
- * REST helpers for team data, schedules, finances, and admin CRUD.
- */
+// frontend/src/services/teamService.ts
 
-import axios from "@/services/axios";
-import { SaveGamePlayer } from "@prisma/client";
+import axios from '@/services/axios';
+import { Backend } from '@/types/backend';
 
 /* ------------------------------------------------------------------ Types */
 
-export interface Team {
-  id: number;
-  name: string;
-  country?: string;
-  division?: string;
-  primaryColor?: string;
-  secondaryColor?: string;
-  budget?: number;
-  stadiumCapacity?: number;
-}
+export type Team = Backend.Team;
+export type Player = Backend.Player;
 
 export interface TeamWithPlayers extends Team {
-  players: SaveGamePlayer[];
-  coach?: { name: string; morale: number };
+  players: Player[];
 }
 
-export interface MatchLite {
+interface MatchLite {
   id: number;
   homeTeamId: number;
   awayTeamId: number;
   matchDate: string;
-  division: string;
+  refereeName?: string;
+  matchdayNumber?: number;
+  matchdayType?: "LEAGUE" | "CUP";
 }
+
 
 export interface Finances {
-  balance: number;
-  wageBill: number;
-  ticketIncome: number;
-  transferBudget: number;
+  salaryTotal: number;
+  salaryByPlayer: { id: number; name: string; salary: number }[];
 }
-
-export interface CreateTeamRequest
-  extends Pick<Team, "name" | "country" | "budget"> {}
 
 /* ------------------------------------------------------------------ API */
 
-const BASE = "/teams";
-const SAVE_GAME_TEAMS = "/save-game-teams";
+const SAVE_GAME_TEAMS = '/save-game-teams';
 
-/** GET `/teams` — list all teams (admin) */
-async function getTeams(): Promise<Team[]> {
-  const { data } = await axios.get<Team[]>(BASE);
-  return data;
+export async function getTeamById(id: number): Promise<TeamWithPlayers> {
+  const [teamRes, playersRes] = await Promise.all([
+    axios.get<Team>(`${SAVE_GAME_TEAMS}/${id}`),
+    axios.get<Player[]>(`${SAVE_GAME_TEAMS}/${id}/players`),
+  ]);
+
+  return {
+    ...teamRes.data,
+    players: playersRes.data,
+  };
 }
 
-/** POST `/teams` — admin create */
-async function createTeam(payload: CreateTeamRequest) {
-  const { data } = await axios.post<Team>(BASE, payload);
-  return data;
-}
-
-/** GET `/save-game-teams/{id}` — active save, includes players */
-async function getTeamById(id: number): Promise<TeamWithPlayers> {
-  const { data } = await axios.get<TeamWithPlayers>(
-    `${SAVE_GAME_TEAMS}/${id}`
-  );
-  return data;
-}
-
-/** GET `/save-game-teams/{id}/next-match` */
-async function getNextMatch(id: number): Promise<MatchLite> {
+export async function getNextMatch(id: number): Promise<MatchLite> {
   const { data } = await axios.get<MatchLite>(
     `${SAVE_GAME_TEAMS}/${id}/next-match`
   );
   return data;
 }
 
-/** GET `/save-game-teams/opponent/{matchId}` */
-async function getOpponentInfo(matchId: number): Promise<Team> {
+export async function getOpponentInfo(opponentTeamId: number): Promise<Team> {
   const { data } = await axios.get<Team>(
-    `${SAVE_GAME_TEAMS}/opponent/${matchId}`
+    `${SAVE_GAME_TEAMS}/opponent/${opponentTeamId}`
   );
   return data;
 }
 
-/** GET `/save-game-teams/{id}/finances` */
-async function getTeamFinances(id: number): Promise<Finances> {
+export async function getTeamFinances(id: number): Promise<Finances> {
   const { data } = await axios.get<Finances>(
     `${SAVE_GAME_TEAMS}/${id}/finances`
   );
   return data;
 }
 
-/* ------------------------------------------------------------------ Export */
-
-export default {
-  getTeams,
-  createTeam,
-  getTeamById,
-  getNextMatch,
-  getOpponentInfo,
-  getTeamFinances,
-};
+export async function getTeams(): Promise<Team[]> {
+  const { data } = await axios.get<Team[]>(`${SAVE_GAME_TEAMS}`);
+  return data;
+}

@@ -13,7 +13,7 @@
  */
 
 import axios from "@/services/axios";
-import { SaveGamePlayer } from "@prisma/client";
+import { Backend } from "@/types/backend";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -33,7 +33,7 @@ export interface SearchFilters {
 
 export interface SearchResult {
   total: number;
-  players: SaveGamePlayer[];
+  players: Backend.Player[];
 }
 
 export interface BidRequest {
@@ -73,7 +73,6 @@ export interface TransferRecord {
 
 const BASE = "/transfers";
 
-/** GET `/transfers/search` – filter & paginate players on the market */
 async function searchPlayers(
   filters: SearchFilters
 ): Promise<SearchResult> {
@@ -83,31 +82,26 @@ async function searchPlayers(
   return data;
 }
 
-/** POST `/transfers/bid` – place a bid */
 async function placeBid(payload: BidRequest) {
   const { data } = await axios.post(`${BASE}/bid`, payload);
   return data;
 }
 
-/** POST `/transfers/accept-bid` – seller accepts a bid */
 async function acceptBid(payload: AcceptBidRequest) {
   const { data } = await axios.post(`${BASE}/accept-bid`, payload);
   return data;
 }
 
-/** POST `/transfers/list` – list a player on transfer market */
 async function listPlayer(payload: ListingRequest) {
   const { data } = await axios.post(`${BASE}/list`, payload);
   return data;
 }
 
-/** POST `/transfers/cancel-list` – remove player from market */
 async function cancelListing(payload: CancelListingRequest) {
   const { data } = await axios.post(`${BASE}/cancel-list`, payload);
   return data;
 }
 
-/** GET `/transfers/recent` – latest confirmed transfers */
 async function getRecentTransfers(): Promise<TransferRecord[]> {
   const { data } = await axios.get<TransferRecord[]>(
     `${BASE}/recent`

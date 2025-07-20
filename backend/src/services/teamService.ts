@@ -1,11 +1,11 @@
-// src/services/teamService.ts
+// backend/src/services/teamService.ts
 
 import prisma from '../utils/prisma';
 import { SaveGameTeam, DivisionTier } from '@prisma/client';
 
 /**
- * Fetches all teams for a given save game.
- * @param saveGameId – ID of the SaveGame
+ * Fetches all teams for a given save game, including their players.
+ * @param saveGameId - ID of the SaveGame
  */
 export async function getAllTeams(saveGameId: number): Promise<SaveGameTeam[]> {
   return prisma.saveGameTeam.findMany({
@@ -16,8 +16,8 @@ export async function getAllTeams(saveGameId: number): Promise<SaveGameTeam[]> {
 
 /**
  * Fetches a single team by ID within a save game.
- * @param saveGameId – ID of the SaveGame
- * @param teamId – ID of the SaveGameTeam
+ * @param saveGameId - ID of the SaveGame
+ * @param teamId - ID of the SaveGameTeam
  */
 export async function getTeamById(
   saveGameId: number,
@@ -43,12 +43,10 @@ export interface CreateTeamDto {
 }
 
 /**
- * Creates a new team in a save game.
- * @param data – the CreateTeamDto
+ * Creates a new SaveGameTeam entry.
+ * @param data - CreateTeamDto
  */
-export async function createTeam(
-  data: CreateTeamDto
-): Promise<SaveGameTeam> {
+export async function createTeam(data: CreateTeamDto): Promise<SaveGameTeam> {
   const {
     saveGameId,
     baseTeamId,
@@ -58,6 +56,7 @@ export async function createTeam(
     currentSeason = 1,
     localIndex,
   } = data;
+
   return prisma.saveGameTeam.create({
     data: {
       saveGameId,
@@ -77,23 +76,24 @@ export async function createTeam(
 export type UpdateTeamDto = Partial<Pick<SaveGameTeam, 'name' | 'morale' | 'currentSeason'>>;
 
 /**
- * Updates a team within a save game.
- * @param saveGameId – ID of the SaveGame
- * @param teamId – ID of the SaveGameTeam
- * @param updates – the fields to update
+ * Updates a SaveGameTeam by ID after verifying it exists in the correct save.
+ * @param saveGameId - ID of the SaveGame
+ * @param teamId - ID of the SaveGameTeam
+ * @param updates - Partial update fields
  */
 export async function updateTeam(
   saveGameId: number,
   teamId: number,
   updates: UpdateTeamDto
 ): Promise<SaveGameTeam> {
-  // Verify existence
   const existing = await prisma.saveGameTeam.findFirst({
     where: { id: teamId, saveGameId },
   });
+
   if (!existing) {
-    throw new Error(`Team ${teamId} not found in save ${saveGameId}`);
+    throw new Error(`Team ${teamId} not found in save game ${saveGameId}`);
   }
+
   return prisma.saveGameTeam.update({
     where: { id: teamId },
     data: updates,
@@ -101,21 +101,22 @@ export async function updateTeam(
 }
 
 /**
- * Deletes a team from a save game.
- * @param saveGameId – ID of the SaveGame
- * @param teamId – ID of the SaveGameTeam
+ * Deletes a SaveGameTeam by ID after verifying it belongs to the save game.
+ * @param saveGameId - ID of the SaveGame
+ * @param teamId - ID of the SaveGameTeam
  */
 export async function deleteTeam(
   saveGameId: number,
   teamId: number
 ): Promise<SaveGameTeam> {
-  // Verify existence
   const existing = await prisma.saveGameTeam.findFirst({
     where: { id: teamId, saveGameId },
   });
+
   if (!existing) {
-    throw new Error(`Team ${teamId} not found in save ${saveGameId}`);
+    throw new Error(`Team ${teamId} not found in save game ${saveGameId}`);
   }
+
   return prisma.saveGameTeam.delete({
     where: { id: teamId },
   });

@@ -1,3 +1,3 @@
-// frontend/src/types/index.ts
-export {};
+/* Barrel file – import once, from everywhere */
+export * from "./enums";
 //# sourceMappingURL=index.js.map

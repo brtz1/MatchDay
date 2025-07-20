@@ -11,6 +11,33 @@ router.get("/debug-list", async (req: Request, res: Response) => {
   res.json(teams);
 });
 
+// GET /api/save-game-teams/:id/players
+router.get("/:id/players", async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid team ID" });
+
+  try {
+    const players = await prisma.saveGamePlayer.findMany({
+      where: { teamId: id },
+      orderBy: { localIndex: "asc" },
+      select: {
+        id: true,
+        name: true,
+        position: true,
+        rating: true,
+        salary: true,
+        behavior: true,
+        localIndex: true,
+      },
+    });
+
+    res.json(players);
+  } catch (err) {
+    console.error("❌ Error fetching team players:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/test", (req: Request, res: Response) => {
   res.send("✅ save-game-teams route is working");
 });

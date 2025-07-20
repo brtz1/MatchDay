@@ -36,6 +36,10 @@ export default function NewGamePage() {
         coachName,
         countries: selectedCountries,
       });
+
+      // 🔥 Tell backend to activate this new save game
+      await axios.post(`/api/gamestate/set-save/${data.id}`);
+
       navigate('/draw-results', { state: data });
     } catch (err) {
       console.error(err);

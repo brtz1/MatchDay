@@ -3,40 +3,45 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 /* ── Services / store ─────────────────────────────────────────────── */
-import teamService from "@/services/teamService";
+import { getTeamById } from "@/services/teamService";
+import { setFormation } from "@/services/matchService";
 import { useTeamContext } from "@/store/TeamContext";
+import axios from "axios";
 
 /* ── UI ───────────────────────────────────────────────────────────── */
 import TeamRosterToolbar from "@/components/TeamRoster/TeamRosterToolbar";
 import PlayerRoster from "@/components/TeamRoster/PlayerRoster";
-import type { TabDefinition } from "@/components/TeamRoster/TeamRosterTabs";
-import TeamRosterTabs from "@/components/TeamRoster/TeamRosterTabs";
+import TeamRosterTabs, { TabDefinition } from "@/components/TeamRoster/TeamRosterTabs";
+import FormationTab from "@/components/TeamRoster/tabs/FormationTab";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
 /* ── Types ────────────────────────────────────────────────────────── */
 import type { Backend } from "@/types/backend";
 type Player = Backend.Player;
+
 type Team = {
   id: number;
   name: string;
-  colors: { primary: string; secondary: string };
-  stadiumCapacity: number;
-  division: number;
-  morale: number;
+  colors?: { primary: string; secondary: string };
+  stadiumCapacity?: number;
+  division?: number;
+  morale?: number;
   coachName?: string;
   players: Player[];
 };
 
 export default function TeamRosterPage() {
   const { teamId: teamIdParam } = useParams<{ teamId?: string }>();
-  const { currentTeamId } = useTeamContext();
+  const { currentTeamId, currentSaveGameId, currentMatchdayId } = useTeamContext();
   const navigate = useNavigate();
 
   const numericId = teamIdParam ? Number(teamIdParam) : NaN;
   const teamId = !Number.isNaN(numericId) ? numericId : currentTeamId;
 
   const [team, setTeam] = useState<Team | null>(null);
-  const [selectedPlayer, setSelected] = useState<Player | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [lineupIds, setLineupIds] = useState<number[]>([]);
+  const [benchIds, setBenchIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,21 +50,51 @@ export default function TeamRosterPage() {
       return;
     }
 
-    (async function bootstrap(retries = 3) {
+    const loadTeam = async (retries = 3) => {
       setLoading(true);
       for (let i = 0; i < retries; i++) {
         try {
-          const data = await teamService.getTeamById(teamId);
+          const data = await getTeamById(teamId);
           if (!data?.players?.length) throw new Error("Players not ready");
-          setTeam(data);
+          setTeam({
+            ...data,
+            morale: data.morale ?? 50,
+          });
           break;
         } catch {
-          await new Promise((r) => setTimeout(r, 600));
+          await new Promise((res) => setTimeout(res, 600));
         }
       }
       setLoading(false);
-    })();
+    };
+
+    loadTeam();
   }, [teamId, navigate]);
+
+  const handleFormationSet = async (formation: string) => {
+    try {
+      if (!teamId || !currentSaveGameId || !currentMatchdayId) {
+        throw new Error("Missing required context data");
+      }
+
+      // Fetch match info: matchId and whether this team is home
+      const response = await axios.get("/api/matchdays/team-match-info", {
+        params: {
+          saveGameId: currentSaveGameId,
+          matchday: currentMatchdayId,
+          teamId: teamId,
+        },
+      });
+
+      const { matchId, isHomeTeam } = response.data;
+
+      const result = await setFormation(matchId, teamId, formation, isHomeTeam);
+      setLineupIds(result.lineup);
+      setBenchIds(result.bench);
+    } catch (err) {
+      console.error("Failed to set formation:", err);
+    }
+  };
 
   if (!teamId) {
     return (
@@ -68,6 +103,7 @@ export default function TeamRosterPage() {
       </p>
     );
   }
+
   if (loading || !team) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-700">
@@ -76,8 +112,8 @@ export default function TeamRosterPage() {
     );
   }
 
-  const primary = team.colors.primary ?? "#facc15";
-  const secondary = team.colors.secondary ?? "#000000";
+  const primary = team.colors?.primary ?? "#facc15";
+  const secondary = team.colors?.secondary ?? "#000000";
 
   const tabs: TabDefinition[] = [
     { value: "overview", label: "Game" },
@@ -88,7 +124,6 @@ export default function TeamRosterPage() {
 
   return (
     <div className="min-h-screen space-y-4 bg-green-700 p-4 text-white">
-      {/* banner */}
       <div
         className="flex items-center justify-between rounded p-2 shadow"
         style={{ backgroundColor: primary, color: secondary }}
@@ -97,32 +132,32 @@ export default function TeamRosterPage() {
           {team.name}
         </h1>
         <p className="text-xs">
-          Division {team.division} &nbsp;|&nbsp; Coach {team.coachName ?? "You"} &nbsp;|&nbsp; Morale {team.morale}
+          Division {typeof team.division === "number" ? team.division : "—"}
+          &nbsp;|&nbsp; Coach {team.coachName ?? "You"}
+          &nbsp;|&nbsp; Morale {typeof team.morale === "number" ? team.morale : "—"}
         </p>
       </div>
 
-      {/* toolbar */}
       <TeamRosterToolbar />
 
-      {/* layout */}
       <div className="flex h-[60vh] gap-4">
         <div className="w-[65%]">
           <PlayerRoster
             players={team.players}
             selectedPlayer={selectedPlayer}
-            onSelectPlayer={setSelected}
+            onSelectPlayer={setSelectedPlayer}
+            lineupIds={lineupIds}
+            benchIds={benchIds}
           />
         </div>
 
         <div className="w-[35%]">
           <TeamRosterTabs tabs={tabs}>
-            {/* Overview */}
             <div className="space-y-2 text-sm">
               <p>Stadium: <span className="font-semibold">{team.stadiumCapacity ?? "—"}</span></p>
               <p>Next-fixture &amp; morale widgets coming soon…</p>
             </div>
 
-            {/* Player details */}
             <div className="text-sm">
               {selectedPlayer ? (
                 <ul className="space-y-1">
@@ -135,10 +170,8 @@ export default function TeamRosterPage() {
               )}
             </div>
 
-            {/* Formation */}
-            <div className="text-sm">Formation editor coming soon…</div>
+            <FormationTab onSetFormation={handleFormationSet} />
 
-            {/* Finances */}
             <div className="text-sm">Financial breakdown coming soon…</div>
           </TeamRosterTabs>
         </div>

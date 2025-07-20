@@ -9,13 +9,14 @@ import { getFlagUrl } from "@/utils/getFlagUrl";
  * Props
  * ---------------------------------------------------------------------------
  */
-
 type Player = Backend.Player;
 
 interface PlayerRosterProps {
   players: Player[];
   selectedPlayer: Player | null;
   onSelectPlayer: (player: Player) => void;
+  lineupIds?: number[];
+  benchIds?: number[];
 }
 
 /**
@@ -34,15 +35,13 @@ const SLOTS_PER_POSITION = 5;
  * Component
  * ---------------------------------------------------------------------------
  */
-
 export default function PlayerRoster({
   players,
   selectedPlayer,
   onSelectPlayer,
+  lineupIds = [],
+  benchIds = [],
 }: PlayerRosterProps) {
-  /**
-   * Map players into position buckets and pad with blanks.
-   */
   const grouped = React.useMemo(() => {
     return POSITION_ORDER.map((pos) => {
       const list = players.filter((p) => p.position === pos);
@@ -65,7 +64,7 @@ export default function PlayerRoster({
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-hidden rounded-lg bg-white p-3 text-xs shadow dark:bg-gray-900">
-      {/* ── Header row */}
+      {/* Header */}
       <div className="flex border-b border-gray-200 pb-2 font-semibold dark:border-gray-800">
         <span className="w-[35%]">Name</span>
         <span className="w-[20%] text-right">Salary</span>
@@ -74,22 +73,23 @@ export default function PlayerRoster({
         <span className="w-[10%] text-right">C</span>
       </div>
 
-      {/* ── Body */}
+      {/* Body */}
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
         {grouped.map((bucket, idx) => {
           const pos = POSITION_ORDER[idx];
           return (
             <div key={pos}>
-              {/* Position label */}
               <div className="mb-1 text-xs font-bold uppercase tracking-wide text-blue-700 dark:text-blue-400">
                 {pos}
               </div>
 
-              {/* Player rows */}
               <div className="overflow-hidden rounded border border-gray-200 dark:border-gray-700">
                 {bucket.map((p, rowIdx) => {
                   const isSelected = selectedPlayer?.id === p.id;
                   const isBlank = p.name === "";
+                  const isLineup = lineupIds.includes(p.id);
+                  const isBench = benchIds.includes(p.id);
+
                   return (
                     <div
                       key={p.id}
@@ -100,6 +100,8 @@ export default function PlayerRoster({
                           ? "bg-gray-50 dark:bg-gray-800/20"
                           : "bg-white dark:bg-gray-800",
                         isSelected && "bg-yellow-200 dark:bg-yellow-600/40",
+                        isLineup && "bg-green-200 dark:bg-green-700/40",
+                        isBench && "bg-blue-200 dark:bg-blue-700/40",
                         !isBlank && "hover:bg-gray-100 dark:hover:bg-gray-700"
                       )}
                       style={{ minHeight: "24px" }}
@@ -118,7 +120,7 @@ export default function PlayerRoster({
                         {isBlank ? "" : p.rating}
                       </span>
 
-                      {/* Nationality flag */}
+                      {/* Flag */}
                       <span className="w-[10%] text-right">
                         {p.nationality && (
                           <img
@@ -129,7 +131,7 @@ export default function PlayerRoster({
                         )}
                       </span>
 
-                      {/* Contract indicator */}
+                      {/* Contract */}
                       <span className="w-[10%] text-right">
                         {isBlank ? "" : p.underContract ? "🔒" : "🆓"}
                       </span>

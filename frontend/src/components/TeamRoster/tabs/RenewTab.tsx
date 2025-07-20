@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { useTeamContext } from "../../../context/TeamContext";
+import { useTeamContext } from "@/store/TeamContext";
+
+// Define just the fields used here
+interface Player {
+  id: number;
+  name: string;
+}
 
 export default function RenewTab() {
   const { selectedPlayer, setRenewMode } = useTeamContext();
@@ -19,7 +25,9 @@ export default function RenewTab() {
   return (
     <div className="space-y-2">
       <h2 className="text-blue-700 font-semibold">Renew Contract</h2>
-      <p className="text-sm">Player: <strong>{selectedPlayer.name}</strong></p>
+      <p className="text-sm">
+        Player: <strong>{selectedPlayer.name}</strong>
+      </p>
       <input
         type="number"
         className="border p-1 rounded text-sm w-full"

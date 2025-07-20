@@ -1,13 +1,29 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState } from 'react';
-export default function FormationTab() {
+import { useState } from "react";
+const FORMATIONS = [
+    "3-3-4", "3-4-3", "4-2-4", "4-3-3", "4-4-2", "4-5-1",
+    "5-2-3", "5-3-2", "5-4-1", "5-5-0", "6-3-1", "6-4-0",
+];
+export default function FormationTab({ onSetFormation }) {
     const [formation, setFormation] = useState(null);
-    const formations = ["3-3-4", "3-4-3", "4-2-4", "4-3-3", "4-4-2", "4-5-1", "5-2-3", "5-3-2", "5-4-1", "5-5-0", "6-3-1", "6-4-0"];
-    const handleSetFormation = (value) => {
-        setFormation(value);
+    const [loading, setLoading] = useState(false);
+    const handleApply = async () => {
+        if (!formation)
+            return;
+        setLoading(true);
+        try {
+            await onSetFormation(formation);
+        }
+        catch (err) {
+            console.error("Error applying formation:", err);
+            alert("Failed to apply formation");
+        }
+        finally {
+            setLoading(false);
+        }
     };
-    return (_jsxs("div", { children: [_jsx("p", { className: "font-bold text-accent mb-2", children: "Select Formation" }), _jsxs("select", { className: "border p-1 rounded w-full mb-2 text-black", onChange: (e) => handleSetFormation(e.target.value), value: formation ?? "", children: [_jsx("option", { value: "", children: "-- Select --" }), formations.map((f) => (_jsx("option", { value: f, children: f }, f)))] }), _jsx("button", { className: `rounded px-2 py-1 mt-2 ${formation
+    return (_jsxs("div", { children: [_jsx("p", { className: "mb-2 font-bold text-accent", children: "Select Formation" }), _jsxs("select", { className: "mb-2 w-full rounded border p-1 text-black", value: formation ?? "", onChange: (e) => setFormation(e.target.value), children: [_jsx("option", { value: "", children: "-- Select --" }), FORMATIONS.map((f) => (_jsx("option", { value: f, children: f }, f)))] }), _jsx("button", { onClick: handleApply, disabled: !formation || loading, className: `mt-2 w-full rounded px-2 py-1 ${formation
                     ? "bg-primary text-black hover:bg-yellow-400"
-                    : "bg-gray-300 cursor-not-allowed"}`, disabled: !formation, onClick: () => alert(`Proceeding to match with ${formation}!`), children: "Matchday" })] }));
+                    : "cursor-not-allowed bg-gray-300"}`, children: loading ? "Setting Formation..." : "Confirm Formation" })] }));
 }
 //# sourceMappingURL=FormationTab.js.map

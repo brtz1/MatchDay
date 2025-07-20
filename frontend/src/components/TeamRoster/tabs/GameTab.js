@@ -1,16 +1,20 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useState } from 'react';
-import { getNextMatch } from '../../../services/team';
-export default function GameTab({ teamName, budget, morale }) {
+import { useEffect, useState } from "react";
+import { getNextMatch } from "@/services/teamService";
+export default function GameTab({ teamId, teamName, morale }) {
     const [match, setMatch] = useState(null);
     useEffect(() => {
-        getNextMatch(1).then(setMatch);
-    }, []);
+        getNextMatch(teamId)
+            .then(setMatch)
+            .catch((err) => {
+            console.error("Failed to load next match:", err);
+        });
+    }, [teamId]);
     if (!match)
         return _jsx("p", { children: "Loading next match..." });
-    const opponent = match.homeTeam.name === teamName
-        ? match.awayTeam.name
-        : match.homeTeam.name;
-    return (_jsxs("div", { children: [_jsx("p", { className: "font-bold text-accent mb-2", children: "Next Match" }), _jsxs("p", { children: ["vs. ", opponent] }), _jsxs("p", { children: ["Referee: ", match.referee?.name ?? "Unknown"] }), _jsxs("p", { children: ["Matchday: ", match.matchday?.number, " (", match.matchday?.type, ")"] }), _jsxs("p", { children: ["Kickoff: ", new Date(match.matchDate).toLocaleDateString()] }), _jsx("hr", { className: "my-2" }), _jsxs("p", { children: ["Budget: \u20AC", budget.toLocaleString()] }), _jsxs("p", { children: ["Coach Morale: ", morale !== null ? `${morale}%` : "N/A"] })] }));
+    const kickoff = new Date(match.matchDate).toLocaleDateString();
+    return (_jsxs("div", { children: [_jsx("p", { className: "mb-2 font-bold text-accent", children: "Next Match" }), _jsxs("p", { children: ["Match ID: ", match.id] }), _jsxs("p", { children: ["Home Team ID: ", match.homeTeamId] }), _jsxs("p", { children: ["Away Team ID: ", match.awayTeamId] }), _jsxs("p", { children: ["Referee: ", match.refereeName ?? "Unknown"] }), _jsxs("p", { children: ["Matchday:", " ", match.matchdayNumber
+                        ? `${match.matchdayNumber} (${match.matchdayType})`
+                        : "TBD"] }), _jsxs("p", { children: ["Kickoff: ", kickoff] }), _jsx("hr", { className: "my-2" }), _jsxs("p", { children: ["Coach Morale: ", morale !== null ? `${morale}%` : "N/A"] })] }));
 }
 //# sourceMappingURL=GameTab.js.map

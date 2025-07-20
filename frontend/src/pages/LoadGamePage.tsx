@@ -8,7 +8,6 @@ import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
-/* ── Centralized Paths ─────────────────────────────────────────────── */
 import { teamUrl, titlePageUrl, newGameUrl } from "@/utils/paths";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
@@ -27,7 +26,7 @@ interface LoadResponse {
 /* ── Component ─────────────────────────────────────────────────────── */
 export default function LoadGamePage() {
   const navigate = useNavigate();
-  const { setCurrentTeamId, setSaveGameId } = useTeamContext();
+  const { setCurrentTeamId, setCurrentSaveGameId } = useTeamContext();
 
   const [saves, setSaves] = useState<SaveGame[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,25 +37,38 @@ export default function LoadGamePage() {
     axios
       .get<SaveGame[]>("/save-game", { params: { includeTeams: true } })
       .then(({ data }) => setSaves(data))
-      .catch(() => setError("Could not load save-games"))
+      .catch(() => setError("Could not load saved games."))
       .finally(() => setLoading(false));
   }, []);
 
-  async function handleLoad(id: number, name: string) {
-    if (!window.confirm(`Load save “${name}”? Unsaved progress will be lost.`)) return;
+  async function handleLoad(saveGameId: number, saveName: string) {
+    const confirmed = window.confirm(
+      `Load save "${saveName}"?\nUnsaved progress will be lost.`
+    );
+    if (!confirmed) return;
 
-    setLoadingId(id);
+    setLoadingId(saveGameId);
+    setError(null);
+
     try {
-      const { data } = await axios.post<LoadResponse>("/save-game/load", { id });
+      // 🔥 Tell backend to set this save as active
+      await axios.post(`/gamestate/set-save/${saveGameId}`);
 
-      if (!data.coachTeamId) throw new Error("Missing coach team id");
+      // Load save data
+      const { data } = await axios.post<LoadResponse>("/save-game/load", {
+        id: saveGameId,
+      });
 
-      setSaveGameId(id);
+      if (!data.coachTeamId) {
+        throw new Error("Missing coach team ID from save");
+      }
+
+      setCurrentSaveGameId(saveGameId);
       setCurrentTeamId(data.coachTeamId);
       navigate(teamUrl(data.coachTeamId));
     } catch (err) {
       console.error(err);
-      setError("Failed to load selected save-game");
+      setError("Failed to load save game.");
       setLoadingId(null);
     }
   }
@@ -69,11 +81,12 @@ export default function LoadGamePage() {
         <ProgressBar className="w-64" />
       ) : error ? (
         <p className="font-semibold text-red-400">{error}</p>
+      ) : saves.length === 0 ? (
+        <p className="text-gray-200">No saves found. Start a new game to begin!</p>
       ) : (
         <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
-            const coachTeam =
-              save.teams.find((t) => t.division === "D4") ?? save.teams[0];
+            const previewTeam = save.teams[0];
 
             return (
               <AppCard
@@ -84,7 +97,8 @@ export default function LoadGamePage() {
                 <div>
                   <p className="text-xl font-semibold">{save.name}</p>
                   <p className="text-sm text-gray-300">
-                    Coach: {save.coachName || "Unknown"} — Team: {coachTeam?.name || "N/A"} <br />
+                    Coach: {save.coachName || "Unknown"} — Team:{" "}
+                    {previewTeam?.name || "N/A"} <br />
                     Created: {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>
@@ -101,7 +115,6 @@ export default function LoadGamePage() {
         </div>
       )}
 
-      {/* Footer actions */}
       <div className="mt-10 flex gap-4">
         <AppButton variant="secondary" onClick={() => navigate(titlePageUrl)}>
           Back to Menu

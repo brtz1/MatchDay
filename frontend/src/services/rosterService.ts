@@ -5,7 +5,7 @@
  */
 
 import axios from "@/services/axios";
-import { SaveGamePlayer } from "@prisma/client";
+import { Backend } from "@/types/backend";
 
 /* ------------------------------------------------------------------ API */
 
@@ -18,10 +18,8 @@ const BASE = "/teams";
  * const squad = await rosterService.getTeamPlayers(42);
  * ```
  */
-async function getTeamPlayers(
-  teamId: number
-): Promise<SaveGamePlayer[]> {
-  const { data } = await axios.get<SaveGamePlayer[]>(
+async function getTeamPlayers(teamId: number): Promise<Backend.Player[]> {
+  const { data } = await axios.get<Backend.Player[]>(
     `${BASE}/${teamId}/players`
   );
   return data;

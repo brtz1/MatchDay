@@ -7,8 +7,7 @@
 
 /* ------------------------------------------------------------------ Locale */
 
-const DEFAULT_LOCALE =
-  navigator.language || "en-US";
+const DEFAULT_LOCALE = navigator.language || "en-US";
 
 /* ------------------------------------------------------------------ Money */
 
@@ -43,7 +42,7 @@ export function formatInt(value: number) {
 
 /* ------------------------------------------------------------------ Dates */
 
-constDATE_OPTS: Intl.DateTimeFormatOptions = {
+const DATE_OPTS: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "short",
   day: "2-digit",

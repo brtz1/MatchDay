@@ -8,7 +8,7 @@ import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
 
-import { teamUrl, newGameUrl } from "@/utils/paths"; // ✅ Use centralized paths
+import { teamUrl, newGameUrl } from "@/utils/paths";
 
 interface DrawResponse {
   userTeamId: number;
@@ -20,8 +20,7 @@ interface DrawResponse {
 export default function DrawPage() {
   const navigate = useNavigate();
   const location = useLocation();
-
-  const { setCurrentTeamId, setSaveGameId } = useTeamContext();
+  const { setCurrentTeamId, setCurrentSaveGameId } = useTeamContext();
 
   const [selectedCountries, setSelectedCountries] = useState<string[] | null>(null);
   const [coachName, setCoachName] = useState("");
@@ -31,7 +30,7 @@ export default function DrawPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load countries from state or localStorage
+  // Load selected countries
   useEffect(() => {
     const fromState = location.state?.selectedCountries;
     const fromStorage = localStorage.getItem("selectedCountries") ?? "[]";
@@ -44,19 +43,19 @@ export default function DrawPage() {
     if (parsed.length) {
       setSelectedCountries(parsed);
     } else {
-      navigate(newGameUrl, { replace: true }); // ✅ Use constant
+      navigate(newGameUrl, { replace: true });
     }
   }, [location.state, navigate]);
 
-  // Redirect to team roster after draw
+  // If draw succeeded, update context and navigate
   useEffect(() => {
     if (userTeamId) {
       setCurrentTeamId(userTeamId);
-      navigate(teamUrl(userTeamId), { replace: true }); // ✅ Use helper
+      navigate(teamUrl(userTeamId), { replace: true });
     }
   }, [userTeamId, setCurrentTeamId, navigate]);
 
-  async function handleDraw() {
+  const handleDraw = async () => {
     if (!coachName.trim()) {
       setError("Please enter your coach name");
       return;
@@ -79,17 +78,19 @@ export default function DrawPage() {
         throw new Error("Invalid draw response from server");
       }
 
-      setSaveGameId(saveGameId);
+      // Save game state
+      setCurrentSaveGameId(saveGameId);
       setTeamName(userTeamName);
       setUserTeamId(userTeamId);
       setDivisionPreview(divisionPreview);
+
       localStorage.removeItem("selectedCountries");
       setLoading(false);
     } catch (err: any) {
       setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
       setLoading(false);
     }
-  }
+  };
 
   if (!selectedCountries) {
     return (
@@ -111,11 +112,7 @@ export default function DrawPage() {
       ) : error ? (
         <AppCard className="w-full max-w-md space-y-4">
           <p className="font-semibold text-red-400">{error}</p>
-          <AppButton
-            variant="secondary"
-            className="w-full"
-            onClick={() => navigate(newGameUrl)} // ✅ Use constant
-          >
+          <AppButton variant="secondary" className="w-full" onClick={() => navigate(newGameUrl)}>
             Back
           </AppButton>
         </AppCard>
@@ -140,7 +137,7 @@ export default function DrawPage() {
           <AppButton
             variant="primary"
             className="w-full"
-            onClick={() => userTeamId && navigate(teamUrl(userTeamId), { replace: true })} // ✅ Use helper
+            onClick={() => userTeamId && navigate(teamUrl(userTeamId), { replace: true })}
           >
             Let&apos;s Go!
           </AppButton>

@@ -1,44 +1,54 @@
-import { useEffect, useState } from 'react';
-import { getNextMatch } from '../../../services/team';
+import { useEffect, useState } from "react";
+import { getNextMatch } from "@/services/teamService";
 
-interface Match {
+interface MatchLite {
   id: number;
-  homeTeam: { name: string };
-  awayTeam: { name: string };
-  referee?: { name: string };
-  matchday?: { number: number; type: string };
+  homeTeamId: number;
+  awayTeamId: number;
   matchDate: string;
+  refereeName?: string;
+  matchdayNumber?: number;
+  matchdayType?: "LEAGUE" | "CUP";
 }
 
-interface Props {
+interface GameTabProps {
+  teamId: number;
   teamName: string;
-  budget: number;
   morale: number | null;
 }
 
-export default function GameTab({ teamName, budget, morale }: Props) {
-  const [match, setMatch] = useState<Match | null>(null);
+export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
+  const [match, setMatch] = useState<MatchLite | null>(null);
 
   useEffect(() => {
-    getNextMatch(1).then(setMatch);
-  }, []);
+    getNextMatch(teamId)
+      .then(setMatch)
+      .catch((err: unknown) => {
+        console.error("Failed to load next match:", err);
+      });
+  }, [teamId]);
 
   if (!match) return <p>Loading next match...</p>;
 
-  const opponent =
-    match.homeTeam.name === teamName
-      ? match.awayTeam.name
-      : match.homeTeam.name;
+  const kickoff = new Date(match.matchDate).toLocaleDateString();
 
   return (
     <div>
-      <p className="font-bold text-accent mb-2">Next Match</p>
-      <p>vs. {opponent}</p>
-      <p>Referee: {match.referee?.name ?? "Unknown"}</p>
-      <p>Matchday: {match.matchday?.number} ({match.matchday?.type})</p>
-      <p>Kickoff: {new Date(match.matchDate).toLocaleDateString()}</p>
+      <p className="mb-2 font-bold text-accent">Next Match</p>
+      <p>Match ID: {match.id}</p>
+      <p>Home Team ID: {match.homeTeamId}</p>
+      <p>Away Team ID: {match.awayTeamId}</p>
+      <p>Referee: {match.refereeName ?? "Unknown"}</p>
+      <p>
+        Matchday:{" "}
+        {match.matchdayNumber
+          ? `${match.matchdayNumber} (${match.matchdayType})`
+          : "TBD"}
+      </p>
+      <p>Kickoff: {kickoff}</p>
+
       <hr className="my-2" />
-      <p>Budget: €{budget.toLocaleString()}</p>
+
       <p>Coach Morale: {morale !== null ? `${morale}%` : "N/A"}</p>
     </div>
   );

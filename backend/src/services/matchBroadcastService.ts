@@ -1,8 +1,12 @@
-// src/services/matchBroadcastService.ts
+// Refactored backend/src/services/matchBroadcastService.ts
 
 import prisma from '../utils/prisma';
 import { broadcastEvent, broadcastGameStage } from '../socket';
 import { GameStage, Match, Team, Player } from '@prisma/client';
+import { getSocketIO } from '../socket';
+
+const io = getSocketIO();
+// io.emit('match-tick', { minute }); // Removed: 'minute' is not defined in this scope
 
 export interface LiveEvent {
   matchdayId: number;
@@ -13,30 +17,19 @@ export interface LiveEvent {
   message: string;
 }
 
-/**
- * A Match record with its home/away teams including their player lists.
- */
 type BroadcastMatch = Match & {
   homeTeam: Team & { players: Player[] };
   awayTeam: Team & { players: Player[] };
 };
 
-/** Total minutes and timing constants **/
 const TOTAL_MINUTES = 90;
 const SIMULATION_DURATION_MS = 90_000;
 const TICK_MS = SIMULATION_DURATION_MS / TOTAL_MINUTES;
 
-/**
- * Simulates and broadcasts a full matchday over ~90 seconds.
- *
- * @param matchdayId – the Matchday.id to broadcast
- * @param onEvent – callback invoked for each generated LiveEvent
- */
 export async function broadcastMatchday(
   matchdayId: number,
   onEvent: (event: LiveEvent) => void
 ): Promise<void> {
-  // 1. Load matches with full roster
   const matches = (await prisma.match.findMany({
     where: { matchdayId },
     include: {
@@ -45,15 +38,15 @@ export async function broadcastMatchday(
     },
   })) as BroadcastMatch[];
 
-  // 2. Minute-by-minute simulation
   for (let minute = 1; minute <= TOTAL_MINUTES; minute++) {
+    io.emit('match-tick', { minute }); // 🔁 aligned socket name for frontend
+
     for (const match of matches) {
       const event = maybeGenerateEvent(minute, match);
       if (event) {
-        onEvent(event);             // user callback
-        broadcastEvent(event);      // socket broadcast
+        onEvent(event);
+        broadcastEvent(event);
 
-        // persist to DB
         await prisma.matchEvent.create({
           data: {
             matchdayId,
@@ -67,13 +60,11 @@ export async function broadcastMatchday(
       }
     }
 
-    // halftime
     if (minute === 45) {
       await prisma.gameState.updateMany({ data: { gameStage: GameStage.HALFTIME } });
       broadcastGameStage(GameStage.HALFTIME);
     }
 
-    // full-time
     if (minute === TOTAL_MINUTES) {
       await prisma.gameState.updateMany({ data: { gameStage: GameStage.RESULTS } });
       broadcastGameStage(GameStage.RESULTS);
@@ -82,7 +73,6 @@ export async function broadcastMatchday(
     await wait(TICK_MS);
   }
 
-  // 3. After simulation, mark played and move to standings
   await prisma.matchday.update({
     where: { id: matchdayId },
     data: { isPlayed: true },
@@ -91,27 +81,21 @@ export async function broadcastMatchday(
   broadcastGameStage(GameStage.STANDINGS);
 }
 
-/**
- * Randomly generates a GOAL, INJURY, or RED_CARD event.
- */
 function maybeGenerateEvent(minute: number, match: BroadcastMatch): LiveEvent | null {
   const chance = Math.random();
 
-  if (chance < 0.02) { // ~2% goal
+  if (chance < 0.02) {
     return makeEvent('GOAL', minute, match);
   }
-  if (chance < 0.025) { // ~0.5% injury
+  if (chance < 0.025) {
     return makeEvent('INJURY', minute, match);
   }
-  if (chance < 0.03) { // ~0.5% red card
+  if (chance < 0.03) {
     return makeEvent('RED_CARD', minute, match);
   }
   return null;
 }
 
-/**
- * Helper to construct a LiveEvent for GOAL, INJURY, or RED_CARD.
- */
 function makeEvent(
   type: LiveEvent['type'],
   minute: number,
@@ -139,7 +123,6 @@ function makeEvent(
   };
 }
 
-/** Simple sleep/delay **/
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

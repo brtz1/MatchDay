@@ -1,12 +1,23 @@
 import * as React from "react";
 import { useState, MouseEvent } from "react";
 import clsx from "clsx";
-import type { Backend } from "@/types/backend";
 import Modal from "@/components/common/Modal";
 import { AppButton } from "@/components/common/AppButton";
 import MatchEventFeed, {
   type MatchEvent,
 } from "@/components/MatchBroadcast/MatchEventFeed";
+
+/* -------------------------------------------------------------------------- */
+/* Local DTO – used only in live match view / half-time subs                 */
+/* -------------------------------------------------------------------------- */
+
+export interface PlayerDTO {
+  id: number;
+  name: string;
+  position: string;
+  rating: number;
+  isInjured: boolean;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Props                                                                      */
@@ -18,13 +29,13 @@ export interface HalfTimePopupProps {
   /** Close handler (also resumes simulation). */
   onClose: () => void;
 
-  /** Events from minute 0-45 (or 0-105 in ET). */
+  /** Events from minute 0–45 (or 0–105 in ET). */
   events: MatchEvent[];
 
   /** Current on-field players for the coached team. */
-  lineup: Backend.Player[];
+  lineup: PlayerDTO[];
   /** Bench players eligible to come on. */
-  bench: Backend.Player[];
+  bench: PlayerDTO[];
 
   /** How many subs remain this matchday (max = 3). */
   subsRemaining: number;
@@ -50,27 +61,20 @@ export default function HalfTimePopup({
   subsRemaining,
   onSubstitute,
 }: HalfTimePopupProps) {
-  /* ────────────────────────────── Local state */
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
   const [selectedIn, setSelectedIn] = useState<number | null>(null);
 
-  /* ────────────────────────────── Helpers */
   function commitSub(e: MouseEvent) {
     e.preventDefault();
     if (!selectedOut || !selectedIn) return;
     onSubstitute({ out: selectedOut, in: selectedIn });
-    // reset selections
     setSelectedOut(null);
     setSelectedIn(null);
   }
 
   const disableCommit =
-    !selectedOut ||
-    !selectedIn ||
-    selectedOut === selectedIn ||
-    subsRemaining === 0;
+    !selectedOut || !selectedIn || selectedOut === selectedIn || subsRemaining === 0;
 
-  /* ────────────────────────────── Render */
   return (
     <Modal
       open={open}
@@ -80,7 +84,6 @@ export default function HalfTimePopup({
       isLocked={false}
       className="flex flex-col gap-4"
     >
-      {/* Top: event feed */}
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -89,13 +92,11 @@ export default function HalfTimePopup({
           <MatchEventFeed events={events} maxHeightRem={18} />
         </div>
 
-        {/* Substitutions */}
         <div className="flex flex-col gap-3">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
             Substitutions (remaining {subsRemaining})
           </h3>
 
-          {/* Lineup list */}
           <RosterList
             title="On Field"
             players={lineup}
@@ -103,7 +104,6 @@ export default function HalfTimePopup({
             onSelect={setSelectedOut}
           />
 
-          {/* Bench list */}
           <RosterList
             title="Bench"
             players={bench}
@@ -111,17 +111,12 @@ export default function HalfTimePopup({
             onSelect={setSelectedIn}
           />
 
-          <AppButton
-            onClick={commitSub}
-            disabled={disableCommit}
-            className="self-end"
-          >
+          <AppButton onClick={commitSub} disabled={disableCommit} className="self-end">
             Confirm Sub
           </AppButton>
         </div>
       </div>
 
-      {/* Footer */}
       <div className="mt-4 flex justify-end gap-2">
         <AppButton variant="ghost" onClick={onClose}>
           Resume Match
@@ -142,7 +137,7 @@ function RosterList({
   onSelect,
 }: {
   title: string;
-  players: Backend.Player[];
+  players: PlayerDTO[];
   selected: number | null;
   onSelect: (id: number | null) => void;
 }) {
@@ -161,8 +156,7 @@ function RosterList({
               idx % 2 === 0
                 ? "bg-gray-50 dark:bg-gray-800/20"
                 : "bg-white dark:bg-gray-800",
-              selected === p.id &&
-                "bg-yellow-200 dark:bg-yellow-600/40"
+              selected === p.id && "bg-yellow-200 dark:bg-yellow-600/40"
             )}
           >
             <span className="w-6 text-center font-mono">{p.position}</span>

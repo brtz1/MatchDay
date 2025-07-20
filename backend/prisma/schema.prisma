@@ -243,6 +243,7 @@ model BaseTeam {
   secondaryColor String         @default("#000000") // fallback black
   players        BasePlayer[]
   saveGameTeams  SaveGameTeam[]
+  stadiumCapacity Int?
 }
 
 model BasePlayer {

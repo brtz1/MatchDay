@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { useTeamContext } from "../../../context/TeamContext";
+import { useTeamContext } from "@/store/TeamContext";
+
+// Minimal player type (only what we use)
+interface Player {
+  id: number;
+  name: string;
+}
 
 export default function SellTab() {
   const { selectedPlayer, setSellMode } = useTeamContext();
@@ -8,18 +14,22 @@ export default function SellTab() {
   if (!selectedPlayer) return null;
 
   const handleSell = () => {
-    if (!minPrice || isNaN(Number(minPrice))) {
+    const price = Number(minPrice);
+    if (!minPrice || isNaN(price)) {
       alert("Please enter a valid minimum price.");
       return;
     }
-    alert(`Player ${selectedPlayer.name} is now for sale at €${Number(minPrice).toLocaleString()}`);
+
+    alert(`Player ${selectedPlayer.name} is now for sale at €${price.toLocaleString()}`);
     setSellMode(false);
   };
 
   return (
     <div className="space-y-2">
       <h2 className="text-blue-700 font-semibold">Sell Player</h2>
-      <p className="text-sm">Player: <strong>{selectedPlayer.name}</strong></p>
+      <p className="text-sm">
+        Player: <strong>{selectedPlayer.name}</strong>
+      </p>
       <input
         type="number"
         className="border p-1 rounded text-sm w-full"
