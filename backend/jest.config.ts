@@ -7,10 +7,8 @@ const config: JestConfigWithTsJest = {
   testMatch: ['**/tests/**/*.test.ts'],
   roots: ['<rootDir>/src/tests'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  globals: {
-    'ts-jest': {
-      isolatedModules: true,
-    },
+  transform: {
+    '^.+\\.ts$': ['ts-jest', { isolatedModules: true }],
   },
 };
 
