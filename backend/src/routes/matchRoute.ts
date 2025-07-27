@@ -1,27 +1,26 @@
-// backend/src/routes/matchRoute.ts
-
 import express, { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
-import { getCurrentSaveGameId } from '../services/gameState';
+import { getGameState } from '../services/gameState';
 import {
   getMatchStateById,
   simulateMatchday,
   setCoachFormation,
-} from '@/services/matchService';
+} from '../services/matchService';
 
 const router = express.Router();
 
-/**
- * GET /api/matches
- * Fetch all matches for the current save game.
- */
+/* -------------------------------------------------------------------------- */
+/* GET: All Matches                                                           */
+/* -------------------------------------------------------------------------- */
 router.get('/', async (_req, res, next) => {
   try {
-    const saveGameId = await getCurrentSaveGameId();
-    if (!saveGameId) return res.status(400).json({ error: 'No active save game found' });
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
 
     const matches = await prisma.saveGameMatch.findMany({
-      where: { saveGameId },
+      where: { saveGameId: gameState.currentSaveGameId },
       include: {
         homeTeam: true,
         awayTeam: true,
@@ -35,20 +34,21 @@ router.get('/', async (_req, res, next) => {
   }
 });
 
-/**
- * GET /api/matches/:matchId
- * Fetch a single match by ID.
- */
+/* -------------------------------------------------------------------------- */
+/* GET: Single Match by ID                                                    */
+/* -------------------------------------------------------------------------- */
 router.get('/:matchId', async (req, res, next) => {
   const matchId = Number(req.params.matchId);
   if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
 
   try {
-    const saveGameId = await getCurrentSaveGameId();
-    if (!saveGameId) return res.status(400).json({ error: 'No active save game found' });
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
 
     const match = await prisma.saveGameMatch.findFirst({
-      where: { id: matchId, saveGameId },
+      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
       include: { homeTeam: true, awayTeam: true },
     });
 
@@ -61,21 +61,37 @@ router.get('/:matchId', async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/matches/match-state/:matchId
- * Fetch match state (lineups, bench) for a match.
- */
-router.get('/match-state/:matchId', async (req, res) => {
+/* -------------------------------------------------------------------------- */
+/* GET: Match State (Lineup + Bench)                                          */
+/* -------------------------------------------------------------------------- */
+router.get('/match-state/:matchId', async (req, res, next) => {
   const matchId = parseInt(req.params.matchId);
-  const matchState = await getMatchStateById(matchId);
-  if (!matchState) return res.status(404).json({ error: 'Not found' });
-  res.json(matchState);
+  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
+
+  try {
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
+
+    const match = await prisma.saveGameMatch.findFirst({
+      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
+    });
+    if (!match) return res.status(404).json({ error: 'Match not found in current save' });
+
+    const matchState = await getMatchStateById(matchId);
+    if (!matchState) return res.status(404).json({ error: 'Match state not found' });
+
+    res.json(matchState);
+  } catch (error) {
+    console.error(`❌ Error fetching match state ${matchId}:`, error);
+    next(error);
+  }
 });
 
-/**
- * POST /api/matches/:matchId/formation
- * Sets the coach team formation and selects lineup and bench automatically.
- */
+/* -------------------------------------------------------------------------- */
+/* POST: Set Formation + Lineup for Coach's Team                              */
+/* -------------------------------------------------------------------------- */
 router.post('/:matchId/formation', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const matchId = Number(req.params.matchId);
@@ -85,27 +101,35 @@ router.post('/:matchId/formation', async (req: Request, res: Response, next: Nex
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    await setCoachFormation(matchId, teamId, formation, isHomeTeam);
-    res.status(200).json({ message: 'Formation and lineup set' });
+    const gameState = await getGameState();
+    if (!gameState || gameState.coachTeamId !== teamId) {
+      return res.status(403).json({ error: 'You can only modify your own team' });
+    }
+
+    const result = await setCoachFormation(matchId, teamId, formation, isHomeTeam);
+    res.status(200).json(result);
   } catch (error) {
     console.error('❌ Error setting formation:', error);
     next(error);
   }
 });
 
-/**
- * POST /api/matches/:matchId/simulate
- * Randomly simulates a single match (debug only).
- */
+/* -------------------------------------------------------------------------- */
+/* POST: Simulate Random Match (DEBUG only)                                   */
+/* -------------------------------------------------------------------------- */
 router.post('/:matchId/simulate', async (req: Request, res: Response, next: NextFunction) => {
   const matchId = Number(req.params.matchId);
   if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
 
   try {
-    const saveGameId = await getCurrentSaveGameId();
-    if (!saveGameId) return res.status(400).json({ error: 'No active save game found' });
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
 
-    const existing = await prisma.saveGameMatch.findFirst({ where: { id: matchId, saveGameId } });
+    const existing = await prisma.saveGameMatch.findFirst({
+      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
+    });
     if (!existing) return res.status(404).json({ error: 'Match not found' });
 
     const homeGoals = Math.floor(Math.random() * 5);
@@ -113,7 +137,12 @@ router.post('/:matchId/simulate', async (req: Request, res: Response, next: Next
 
     const updated = await prisma.saveGameMatch.update({
       where: { id: matchId },
-      data: { homeGoals, awayGoals, played: true },
+      data: {
+        homeGoals,
+        awayGoals,
+        played: true,
+        matchDate: new Date(),
+      },
     });
 
     res.status(200).json(updated);
@@ -123,22 +152,24 @@ router.post('/:matchId/simulate', async (req: Request, res: Response, next: Next
   }
 });
 
-/**
- * POST /api/matches
- * Create a new match under the current save game.
- */
+/* -------------------------------------------------------------------------- */
+/* POST: Create New Match                                                     */
+/* -------------------------------------------------------------------------- */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { homeTeamId, awayTeamId, matchDate } = req.body;
-    const saveGameId = await getCurrentSaveGameId();
-    if (!saveGameId) return res.status(400).json({ error: 'No active save game found' });
+    const { homeTeamId, awayTeamId, matchDate, matchdayType = "LEAGUE" } = req.body;
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
 
     const newMatch = await prisma.saveGameMatch.create({
       data: {
-        saveGameId,
+        saveGameId: gameState.currentSaveGameId,
         homeTeamId: Number(homeTeamId),
         awayTeamId: Number(awayTeamId),
         matchDate: new Date(matchDate),
+        matchdayType,
       },
     });
 
@@ -149,9 +180,9 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-/**
- * DELETE /api/matches/:matchId
- */
+/* -------------------------------------------------------------------------- */
+/* DELETE: Match by ID                                                        */
+/* -------------------------------------------------------------------------- */
 router.delete('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
   const matchId = Number(req.params.matchId);
   if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
@@ -165,15 +196,18 @@ router.delete('/:matchId', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-/**
- * GET /api/matches/all
- * Fetch all matches with team names, ordered by matchday.
- */
+/* -------------------------------------------------------------------------- */
+/* GET: All Matches with Team Names & Matchday Numbers                        */
+/* -------------------------------------------------------------------------- */
 router.get('/all', async (_req, res, next) => {
   try {
-    const saveGameId = await getCurrentSaveGameId();
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(400).json({ error: 'No active save game found' });
+    }
+
     const matches = await prisma.saveGameMatch.findMany({
-      where: { saveGameId },
+      where: { saveGameId: gameState.currentSaveGameId },
       include: {
         homeTeam: { select: { id: true, name: true } },
         awayTeam: { select: { id: true, name: true } },
@@ -185,8 +219,10 @@ router.get('/all', async (_req, res, next) => {
         },
       },
     });
+
     res.json(matches);
   } catch (error) {
+    console.error('❌ Error fetching all matches:', error);
     next(error);
   }
 });

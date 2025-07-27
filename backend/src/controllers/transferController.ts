@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import * as transferService from '@/services/transferService';
+import * as transferService from '../services/transferService';
+import { getGameState } from '../services/gameState';
 
 /**
  * POST /api/transfers
@@ -8,8 +9,7 @@ import * as transferService from '@/services/transferService';
 export async function transferPlayer(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { playerId, fromTeamId, toTeamId, fee } = req.body;
-    
-    // Validate and convert inputs
+
     const pid = Number(playerId);
     const fromId = fromTeamId !== undefined && fromTeamId !== null ? Number(fromTeamId) : null;
     const toId = Number(toTeamId);
@@ -20,7 +20,16 @@ export async function transferPlayer(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    const result = await transferService.transferPlayer(pid, fromId, toId, transferFee);
+    const gameState = await getGameState();
+
+    if (!gameState || !gameState.currentSaveGameId || gameState.currentSaveGameId <= 0) {
+      res.status(400).json({ error: 'No active save game found' });
+      return;
+    }
+
+    const saveGameId = gameState.currentSaveGameId;
+
+    const result = await transferService.transferPlayer(saveGameId, pid, fromId, toId, transferFee);
     res.status(201).json(result);
   } catch (error) {
     console.error('❌ Error processing transfer:', error);

@@ -3,7 +3,6 @@ import {
   useState,
   Children,
   isValidElement,
-  cloneElement,
   type ReactNode,
   type ReactElement,
 } from "react";
@@ -16,24 +15,16 @@ import clsx from "clsx";
  */
 
 export interface TabDefinition {
-  /** Unique key for the tab. */
   value: string;
-  /** Text label shown in the header. */
   label: string;
 }
 
 export interface TeamRosterTabsProps {
-  /** Array of tab meta – order matters. */
   tabs: TabDefinition[];
-  /** Active tab value (controlled). */
   value?: string;
-  /** Default value (uncontrolled). */
   defaultValue?: string;
-  /** Controlled change handler. */
   onChange?: (value: string) => void;
-  /** TabPanels as children.  Must equal tabs.length or we’ll warn in dev. */
   children: ReactNode;
-  /** Extra Tailwind classes. */
   className?: string;
 }
 
@@ -51,7 +42,6 @@ export default function TeamRosterTabs({
   children,
   className,
 }: TeamRosterTabsProps) {
-  // Uncontrolled fallback
   const [internal, setInternal] = useState(defaultValue);
   const current = value ?? internal;
 
@@ -60,13 +50,14 @@ export default function TeamRosterTabs({
     if (value === undefined) setInternal(v);
   }
 
-  // Development-time length guard
-  if (
-    import.meta.env.DEV &&
-    Children.count(children) !== tabs.length
-  ) {
+  const childArray = Children.toArray(children);
+  const tabCount = tabs.length;
+  const childCount = childArray.length;
+
+  // Development-time guard
+  if (import.meta.env.DEV && childCount !== tabCount) {
     console.warn(
-      "[TeamRosterTabs] children.length !== tabs.length"
+      `[TeamRosterTabs] children.length !== tabs.length → ${childCount} ≠ ${tabCount}`
     );
   }
 
@@ -95,15 +86,13 @@ export default function TeamRosterTabs({
         ))}
       </div>
 
-      {/* ── Tab panels */}
+      {/* ── Active panel only */}
       <div className="flex-1 overflow-auto p-2 text-sm">
-        {Children.map(children, (child, idx) => {
-          if (!isValidElement(child)) return null;
-          const isActive = tabs[idx]?.value === current;
-          return cloneElement(
-            child as ReactElement<{ hidden?: boolean }>,
-            { hidden: !isActive }
-    );
+        {childArray.map((child, idx) => {
+          if (tabs[idx]?.value === current && isValidElement(child)) {
+            return <React.Fragment key={idx}>{child}</React.Fragment>;
+          }
+          return null;
         })}
       </div>
     </div>

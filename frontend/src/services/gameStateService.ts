@@ -11,24 +11,28 @@ import axios from "@/services/axios";
 /* ------------------------------------------------------------------ Types */
 
 export interface GameState {
-  currentMatchday: number;          // e.g. 12
-  coachTeamId?: number;             // if a save is already loaded
-  saveGameId?: number;
-  timestamp: string;                // ISO when the engine tick last ran
+  currentMatchday: number;
+  coachTeamId?: number;
+  currentSaveGameId?: number;
+  timestamp: string;
+
+  // ✅ NEW FIELDS for match control
+  gameStage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+  matchdayType: "LEAGUE" | "CUP";
 }
 
 export interface ManualSavePayload {
-  name: string;                     // “Manual Save”
-  coachName: string;                // user’s coach name
+  name: string;
+  coachName: string;
 }
 
 export interface ManualSaveResponse {
-  saveName: string;                 // echoed back by backend
+  saveName: string;
   saveGameId: number;
 }
 
 export interface LoadSaveRequest {
-  id: number;                       // save-game PK
+  id: number;
 }
 
 export interface LoadSaveResponse {
@@ -57,26 +61,17 @@ export async function getGameState(): Promise<GameState> {
 }
 
 export async function manualSave(payload: ManualSavePayload) {
-  const { data } = await axios.post<ManualSaveResponse>(
-    "/manual-save",
-    payload
-  );
+  const { data } = await axios.post<ManualSaveResponse>("/manual-save", payload);
   return data;
 }
 
 export async function loadSave(request: LoadSaveRequest) {
-  const { data } = await axios.post<LoadSaveResponse>(
-    "/save-game/load",
-    request
-  );
+  const { data } = await axios.post<LoadSaveResponse>("/save-game/load", request);
   return data;
 }
 
 export async function createNewSave(request: NewSaveRequest) {
-  const { data } = await axios.post<NewSaveResponse>(
-    "/save-game",
-    request
-  );
+  const { data } = await axios.post<NewSaveResponse>("/save-game", request);
   return data;
 }
 

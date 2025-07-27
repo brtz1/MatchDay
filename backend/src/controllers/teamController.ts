@@ -7,7 +7,7 @@ import {
   createTeam as createTeamService,
   updateTeam as updateTeamService,
   deleteTeam as deleteTeamService,
-} from '@/services/teamService';
+} from '../services/teamService';
 import { DivisionTier } from '@prisma/client';
 
 /**
@@ -61,7 +61,7 @@ export async function getTeamById(
 
 /**
  * POST /api/teams
- * Body: { saveGameId, baseTeamId, name, division, morale, currentSeason, localIndex }
+ * Body: { saveGameId, baseTeamId, name, division, morale, currentSeason, localIndex, rating }
  */
 export async function createTeam(
   req: Request,
@@ -77,7 +77,9 @@ export async function createTeam(
       morale,
       currentSeason,
       localIndex,
+      rating,
     } = req.body;
+
     const dto = {
       saveGameId: Number(saveGameId),
       baseTeamId: Number(baseTeamId),
@@ -86,11 +88,19 @@ export async function createTeam(
       morale: morale !== undefined ? Number(morale) : 50,
       currentSeason: currentSeason !== undefined ? Number(currentSeason) : 1,
       localIndex: Number(localIndex),
+      rating: Number(rating),
     };
-    if (isNaN(dto.saveGameId) || isNaN(dto.baseTeamId) || isNaN(dto.localIndex)) {
-      res.status(400).json({ error: 'saveGameId, baseTeamId, and localIndex must be numbers' });
+
+    if (
+      isNaN(dto.saveGameId) ||
+      isNaN(dto.baseTeamId) ||
+      isNaN(dto.localIndex) ||
+      isNaN(dto.rating)
+    ) {
+      res.status(400).json({ error: 'saveGameId, baseTeamId, localIndex, and rating must be numbers' });
       return;
     }
+
     const newTeam = await createTeamService(dto);
     res.status(201).json(newTeam);
   } catch (error) {

@@ -1,93 +1,64 @@
-/**
- * matchService.ts
- * ---------------
- * All match-related endpoints (list, simulate, single-match details, etc.).
- */
+// frontend/src/services/matchService.ts
 
-import axios from "@/services/axios";
-import api from "./axios";
+import api from "@/services/axios";
 
-export async function fetchMatchState(matchId: number) {
-  const res = await api.get(`/match-state/${matchId}`);
-  return res.data;
-}
+/* ------------------------------------------------------------------------- */
+/* Types                                                                     */
+/* ------------------------------------------------------------------------- */
 
-/* ------------------------------------------------------------------ Types */
-
-export interface MatchLite {
+export interface Match {
   id: number;
   homeTeamId: number;
   awayTeamId: number;
-  homeScore?: number;
-  awayScore?: number;
-  minute?: number;
-  division?: string;
-  matchDate?: string;
+  matchdayNumber: number;
+  matchdayType: "LEAGUE" | "CUP";
+  homeGoals: number | null;
+  awayGoals: number | null;
+  played: boolean;
+  homeTeamName?: string;
+  awayTeamName?: string;
 }
 
-export interface SimulateMatchRequest {
+export interface MatchForm {
   homeTeamId: number;
   awayTeamId: number;
   refereeId: number;
-  /** Optional: associate simulation with a specific match-day. */
-  matchdayId?: number;
 }
 
-export interface SimulateMatchResponse {
-  matchId: number;
-  homeScore: number;
-  awayScore: number;
-}
+/* ------------------------------------------------------------------------- */
+/* API Calls                                                                 */
+/* ------------------------------------------------------------------------- */
 
-/* ------------------------------------------------------------------ API */
-
-const BASE = "/matches";
-
-/** GET `/matches` — list all simulated or scheduled matches. */
-async function getMatches(): Promise<MatchLite[]> {
-  const { data } = await axios.get<MatchLite[]>(BASE);
-  return data;
-}
-
-/**
- * Sends formation selection to backend and returns assigned lineup and bench player IDs.
- */
 export async function setFormation(
   matchId: number,
   teamId: number,
   formation: string,
   isHomeTeam: boolean
 ): Promise<{ lineup: number[]; bench: number[] }> {
-  const response = await axios.post(`/api/matches/${matchId}/formation`, {
+  const response = await api.post(`/matches/${matchId}/formation`, {
     teamId,
     formation,
     isHomeTeam,
   });
-
   return response.data;
 }
 
-/**
- * POST `/matches/simulate` — run a one-off simulation.
- * Returns the final score & new match record.
- */
-async function simulateMatch(payload: SimulateMatchRequest) {
-  const { data } = await axios.post<SimulateMatchResponse>(
-    `${BASE}/simulate`,
-    payload
-  );
-  return data;
+export async function getMatches(): Promise<Match[]> {
+  const response = await api.get<Match[]>("/match");
+  return response.data;
 }
 
-/* Optional: details endpoint if you need it later */
-async function getMatchById(id: number) {
-  const { data } = await axios.get<MatchLite>(`${BASE}/${id}`);
-  return data;
+export async function simulateMatch(form: MatchForm): Promise<Match> {
+  const response = await api.post<Match>("/match/simulate", form);
+  return response.data;
 }
 
-/* ------------------------------------------------------------------ Export */
+/* ------------------------------------------------------------------------- */
+/* Export                                                                    */
+/* ------------------------------------------------------------------------- */
+
 export default {
+  setFormation,
   getMatches,
   simulateMatch,
-  getMatchById,
 };

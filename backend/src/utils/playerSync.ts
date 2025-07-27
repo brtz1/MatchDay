@@ -1,71 +1,94 @@
 // src/utils/playerSync.ts
 
-import prisma from '../utils/prisma';
-import { BaseTeam, BasePlayer, DivisionTier } from '@prisma/client';
+import prisma from "../utils/prisma";
+import { DivisionTier } from "@prisma/client";
 
-type BaseTeamWithPlayers = BaseTeam & { players: BasePlayer[] };
+type SaveGameTeamLite = {
+  id: number;
+  name: string;
+  saveGameId: number;
+  division: DivisionTier;
+  localIndex: number;
+  baseTeamId: number;
+  morale: number;
+  currentSeason: number;
+  rating: number; // 🆕 used instead of fixed per-division
+};
+
+type BaseTeamWithPlayers = {
+  id: number;
+  players: {
+    id: number;
+    name: string;
+    position: string;
+    behavior: number;
+  }[];
+};
 
 /**
- * Updates SaveGamePlayer ratings and salaries based on their division assignment.
- *
- * @param saveGameId     – the active SaveGame ID
- * @param baseTeams      – all BaseTeam records with their BasePlayer[] attached
- * @param divisionMap    – map from DivisionTier to the subset of BaseTeamWithPlayers in that division
+ * Creates SaveGamePlayers for each SaveGameTeam based on its actual rating.
  */
 export async function syncPlayersWithNewTeamRating(
-  saveGameId: number,
-  baseTeams: BaseTeamWithPlayers[],
+  saveGameTeams: SaveGameTeamLite[],
   divisionMap: Record<DivisionTier, BaseTeamWithPlayers[]>
 ): Promise<void> {
-  for (const [divisionKey, teams] of Object.entries(divisionMap) as [DivisionTier, BaseTeamWithPlayers[]][]) {
-    const baseRating = getDivisionBaseRating(divisionKey);
-
-    for (const baseTeam of teams) {
-      // Find the corresponding SaveGameTeam for this base team
-      const saveTeam = await prisma.saveGameTeam.findFirst({
-        where: { saveGameId, baseTeamId: baseTeam.id },
-      });
+  for (const [divisionKey, baseTeams] of Object.entries(divisionMap) as [
+    DivisionTier,
+    BaseTeamWithPlayers[]
+  ][]) {
+    for (const baseTeam of baseTeams) {
+      const saveTeam = saveGameTeams.find((t) => t.baseTeamId === baseTeam.id);
       if (!saveTeam) continue;
 
-      // Generate new ratings for each player on that team
-      const ratings = generatePlayerRatingsForTeam(baseRating, baseTeam.players.length);
+      const ratings = generatePlayerRatingsForTeam(saveTeam.rating, baseTeam.players.length);
+
+      const playerData: {
+        saveGameId: number;
+        basePlayerId: number;
+        name: string;
+        position: string;
+        rating: number;
+        salary: number;
+        behavior: number;
+        contractUntil: number;
+        teamId: number;
+        localIndex: number;
+      }[] = [];
 
       for (let i = 0; i < baseTeam.players.length; i++) {
-        const bp = baseTeam.players[i];
-        const rating = ratings[i];
-        const salary = calculateSalary(rating, bp.behavior);
+        const p = baseTeam.players[i];
+        if (!p.name || !p.position || typeof p.behavior !== "number") {
+          console.error("❌ Invalid base player:", p);
+          continue;
+        }
 
-        // Bulk update the SaveGamePlayer entry
-        await prisma.saveGamePlayer.updateMany({
-          where: {
-            saveGameId,
-            basePlayerId: bp.id,
-            teamId: saveTeam.id,
-          },
-          data: {
-            rating,
-            salary,
-          },
+        playerData.push({
+          saveGameId: saveTeam.saveGameId,
+          basePlayerId: p.id,
+          name: p.name,
+          position: p.position,
+          rating: ratings[i],
+          salary: calculateSalary(ratings[i], p.behavior),
+          behavior: p.behavior,
+          contractUntil: 1,
+          teamId: saveTeam.id,
+          localIndex: i,
+        });
+      }
+
+      if (playerData.length > 0) {
+        await prisma.saveGamePlayer.createMany({
+          data: playerData,
         });
       }
     }
   }
 }
 
-function getDivisionBaseRating(division: DivisionTier): number {
-  switch (division) {
-    case DivisionTier.D1: return 95;
-    case DivisionTier.D2: return 85;
-    case DivisionTier.D3: return 75;
-    case DivisionTier.D4: return 65;
-    default: return 60;
-  }
-}
-
 function generatePlayerRatingsForTeam(teamRating: number, count: number): number[] {
   const ratings: number[] = [];
   for (let i = 0; i < count; i++) {
-    const variance = Math.floor(Math.random() * 11) - 5; // ±5
+    const variance = Math.floor(Math.random() * 11) - 5; // ±5 variation
     ratings.push(clamp(teamRating + variance));
   }
   return ratings;
@@ -78,5 +101,5 @@ function calculateSalary(rating: number, behavior: number): number {
 }
 
 function clamp(value: number): number {
-  return Math.max(30, Math.min(99, value));
+  return Math.max(1, Math.min(99, value));
 }

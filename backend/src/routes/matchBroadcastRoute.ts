@@ -1,5 +1,3 @@
-// src/routes/matchBroadcastRoute.ts
-
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { broadcastMatchday, LiveEvent } from '../services/matchBroadcastService';
@@ -10,20 +8,23 @@ const router = Router();
 /**
  * POST /api/broadcast/matchday
  * Kick off a live broadcast for the current matchday.
- * - Retrieves current GameState
- * - Finds the corresponding Matchday record
- * - Calls broadcastMatchday, which will emit events and invoke our callback
- * - Persists each LiveEvent into the matchEvent table
+ * - Validates saveGameId
+ * - Retrieves current matchday based on GameState
+ * - Starts broadcasting and persists each LiveEvent
  */
 router.post(
   '/matchday',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const state = await getGameState();
-      // never null because getGameState throws if uninitialized
+
+      if (!state?.currentSaveGameId || state.currentSaveGameId <= 0) {
+        return res.status(400).json({ error: 'No active save game found' });
+      }
 
       const matchday = await prisma.matchday.findFirst({
         where: {
+          saveGameId: state.currentSaveGameId,
           number: state.currentMatchday,
           type: state.matchdayType,
         },

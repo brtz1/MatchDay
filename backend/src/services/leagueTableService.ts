@@ -1,4 +1,4 @@
-// src/services/leagueTableService.ts
+// backend/src/services/leagueTableService.ts
 
 import prisma from '../utils/prisma';
 import { MatchdayType } from '@prisma/client';
@@ -6,34 +6,46 @@ import { MatchdayType } from '@prisma/client';
 type Result = 'win' | 'draw' | 'loss';
 
 /**
- * Updates the static LeagueTable for every match in a given matchday.
+ * Updates the LeagueTable for every match in a given matchday.
  * Only processes matchdays of type LEAGUE.
  *
+ * @param saveGameId – the ID of the save game to process
  * @param matchdayId – the ID of the matchday to process
  */
-export async function updateLeagueTableForMatchday(matchdayId: number): Promise<void> {
+export async function updateLeagueTableForMatchday(saveGameId: number, matchdayId: number): Promise<void> {
+  // 1. Validate matchday exists and is LEAGUE type
   const matchday = await prisma.matchday.findUnique({
     where: { id: matchdayId },
-    include: { matches: true },
   });
+
   if (!matchday) {
     throw new Error(`Matchday ${matchdayId} not found`);
   }
+
   if (matchday.type !== MatchdayType.LEAGUE) {
-    return; // only update for league rounds
+    return; // only process LEAGUE matchdays
   }
 
-  for (const match of matchday.matches) {
-    const { homeScore, awayScore, homeTeamId, awayTeamId } = match;
-    if (homeScore == null || awayScore == null) {
+  // 2. Get all played saveGameMatches for this matchday and saveGame
+  const matches = await prisma.saveGameMatch.findMany({
+    where: {
+      matchdayId,
+      saveGameId,
+      played: true,
+    },
+  });
+
+  for (const match of matches) {
+    const { homeGoals, awayGoals, homeTeamId, awayTeamId } = match;
+    if (homeGoals == null || awayGoals == null) {
       continue;
     }
 
-    const homeResult = getResult(homeScore, awayScore);
-    const awayResult = getResult(awayScore, homeScore);
+    const homeResult = getResult(homeGoals, awayGoals);
+    const awayResult = getResult(awayGoals, homeGoals);
 
-    await upsertLeagueTableEntry(homeTeamId, homeResult, homeScore, awayScore);
-    await upsertLeagueTableEntry(awayTeamId, awayResult, awayScore, homeScore);
+    await upsertLeagueTableEntry(homeTeamId, homeResult, homeGoals, awayGoals);
+    await upsertLeagueTableEntry(awayTeamId, awayResult, awayGoals, homeGoals);
   }
 }
 
@@ -47,7 +59,8 @@ function getResult(goalsFor: number, goalsAgainst: number): Result {
 }
 
 /**
- * Inserts or updates a LeagueTable row for the given team.
+ * Inserts or updates a LeagueTable row for the given saveGameTeam.
+ * LeagueTable is assumed to store results keyed by saveGameTeamId.
  */
 async function upsertLeagueTableEntry(
   teamId: number,

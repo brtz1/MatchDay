@@ -30,7 +30,7 @@ export async function createSaveGameFromBase(saveName: string, coachName?: strin
   for (let teamIndex = 0; teamIndex < baseTeams.length; teamIndex++) {
     const base = baseTeams[teamIndex];
 
-    // Create SaveGameTeam
+    // Create SaveGameTeam (include required 'rating')
     const saveTeam = await prisma.saveGameTeam.create({
       data: {
         saveGameId: save.id,
@@ -40,6 +40,7 @@ export async function createSaveGameFromBase(saveName: string, coachName?: strin
         morale: 75,
         currentSeason: 1,
         localIndex: teamIndex,
+        rating: base.rating, // ✅ Added required field
       },
     });
 

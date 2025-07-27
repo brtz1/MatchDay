@@ -1,9 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import {
-  ensureGameState,
-  advanceStage,
-  getGameState,
-} from "../services/gameState";
+import { ensureGameState, advanceStage, getGameState} from "../services/gameState";
 
 const router = Router();
 

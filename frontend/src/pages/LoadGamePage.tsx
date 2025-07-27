@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import axios from "@/services/axios";
 import { useTeamContext } from "@/store/TeamContext";
+import { useGameState } from "@/store/GameStateStore";
 import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
@@ -27,6 +28,7 @@ interface LoadResponse {
 export default function LoadGamePage() {
   const navigate = useNavigate();
   const { setCurrentTeamId, setCurrentSaveGameId } = useTeamContext();
+  const { refreshGameState } = useGameState();
 
   const [saves, setSaves] = useState<SaveGame[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,12 +67,23 @@ export default function LoadGamePage() {
 
       setCurrentSaveGameId(saveGameId);
       setCurrentTeamId(data.coachTeamId);
+
+      // ✅ Also refresh GameState
+      await refreshGameState();
+
       navigate(teamUrl(data.coachTeamId));
     } catch (err) {
       console.error(err);
       setError("Failed to load save game.");
       setLoadingId(null);
     }
+  }
+
+  function getCoachTeamName(save: SaveGame): string {
+    const gameState = saves.find((s) => s.id === save.id);
+    const coachTeamId = gameState?.teams.find((t) => t.id === gameState?.teams[0]?.id)?.id;
+    const coachTeam = save.teams.find((t) => t.id === coachTeamId);
+    return coachTeam?.name || "N/A";
   }
 
   return (
@@ -86,7 +99,7 @@ export default function LoadGamePage() {
       ) : (
         <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
-            const previewTeam = save.teams[0];
+            const coachTeam = save.teams.find((t) => t.id === save.teams[0]?.id);
 
             return (
               <AppCard
@@ -98,7 +111,7 @@ export default function LoadGamePage() {
                   <p className="text-xl font-semibold">{save.name}</p>
                   <p className="text-sm text-gray-300">
                     Coach: {save.coachName || "Unknown"} — Team:{" "}
-                    {previewTeam?.name || "N/A"} <br />
+                    {coachTeam?.name || "N/A"} <br />
                     Created: {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>

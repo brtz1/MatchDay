@@ -2,7 +2,10 @@
  * Maps common football formations to position counts.
  * Format: { GK: number, DF: number, MF: number, AT: number }
  */
-export const FORMATION_LAYOUTS: Record<string, { GK: number; DF: number; MF: number; AT: number }> = {
+export const FORMATION_LAYOUTS: Record<
+  string,
+  { GK: number; DF: number; MF: number; AT: number }
+> = {
   "4-4-2": { GK: 1, DF: 4, MF: 4, AT: 2 },
   "4-3-3": { GK: 1, DF: 4, MF: 3, AT: 3 },
   "4-5-1": { GK: 1, DF: 4, MF: 5, AT: 1 },

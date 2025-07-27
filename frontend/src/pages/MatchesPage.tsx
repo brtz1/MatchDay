@@ -1,3 +1,5 @@
+// src/pages/MatchesPage.tsx
+
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -14,7 +16,7 @@ import { ProgressBar } from "@/components/common/ProgressBar";
 
 /* ── Routing ───────────────────────────────────────────────────────── */
 import { useNavigate } from "react-router-dom";
-import { teamUrl, matchUrl } from "@/utils/paths"; // ✅ centralized routes
+import { teamUrl, matchUrl } from "@/utils/paths";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface Match {
@@ -86,7 +88,7 @@ export default function MatchesPage() {
     }
     setSubmitting(true);
     try {
-      await matchService.simulateMatch(form);
+      await matchService.simulateMatch(form); // ✅ updated to pass full form
       const updated = await matchService.getMatches();
       setMatches(updated);
       setForm({ homeTeamId: 0, awayTeamId: 0, refereeId: 0 });

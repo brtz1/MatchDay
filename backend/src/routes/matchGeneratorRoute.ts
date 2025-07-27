@@ -15,13 +15,13 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
       return res.status(400).json({ error: 'No active save game found' });
     }
 
-    // 1. League fixtures: 8 teams per division, double round-robin
+    // League fixtures: double round-robin
     const saveGameTeams = await prisma.saveGameTeam.findMany({
       where: { saveGameId },
       include: { baseTeam: true },
     });
 
-    // Group by division
+    // Group teams by division
     const divisions = saveGameTeams.reduce<Record<string, number[]>>((acc, team) => {
       const div = team.division;
       if (!acc[div]) acc[div] = [];
@@ -30,6 +30,8 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
     }, {});
 
     let matchdayNumber = 1;
+
+    // Generate league fixtures
     for (const [division, teamIds] of Object.entries(divisions)) {
       const fixtures = createDoubleRoundRobinFixtures(teamIds);
       for (const round of fixtures) {
@@ -38,6 +40,7 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
             number: matchdayNumber++,
             type: 'LEAGUE',
             date: new Date(),
+            saveGameId: saveGameId,
           },
         });
         for (const [homeId, awayId] of round) {
@@ -48,33 +51,43 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
               awayTeamId: awayId,
               matchDate: new Date(),
               matchdayId: matchday.id,
+              matchdayType: 'LEAGUE',
             },
           });
         }
       }
     }
 
-    // 2. Cup fixtures: knockout rounds
+    // Cup fixtures: knockout rounds
     let roundTeams: number[] = saveGameTeams.map((t) => t.id);
-    const CUP_ROUNDS = ['Round of 128','Round of 64','Round of 32','Round of 16','Quarterfinal','Semifinal','Final'];
+    const CUP_ROUNDS = [
+      'Round of 128', 'Round of 64', 'Round of 32',
+      'Round of 16', 'Quarterfinal', 'Semifinal', 'Final'
+    ];
 
     for (const roundName of CUP_ROUNDS) {
       if (roundTeams.length < 2) break;
+
       const matchday = await prisma.matchday.create({
         data: {
           number: matchdayNumber++,
           type: 'CUP',
           date: new Date(),
+          saveGameId: saveGameId,
         },
       });
 
-      // Shuffle teams
       const shuffled = [...roundTeams].sort(() => Math.random() - 0.5);
       const winners: number[] = [];
+
       for (let i = 0; i < shuffled.length; i += 2) {
         const home = shuffled[i];
         const away = shuffled[i + 1];
-        if (!away) break;
+        if (!away) {
+          winners.push(home); // automatically advance if odd number
+          continue;
+        }
+
         await prisma.saveGameMatch.create({
           data: {
             saveGameId,
@@ -82,15 +95,18 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
             awayTeamId: away,
             matchDate: new Date(),
             matchdayId: matchday.id,
+            matchdayType: 'CUP',
           },
         });
-        // Random pick winner placeholder
+
+        // Randomly picking a winner (placeholder logic, replace as needed)
         winners.push(Math.random() < 0.5 ? home : away);
       }
+
       roundTeams = winners;
     }
 
-    res.status(200).json({ message: 'Matches generated successfully.' });
+    return res.status(200).json({ message: 'Matches generated successfully.' });
   } catch (error) {
     console.error('❌ Error generating matches:', error);
     next(error);
@@ -115,7 +131,6 @@ function createDoubleRoundRobinFixtures(teamIds: number[]): [number, number][][]
     rounds.push(pairs);
     teams.splice(1, 0, teams.pop()!);
   }
-  // second leg
   const secondLeg = rounds.map((r) => r.map(([h, a]) => [a, h] as [number, number]));
   return [...rounds, ...secondLeg];
 }

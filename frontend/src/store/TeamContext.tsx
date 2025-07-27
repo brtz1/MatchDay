@@ -1,8 +1,9 @@
-import React, { 
+import React, {
   createContext,
   useContext,
   useReducer,
   useMemo,
+  useEffect,
   type ReactNode,
 } from "react";
 
@@ -23,29 +24,23 @@ interface TeamState {
 }
 
 export interface TeamContextType {
-  /** Currently coached team ID (null until set). */
   currentTeamId: number | null;
   setCurrentTeamId: (id: number | null) => void;
 
-  /** Active save-game ID (null until loaded). */
   currentSaveGameId: number | null;
   setCurrentSaveGameId: (id: number | null) => void;
 
-  /** Current matchday ID (null until set). */
   currentMatchdayId: number | null;
   setCurrentMatchdayId: (id: number | null) => void;
 
-  /** Player selection for UI details. */
   selectedPlayer: SaveGamePlayer | null;
   setSelectedPlayer: (player: SaveGamePlayer | null) => void;
 
-  /** Toggle modes for selling or renewing players. */
   sellMode: boolean;
   setSellMode: (on: boolean) => void;
   renewMode: boolean;
   setRenewMode: (on: boolean) => void;
 
-  /** Reset both sell and renew modes. */
   resetModes: () => void;
 }
 
@@ -62,11 +57,19 @@ type Action =
   | { type: "SET_MATCHDAY_ID"; id: number | null }
   | { type: "RESET_MODES" };
 
+const COACH_TEAM_KEY = "coachTeamId";
+
 const initialState: TeamState = {
   selectedPlayer: null,
   sellMode: false,
   renewMode: false,
-  currentTeamId: null,
+  // Restore from localStorage on initial load
+  currentTeamId: (() => {
+    const stored = localStorage.getItem(COACH_TEAM_KEY);
+    return stored && !isNaN(Number(stored)) && Number(stored) > 0
+      ? Number(stored)
+      : null;
+  })(),
   saveGameId: null,
   matchdayId: null,
 };
@@ -101,10 +104,30 @@ const TeamContext = createContext<TeamContextType | undefined>(undefined);
 export function TeamProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // Keep localStorage in sync with state (for currentTeamId)
+  useEffect(() => {
+    if (state.currentTeamId && typeof state.currentTeamId === "number" && !isNaN(state.currentTeamId) && state.currentTeamId > 0) {
+      localStorage.setItem(COACH_TEAM_KEY, String(state.currentTeamId));
+    } else {
+      localStorage.removeItem(COACH_TEAM_KEY);
+    }
+  }, [state.currentTeamId]);
+
+  // Always use this setter throughout your app!
+  const setCurrentTeamId = (id: number | null) => {
+    if (id && typeof id === "number" && !isNaN(id) && id > 0) {
+      localStorage.setItem(COACH_TEAM_KEY, String(id));
+      dispatch({ type: "SET_CURRENT_TEAM_ID", id });
+    } else {
+      localStorage.removeItem(COACH_TEAM_KEY);
+      dispatch({ type: "SET_CURRENT_TEAM_ID", id: null });
+    }
+  };
+
   const value: TeamContextType = useMemo(
     () => ({
       currentTeamId: state.currentTeamId,
-      setCurrentTeamId: (id) => dispatch({ type: "SET_CURRENT_TEAM_ID", id }),
+      setCurrentTeamId,
 
       currentSaveGameId: state.saveGameId,
       setCurrentSaveGameId: (id) => dispatch({ type: "SET_SAVE_GAME_ID", id }),

@@ -1,7 +1,7 @@
 // backend/src/routes/matchEventRoute.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { getEventsByMatchId } from '@/services/matchEventService';
+import { getEventsByMatchId, getEventsByMatchdayId } from '../services/matchEventService';
 
 const router = Router();
 
@@ -20,6 +20,25 @@ router.get('/:matchId', async (req: Request, res: Response, next: NextFunction) 
     res.status(200).json(events);
   } catch (error) {
     console.error(`❌ Error fetching events for match ${matchId}:`, error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/match-events/by-matchday/:matchdayId
+ * Fetches all events for all matches in a given matchday, grouped by matchId.
+ */
+router.get('/by-matchday/:matchdayId', async (req: Request, res: Response, next: NextFunction) => {
+  const matchdayId = Number(req.params.matchdayId);
+  if (isNaN(matchdayId)) {
+    return res.status(400).json({ error: 'Invalid matchday ID' });
+  }
+
+  try {
+    const eventsByMatch = await getEventsByMatchdayId(matchdayId);
+    res.status(200).json(eventsByMatch);
+  } catch (error) {
+    console.error(`❌ Error fetching events for matchday ${matchdayId}:`, error);
     next(error);
   }
 });

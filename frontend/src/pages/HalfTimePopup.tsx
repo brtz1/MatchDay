@@ -24,28 +24,14 @@ export interface PlayerDTO {
 /* -------------------------------------------------------------------------- */
 
 export interface HalfTimePopupProps {
-  /** Show / hide the modal. */
   open: boolean;
-  /** Close handler (also resumes simulation). */
   onClose: () => void;
-
-  /** Events from minute 0–45 (or 0–105 in ET). */
   events: MatchEvent[];
-
-  /** Current on-field players for the coached team. */
   lineup: PlayerDTO[];
-  /** Bench players eligible to come on. */
   bench: PlayerDTO[];
-
-  /** How many subs remain this matchday (max = 3). */
   subsRemaining: number;
-
-  /**
-   * Called for each confirmed substitution.
-   * `out` is the id of the player leaving the pitch,
-   * `in` is the id of the player coming on.
-   */
   onSubstitute: (args: { out: number; in: number }) => void;
+  canSubstitute: boolean; // New: determines if user can make subs
 }
 
 /* -------------------------------------------------------------------------- */
@@ -60,20 +46,24 @@ export default function HalfTimePopup({
   bench,
   subsRemaining,
   onSubstitute,
+  canSubstitute,
 }: HalfTimePopupProps) {
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
   const [selectedIn, setSelectedIn] = useState<number | null>(null);
 
   function commitSub(e: MouseEvent) {
     e.preventDefault();
-    if (!selectedOut || !selectedIn) return;
+    if (selectedOut == null || selectedIn == null) return;
     onSubstitute({ out: selectedOut, in: selectedIn });
     setSelectedOut(null);
     setSelectedIn(null);
   }
 
   const disableCommit =
-    !selectedOut || !selectedIn || selectedOut === selectedIn || subsRemaining === 0;
+    selectedOut == null ||
+    selectedIn == null ||
+    selectedOut === selectedIn ||
+    subsRemaining === 0;
 
   return (
     <Modal
@@ -101,25 +91,27 @@ export default function HalfTimePopup({
             title="On Field"
             players={lineup}
             selected={selectedOut}
-            onSelect={setSelectedOut}
+            onSelect={canSubstitute ? setSelectedOut : () => {}}
           />
 
           <RosterList
             title="Bench"
             players={bench}
             selected={selectedIn}
-            onSelect={setSelectedIn}
+            onSelect={canSubstitute ? setSelectedIn : () => {}}
           />
 
-          <AppButton onClick={commitSub} disabled={disableCommit} className="self-end">
-            Confirm Sub
-          </AppButton>
+          {canSubstitute && (
+            <AppButton onClick={commitSub} disabled={disableCommit} className="self-end">
+              Confirm Sub
+            </AppButton>
+          )}
         </div>
       </div>
 
       <div className="mt-4 flex justify-end gap-2">
         <AppButton variant="ghost" onClick={onClose}>
-          Resume Match
+          Close
         </AppButton>
       </div>
     </Modal>
@@ -150,13 +142,14 @@ function RosterList({
         {players.map((p, idx) => (
           <div
             key={p.id}
-            onClick={() => onSelect(p.id)}
+            onClick={() => !p.isInjured && onSelect(p.id)}
             className={clsx(
               "flex cursor-pointer items-center gap-2 px-2 py-[3px] text-xs transition-colors",
               idx % 2 === 0
                 ? "bg-gray-50 dark:bg-gray-800/20"
                 : "bg-white dark:bg-gray-800",
-              selected === p.id && "bg-yellow-200 dark:bg-yellow-600/40"
+              selected === p.id && "bg-yellow-200 dark:bg-yellow-600/40",
+              p.isInjured && "line-through text-red-600 dark:text-red-400"
             )}
           >
             <span className="w-6 text-center font-mono">{p.position}</span>

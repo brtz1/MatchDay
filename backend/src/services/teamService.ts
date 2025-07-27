@@ -40,6 +40,7 @@ export interface CreateTeamDto {
   morale?: number;
   currentSeason?: number;
   localIndex: number;
+  rating: number; // ✅ NEW REQUIRED FIELD
 }
 
 /**
@@ -55,6 +56,7 @@ export async function createTeam(data: CreateTeamDto): Promise<SaveGameTeam> {
     morale = 50,
     currentSeason = 1,
     localIndex,
+    rating,
   } = data;
 
   return prisma.saveGameTeam.create({
@@ -66,6 +68,7 @@ export async function createTeam(data: CreateTeamDto): Promise<SaveGameTeam> {
       morale,
       currentSeason,
       localIndex,
+      rating, // ✅ ADDING rating field
     },
   });
 }

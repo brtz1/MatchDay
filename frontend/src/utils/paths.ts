@@ -64,7 +64,7 @@ export const drawPageUrl = "/draw";
 export const loadGameUrl = "/load-game";
 export const settingsUrl = "/settings";
 export const titlePageUrl = "/";
-export const cupUrl = "/cup";
+export const cupUrl = "/cup-bracket";
 
 /**
  * ADMIN PANELS

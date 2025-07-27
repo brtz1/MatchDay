@@ -1,123 +1,112 @@
 // src/services/createSaveGame.ts
 
 import prisma from '../utils/prisma';
-import { getCurrentSaveGameId } from './gameState';
-import { SaveGame, SaveGameTeam, SaveGamePlayer, SaveGameMatch } from '@prisma/client';
+import { DivisionTier } from '@prisma/client';
+
+/** Types */
+type BaseTeam = {
+  id: number;
+  name: string;
+  country: string;
+  localIndex: number;
+  division: DivisionTier;
+  baseRating: number;
+};
+
+type BasePlayer = {
+  id: number;
+  name: string;
+  position: string;
+  behavior: number;
+};
 
 /**
- * Snapshot the current save into a brand-new SaveGame.
- *
- * Copies all teams, players, and matches (with their scores)
- * from the active save into a new SaveGame record, preserving
- * localIndex values (0–127 for teams; 0–19 for players).
- *
- * @param name - the name for the new save slot
- * @param coachName - optional coach name override
- * @returns the new saveGame.id
+ * Creates a new save game from a list of base teams and their players.
+ * This function is used during new game creation, after team draw.
  */
 export async function createSaveGame(
   name: string,
-  coachName?: string
+  coachName: string,
+  selectedTeams: BaseTeam[],
+  basePlayerMap: Map<number, BasePlayer[]>,
+  coachLocalIndex: number
 ): Promise<number> {
-  // 1. Determine the current active save
-  const currentSaveId = await getCurrentSaveGameId();
-  if (typeof currentSaveId !== 'number') {
-    throw new Error('No active SaveGame to snapshot');
-  }
-
-  // 2. Fetch the full current save, including teams, players, and matches
-  const oldSave = await prisma.saveGame.findUnique({
-    where: { id: currentSaveId },
-    include: {
-      teams: {
-        include: { players: true },
-      },
-      matches: true,
-    },
-  });
-  if (!oldSave) {
-    throw new Error(`SaveGame ${currentSaveId} not found`);
-  }
-
-  // 3. Create a fresh SaveGame record
-  const newSave = await prisma.saveGame.create({
+  // 1. Create the new SaveGame
+  const saveGame = await prisma.saveGame.create({
     data: { name, coachName },
   });
 
-  // 4. Duplicate teams
-  const teamIdMap = new Map<number, number>(); // oldTeam.id → newTeam.id
-  for (const oldTeam of oldSave.teams) {
-    const {
-      baseTeamId,
-      name: teamName,
-      division,
-      morale,
-      currentSeason,
-      localIndex,
-    } = oldTeam;
+  const teamMap = new Map<number, Awaited<ReturnType<typeof prisma.saveGameTeam.create>>>(); // localIndex → SaveGameTeam
+
+  // 2. Create teams
+  for (const team of selectedTeams) {
+    const rating = team.baseRating + Math.floor(Math.random() * 5); // randomize a bit
     const newTeam = await prisma.saveGameTeam.create({
       data: {
-      saveGameId: newSave.id,
-      baseTeamId,
-      name: teamName,
-      division,           // must be a valid DivisionTier enum value
-      morale,
-      currentSeason,
-      localIndex,         // 0-127 – **always** set
-  },
-});
-    teamIdMap.set(oldTeam.id, newTeam.id);
-  }
-
-  // 5. Duplicate players
-  for (const oldTeam of oldSave.teams) {
-    const newTeamId = teamIdMap.get(oldTeam.id)!;
-    for (const oldPlayer of oldTeam.players) {
-      const {
-        basePlayerId,
-        name: playerName,
-        position,
+        saveGameId: saveGame.id,
+        baseTeamId: team.id,
+        name: team.name,
+        division: team.division,
+        morale: 50,
+        currentSeason: 1,
+        localIndex: team.localIndex,
         rating,
-        salary,
-        behavior,
-        contractUntil,
-        localIndex,
-      } = oldPlayer;
-      await prisma.saveGamePlayer.create({
-        data: {
-          saveGameId: newSave.id,
-          basePlayerId,
-          name: playerName,
-          position,
-          rating,
-          salary,
-          behavior,
-          contractUntil,
-          localIndex,
-          teamId: newTeamId,
-        },
-      });
-    }
+      },
+    });
+    teamMap.set(team.localIndex, newTeam);
   }
 
-  // 6. Duplicate matches
-  for (const oldMatch of oldSave.matches) {
-    const newHomeId = teamIdMap.get(oldMatch.homeTeamId)!;
-    const newAwayId = teamIdMap.get(oldMatch.awayTeamId)!;
-    await prisma.saveGameMatch.create({
-      data: {
-        saveGameId: newSave.id,
-        homeTeamId: newHomeId,
-        awayTeamId: newAwayId,
-        homeGoals: oldMatch.homeGoals,
-        awayGoals: oldMatch.awayGoals,
-        matchDate: oldMatch.matchDate,
-        played: oldMatch.played,
-        matchdayId: oldMatch.matchdayId ?? undefined,
-      },
+  // 3. Create players for each team
+  for (const team of selectedTeams) {
+    const players = basePlayerMap.get(team.id);
+    const newTeam = teamMap.get(team.localIndex);
+    if (!players || !newTeam) continue;
+
+    const ratings = players.map(() => {
+      const variance = Math.floor(Math.random() * 11) - 5;
+      return clamp(newTeam.rating + variance);
+    });
+
+    await prisma.saveGamePlayer.createMany({
+      data: players.map((p, i) => ({
+        saveGameId: saveGame.id,
+        basePlayerId: p.id,
+        name: p.name,
+        position: p.position,
+        rating: ratings[i],
+        salary: calculateSalary(ratings[i], p.behavior),
+        behavior: p.behavior,
+        contractUntil: 1,
+        localIndex: i,
+        teamId: newTeam.id,
+      })),
     });
   }
 
-  // 7. Return the new save ID
-  return newSave.id;
+  // 4. Set game state to point to this new save and coach team
+  const coachTeam = teamMap.get(coachLocalIndex);
+  if (!coachTeam) throw new Error('❌ Failed to identify coach team from localIndex');
+
+  await prisma.gameState.updateMany({
+    data: {
+      currentSaveGameId: saveGame.id,
+      coachTeamId: coachTeam.id,
+      currentMatchday: 1,
+      season: 1,
+      gameStage: 'ACTION',
+      matchdayType: 'LEAGUE',
+    },
+  });
+
+  return saveGame.id;
+}
+
+function calculateSalary(rating: number, behavior: number): number {
+  const base = rating * 50;
+  const behaviorFactor = behavior >= 4 ? 0.9 : behavior === 1 ? 1.1 : 1.0;
+  return Math.round(base * behaviorFactor);
+}
+
+function clamp(value: number): number {
+  return Math.max(1, Math.min(99, value));
 }

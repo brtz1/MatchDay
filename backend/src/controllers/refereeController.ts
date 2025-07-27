@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import * as refereeService from '@/services/refereeService';
+import * as refereeService from '../services/refereeService';
 
 /**
  * GET /api/referees

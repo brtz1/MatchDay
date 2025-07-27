@@ -1,3 +1,5 @@
+// frontend/src/store/GameStateStore.tsx
+
 import * as React from "react";
 import {
   createContext,
@@ -13,20 +15,25 @@ import gameStateService from "@/services/gameStateService";
 /* Types                                                                     */
 /* ------------------------------------------------------------------------- */
 
+export type GameStage = "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+export type MatchdayType = "LEAGUE" | "CUP";
+
 export interface GameStateContextType {
-  /** Currently loaded save-game id (or null if no save). */
   saveGameId: number | null;
   setSaveGameId: (id: number | null) => void;
 
-  /** Coach’s active team id (null until a save is loaded). */
   coachTeamId: number | null;
   setCoachTeamId: (id: number | null) => void;
 
-  /** League round in progress (0-38). */
   currentMatchday: number | null;
-  refreshGameState: () => Promise<void>;
 
-  /** Global loading flag while we bootstrap. */
+  gameStage: GameStage;
+  setGameStage: (stage: GameStage) => void;
+
+  matchdayType: MatchdayType;
+  setMatchdayType: (type: MatchdayType) => void;
+
+  refreshGameState: () => Promise<void>;
   bootstrapping: boolean;
 }
 
@@ -34,41 +41,59 @@ export interface GameStateContextType {
 /* Context                                                                   */
 /* ------------------------------------------------------------------------- */
 
-const GameStateContext = createContext<GameStateContextType | undefined>(
-  undefined
-);
+const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
 
 /* ------------------------------------------------------------------------- */
 /* Provider                                                                  */
 /* ------------------------------------------------------------------------- */
 
-export function GameStateProvider({ children }: { children: ReactNode }) {
+interface GameStateProviderProps {
+  children: ReactNode;
+  autoLoad?: boolean; // ✅ Allow skipping auto-refresh
+}
+
+export function GameStateProvider({ children, autoLoad = true }: GameStateProviderProps) {
   const [saveGameId, setSaveGameId] = useState<number | null>(null);
   const [coachTeamId, setCoachTeamId] = useState<number | null>(null);
-  const [currentMatchday, setCurrentMatchday] = useState<number | null>(
-    null
-  );
+  const [currentMatchday, setCurrentMatchday] = useState<number | null>(null);
+  const [gameStage, setGameStage] = useState<GameStage>("ACTION");
+  const [matchdayType, setMatchdayType] = useState<MatchdayType>("LEAGUE");
   const [bootstrapping, setBootstrapping] = useState(true);
 
-  /** Fetch latest game-state from backend */
-  async function refreshGameState() {
+  const refreshGameState = async () => {
     try {
       const state = await gameStateService.getGameState();
-      setCurrentMatchday(state.currentMatchday);
-      if (state.saveGameId) setSaveGameId(state.saveGameId);
-      if (state.coachTeamId) setCoachTeamId(state.coachTeamId);
+      console.log("[GameState] Loaded:", state);
+
+      if (!state || !state.currentSaveGameId) {
+        setSaveGameId(null);
+        setCoachTeamId(null);
+        setCurrentMatchday(null);
+        setGameStage("ACTION");
+        setMatchdayType("LEAGUE");
+        return;
+      }
+
+      setSaveGameId(state.currentSaveGameId);
+      setCoachTeamId(state.coachTeamId ?? null);
+      setCurrentMatchday(state.currentMatchday ?? 1);
+      setGameStage(state.gameStage ?? "ACTION");
+      setMatchdayType(state.matchdayType ?? "LEAGUE");
     } catch (err) {
       console.error("[GameState] failed to refresh:", err);
     }
-  }
+  };
 
-  /* ── Initial bootstrap on mount */
   useEffect(() => {
+    if (!autoLoad) {
+      setBootstrapping(false);
+      return;
+    }
     (async () => {
       await refreshGameState();
       setBootstrapping(false);
     })();
-  }, []);
+  }, [autoLoad]);
 
   const value: GameStateContextType = {
     saveGameId,
@@ -76,6 +101,10 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
     coachTeamId,
     setCoachTeamId,
     currentMatchday,
+    gameStage,
+    setGameStage,
+    matchdayType,
+    setMatchdayType,
     refreshGameState,
     bootstrapping,
   };
@@ -94,9 +123,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
 export function useGameState() {
   const ctx = useContext(GameStateContext);
   if (!ctx) {
-    throw new Error(
-      "useGameState must be used inside <GameStateProvider>"
-    );
+    throw new Error("useGameState must be used inside <GameStateProvider>");
   }
   return ctx;
 }

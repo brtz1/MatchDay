@@ -1,7 +1,5 @@
-// frontend/src/routes/AppRouter.tsx
-
 import * as React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 /* ── Pages (eager-loaded) */
 import TitlePage from "@/pages/TitlePage";
@@ -15,18 +13,20 @@ import TopPlayersPage from "@/pages/TopPlayersPage";
 import TransferMarketPage from "@/pages/TransferMarketPage";
 import CupLogPage from "@/pages/CupLogPage";
 import PostMatchSummary from "@/pages/PostMatchSummary";
-import { resultsUrl } from "@/utils/paths";
 
 /* ── Admin / utilities (lazy-loaded) */
-const MatchesPage   = React.lazy(() => import("@/pages/MatchesPage"));
-const PlayersPage   = React.lazy(() => import("@/pages/PlayersPage"));
-const TeamsPage     = React.lazy(() => import("@/pages/TeamsPage"));
-const StatsPage     = React.lazy(() => import("@/pages/StatsPage"));
-const SettingsPage  = React.lazy(() => import("@/pages/SettingsPage"));
+const MatchesPage = React.lazy(() => import("@/pages/MatchesPage"));
+const PlayersPage = React.lazy(() => import("@/pages/PlayersPage"));
+const TeamsPage = React.lazy(() => import("@/pages/TeamsPage"));
+const StatsPage = React.lazy(() => import("@/pages/StatsPage"));
+const SettingsPage = React.lazy(() => import("@/pages/SettingsPage"));
 
 /* ── Common UI */
 import TopNavBar from "@/components/common/TopNavBar";
 import { ProgressBar } from "@/components/common/ProgressBar";
+
+/* ── Game state */
+import { useGameState } from "@/store/GameStateStore";
 
 /* ── Route constants */
 import {
@@ -45,14 +45,32 @@ import {
   adminPlayersUrl,
   adminTeamsUrl,
   adminStatsUrl,
+  resultsUrl,
 } from "@/utils/paths";
 
-export default function AppRouter() {
+function AppRouterInner() {
+  const { coachTeamId, bootstrapping } = useGameState();
+  const location = useLocation();
+
+  const showNav =
+    typeof coachTeamId === "number" &&
+    !isNaN(coachTeamId) &&
+    coachTeamId > 0 &&
+    !location.pathname.startsWith("/matchday"); // Avoid showing TopNavBar on Matchday
+
+  if (bootstrapping) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-green-800 text-white">
+        <ProgressBar className="w-64" />
+      </div>
+    );
+  }
+
   return (
-    <BrowserRouter>
-      <TopNavBar />
+    <>
+      {showNav && <TopNavBar coachTeamId={coachTeamId} />}
       <div className="pt-12">
-        <React.Suspense fallback={<ProgressBar className="w-64" />}>
+        <React.Suspense fallback={<ProgressBar className="w-64 mx-auto mt-12" />}>
           <Routes>
             {/* Public */}
             <Route path={titlePageUrl} element={<TitlePage />} />
@@ -67,8 +85,6 @@ export default function AppRouter() {
             <Route path={topPlayersUrl} element={<TopPlayersPage />} />
             <Route path={transferMarketUrl} element={<TransferMarketPage />} />
             <Route path={cupUrl} element={<CupLogPage />} />
-
-            {/* Post-Match Summary */}
             <Route path={resultsUrl(":matchdayId")} element={<PostMatchSummary />} />
 
             {/* Admin / utilities */}
@@ -85,6 +101,14 @@ export default function AppRouter() {
           </Routes>
         </React.Suspense>
       </div>
+    </>
+  );
+}
+
+export default function AppRouter() {
+  return (
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AppRouterInner />
     </BrowserRouter>
   );
 }

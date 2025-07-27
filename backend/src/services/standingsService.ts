@@ -1,6 +1,6 @@
 // backend/src/services/standingsService.ts
 
-import prisma from '@/utils/prisma';
+import prisma from '../utils/prisma';
 import { getGameState } from './gameState';
 
 export interface StandingRow {
@@ -17,23 +17,43 @@ export interface StandingRow {
   points: number;
 }
 
-export async function getStandings(): Promise<StandingRow[]> {
-  // 1) fetch current saveGameId and matchday
-  const { currentSaveGameId, currentMatchday } = await getGameState();
-  if (!currentSaveGameId || currentMatchday == null) {
-    throw new Error('Game state not initialized');
+export interface DivisionStanding {
+  division: string;
+  teams: StandingRow[];
+}
+
+/**
+ * Returns standings grouped by division for a given saveGameId (or the current one).
+ */
+export async function getStandingsGrouped(saveGameId?: number): Promise<DivisionStanding[]> {
+  // 1) Use provided saveGameId or get from current game state
+  let finalSaveGameId = saveGameId;
+  let currentMatchday: number | undefined;
+
+  if (!finalSaveGameId) {
+    const state = await getGameState();
+    if (!state?.currentSaveGameId || state.currentMatchday == null) {
+      throw new Error('Game state not initialized');
+    }
+    finalSaveGameId = state.currentSaveGameId;
+    currentMatchday = state.currentMatchday;
+  } else {
+    const state = await getGameState();
+    currentMatchday = state?.currentMatchday;
   }
 
-  // 2) fetch all teams in this save
+  if (currentMatchday == null) throw new Error('Matchday not set');
+
+  // 2) Fetch all teams for this save, ordered by division
   const teams = await prisma.saveGameTeam.findMany({
-    where: { saveGameId: currentSaveGameId },
+    where: { saveGameId: finalSaveGameId },
     select: { id: true, name: true, division: true },
   });
 
-  // 3) fetch all played matches up through currentMatchday
+  // 3) Get all played matches up to current matchday
   const matches = await prisma.saveGameMatch.findMany({
     where: {
-      saveGameId: currentSaveGameId,
+      saveGameId: finalSaveGameId,
       played: true,
       matchdayId: { lte: currentMatchday },
     },
@@ -45,7 +65,7 @@ export async function getStandings(): Promise<StandingRow[]> {
     },
   });
 
-  // 4) initialize stats map
+  // 4) Init stats per team
   const statsMap: Record<number, StandingRow> = {};
   for (const t of teams) {
     statsMap[t.id] = {
@@ -63,7 +83,7 @@ export async function getStandings(): Promise<StandingRow[]> {
     };
   }
 
-  // 5) accumulate match results
+  // 5) Calculate standings stats
   for (const m of matches) {
     const home = statsMap[m.homeTeamId];
     const away = statsMap[m.awayTeamId];
@@ -78,29 +98,46 @@ export async function getStandings(): Promise<StandingRow[]> {
     away.goalsAgainst += m.homeGoals ?? 0;
 
     if ((m.homeGoals ?? 0) > (m.awayGoals ?? 0)) {
-      home.won++; home.points += 3;
+      home.won++;
+      home.points += 3;
       away.lost++;
     } else if ((m.homeGoals ?? 0) < (m.awayGoals ?? 0)) {
-      away.won++; away.points += 3;
+      away.won++;
+      away.points += 3;
       home.lost++;
     } else {
-      home.draw++; home.points += 1;
-      away.draw++; away.points += 1;
+      home.draw++;
+      home.points += 1;
+      away.draw++;
+      away.points += 1;
     }
   }
 
-  // 6) compute GD and sort
-  const standings = Object.values(statsMap).map(r => ({
-    ...r,
-    goalDifference: r.goalsFor - r.goalsAgainst,
-  }));
+  // 6) Add GD and group by division
+  const teamsByDivision: Record<string, StandingRow[]> = {};
+  for (const row of Object.values(statsMap)) {
+    row.goalDifference = row.goalsFor - row.goalsAgainst;
+    if (!teamsByDivision[row.division]) teamsByDivision[row.division] = [];
+    teamsByDivision[row.division].push(row);
+  }
 
-  standings.sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
-    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
-    return a.name.localeCompare(b.name);
-  });
+  // 7) Sort each division's teams (Pts, GD, GF, Name)
+  const grouped: DivisionStanding[] = Object.entries(teamsByDivision)
+    .filter(([division]) => ["D1", "D2", "D3", "D4"].includes(division))
+    .map(([division, teams]) => {
+      const sorted = teams.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
+        if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+        return a.name.localeCompare(b.name);
+      });
+      return { division, teams: sorted };
+    });
 
-  return standings;
+  // 8) Sort divisions in order
+  grouped.sort((a, b) =>
+    a.division.localeCompare(b.division, undefined, { numeric: true })
+  );
+
+  return grouped;
 }

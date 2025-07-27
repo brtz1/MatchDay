@@ -1,6 +1,10 @@
-import prisma from '@/utils/prisma';
+import prisma from '../utils/prisma';
 import { MatchdayType } from '@prisma/client';
 
+/**
+ * Retrieves the full cup bracket for the given saveGameId,
+ * grouped by round (matchday number).
+ */
 export async function getCupLog(saveGameId: number) {
   const matchdays = await prisma.matchday.findMany({
     where: {
@@ -37,15 +41,18 @@ export async function getCupLog(saveGameId: number) {
   }));
 }
 
+/**
+ * Maps actual matchday numbers (3, 6, 8...) to their cup stage name.
+ */
 function mapCupStage(number: number): string {
-  const map: Record<number, string> = {
-    1: 'Round of 128',
-    2: 'Round of 64',
-    3: 'Round of 32',
-    4: 'Round of 16',
-    5: 'Quarterfinal',
-    6: 'Semifinal',
-    7: 'Final',
+  const stageMap: Record<number, string> = {
+    3: 'Round of 128',
+    6: 'Round of 64',
+    8: 'Round of 32',
+    11: 'Round of 16',
+    14: 'Quarterfinal',
+    17: 'Semifinal',
+    20: 'Final',
   };
-  return map[number] ?? `Matchday ${number}`;
+  return stageMap[number] ?? `Matchday ${number}`;
 }

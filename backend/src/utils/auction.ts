@@ -1,6 +1,4 @@
-// src/utils/auction.ts
-
-import { Player } from '@prisma/client';
+// backend/src/utils/auction.ts
 
 export interface TeamAuctionEntry {
   id: number;
@@ -9,11 +7,19 @@ export interface TeamAuctionEntry {
   players: { id: number; rating: number }[];
 }
 
+export interface AuctionPlayer {
+  id: number;
+  rating: number;
+  behavior: number;
+  salary: number;
+}
+
 /**
  * Runs an auction for a single player among candidate teams.
+ * Returns the winning teamId or null if no bids were high enough.
  */
 export function runAuction(
-  player: Player,
+  player: AuctionPlayer,
   teams: TeamAuctionEntry[]
 ): number | null {
   const bids: { teamId: number; score: number }[] = [];
@@ -21,8 +27,7 @@ export function runAuction(
   for (const team of teams) {
     const avgRating =
       team.players.length > 0
-        ? team.players.reduce((sum, p) => sum + p.rating, 0) /
-          team.players.length
+        ? team.players.reduce((sum, p) => sum + p.rating, 0) / team.players.length
         : 50;
 
     const interestScore =
@@ -38,6 +43,7 @@ export function runAuction(
   }
 
   if (bids.length === 0) return null;
+
   bids.sort((a, b) => b.score - a.score);
   return bids[0].teamId;
 }

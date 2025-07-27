@@ -41,7 +41,8 @@ export async function createSaveGameFromBase(saveName: string): Promise<SaveGame
   ][]) {
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
       const base = teams[teamIndex];
-      // SaveGameTeam
+
+      // SaveGameTeam (ADD rating here)
       const saveTeam = await prisma.saveGameTeam.create({
         data: {
           saveGameId: save.id,
@@ -51,8 +52,10 @@ export async function createSaveGameFromBase(saveName: string): Promise<SaveGame
           morale: 75,
           currentSeason: 1,
           localIndex: teamIndex, // 0–7 within each division
+          rating: base.rating,   // ✅ ADD this line
         },
       });
+
       // SaveGamePlayer entries
       for (let playerIndex = 0; playerIndex < base.players.length; playerIndex++) {
         const player = base.players[playerIndex];

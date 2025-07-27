@@ -1,7 +1,11 @@
+// backend/src/routes/routes.ts
+
 import express, { Router, Request, Response } from 'express';
+
 import newGameRoute from './newGameRoute';
 import saveGameRoute from './saveGameRoute';
 import manualSaveRoute from './manualSaveRoute';
+
 import teamRoute from './teamRoute';
 import playerRoute from './playerRoute';
 import refereeRoute from './refereeRoute';
@@ -10,6 +14,7 @@ import matchRoute from './matchRoute';
 import matchdayRoute from './matchdayRoute';
 import gameStateRoute from './gameStateRoute';
 import matchStateRoute from './matchStateRoute';
+
 import statsRoute from './statsRoute';
 import seasonRoute from './seasonRoute';
 import importRoute from './importRoute';
@@ -21,7 +26,7 @@ import matchSummaryRoute from './matchSummaryRoute';
 
 const router: Router = express.Router();
 
-// Health check endpoint
+// Health check
 router.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'OK' });
 });

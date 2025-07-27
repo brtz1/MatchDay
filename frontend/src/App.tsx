@@ -1,11 +1,11 @@
+// frontend/src/App.tsx
+
 import * as React from "react";
 
 /* Global providers */
 import { UiProvider } from "@/store/UiContext";
 import { GameStateProvider } from "@/store/GameStateStore";
 import { TeamProvider } from "@/store/TeamContext";
-import NewGamePage from "@/pages/NewGamePage";
-import DrawResults from "@/components/DrawResults";
 
 /* Main router with all pages already wired */
 import AppRouter from "@/routes/AppRouter";
@@ -20,7 +20,8 @@ import AppRouter from "@/routes/AppRouter";
 export default function App() {
   return (
     <UiProvider>
-      <GameStateProvider>
+      {/* ✅ Prevent auto-loading game state until user clicks “Start” or “Load” */}
+      <GameStateProvider autoLoad={false}>
         <TeamProvider>
           <AppRouter />
         </TeamProvider>

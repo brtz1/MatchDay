@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getNextMatch } from "@/services/teamService";
+import { useGameState } from "@/store/GameStateStore";
 
 interface MatchLite {
   id: number;
@@ -19,14 +20,26 @@ interface GameTabProps {
 
 export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
   const [match, setMatch] = useState<MatchLite | null>(null);
+  const { gameStage, matchdayType } = useGameState();
 
   useEffect(() => {
-    getNextMatch(teamId)
-      .then(setMatch)
-      .catch((err: unknown) => {
-        console.error("Failed to load next match:", err);
-      });
-  }, [teamId]);
+    if (gameStage === "ACTION") {
+      getNextMatch(teamId)
+        .then(setMatch)
+        .catch((err: unknown) => {
+          console.error("Failed to load next match:", err);
+        });
+    }
+  }, [teamId, gameStage]);
+
+  if (gameStage !== "ACTION") {
+    return (
+      <div>
+        <p className="mb-2 font-bold text-accent">Matchday In Progress</p>
+        <p>The match is currently being simulated.</p>
+      </div>
+    );
+  }
 
   if (!match) return <p>Loading next match...</p>;
 

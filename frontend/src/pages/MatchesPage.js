@@ -11,7 +11,7 @@ import DataTable from "@/components/common/DataTable";
 import { ProgressBar } from "@/components/common/ProgressBar";
 /* ── Routing ───────────────────────────────────────────────────────── */
 import { useNavigate } from "react-router-dom";
-import { teamUrl, matchUrl } from "@/utils/paths"; // ✅ centralized routes
+import { teamUrl, matchUrl } from "@/utils/paths";
 /* ── Component ─────────────────────────────────────────────────────── */
 export default function MatchesPage() {
     const [matches, setMatches] = useState([]);
@@ -55,7 +55,7 @@ export default function MatchesPage() {
         }
         setSubmitting(true);
         try {
-            await matchService.simulateMatch(form);
+            await matchService.simulateMatch(form); // ✅ updated to pass full form
             const updated = await matchService.getMatches();
             setMatches(updated);
             setForm({ homeTeamId: 0, awayTeamId: 0, refereeId: 0 });

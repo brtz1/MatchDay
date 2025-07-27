@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { setCoachFormation } from '@/services/matchService';
+import { setCoachFormation } from '../services/matchService';
 
 const router = Router();
 

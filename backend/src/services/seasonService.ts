@@ -1,4 +1,4 @@
-// src/services/seasonService.ts
+// backend/src/services/seasonService.ts
 
 import prisma from '../utils/prisma';
 
@@ -11,13 +11,18 @@ export interface Fixture {
 }
 
 /**
- * Generates a complete double round-robin schedule for all teams.
+ * Generates a complete double round-robin schedule for all teams in a save game.
  * Each team plays every other team both home and away.
  *
+ * @param saveGameId – ID of the active save game
  * @returns an array of Fixture objects
  */
-export async function scheduleSeason(): Promise<Fixture[]> {
-  const teams = await prisma.team.findMany({ select: { id: true } });
+export async function scheduleSeason(saveGameId: number): Promise<Fixture[]> {
+  const teams = await prisma.saveGameTeam.findMany({
+    where: { saveGameId },
+    select: { id: true },
+  });
+
   const fixtures: Fixture[] = [];
 
   for (let i = 0; i < teams.length; i++) {
@@ -34,11 +39,16 @@ export async function scheduleSeason(): Promise<Fixture[]> {
 }
 
 /**
- * Ensures there is a LeagueTable entry for every team.
+ * Ensures there is a LeagueTable entry for every team in a given save game.
  * Creates one if missing; otherwise does nothing.
+ *
+ * @param saveGameId – ID of the active save game
  */
-export async function initializeLeagueTable(): Promise<void> {
-  const teams = await prisma.team.findMany({ select: { id: true } });
+export async function initializeLeagueTable(saveGameId: number): Promise<void> {
+  const teams = await prisma.saveGameTeam.findMany({
+    where: { saveGameId },
+    select: { id: true },
+  });
 
   for (const { id: teamId } of teams) {
     await prisma.leagueTable.upsert({

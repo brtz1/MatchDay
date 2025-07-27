@@ -8,12 +8,17 @@
 import axios from "@/services/axios";
 import socket from "@/socket";
 /* ------------------------------------------------------------------ REST */
+/** Get current matchday number from game state */
 export async function getCurrentMatchday() {
     const { data } = await axios.get("/gamestate");
     return data.currentMatchday;
 }
+/**
+ * Fetch events for all matches in a given matchday.
+ * Returns a map: { [matchId]: MatchEvent[] }
+ */
 export async function getMatchEvents(matchdayId) {
-    const { data } = await axios.get(`/match-events/${matchdayId}`);
+    const { data } = await axios.get(`/match-events/by-matchday/${matchdayId}`);
     return data;
 }
 /* ---------------------------------------------------------------- SocketIO */

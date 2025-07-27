@@ -16,6 +16,10 @@ export interface MatchEvent {
   description: string;
   minute: number;
   type: string; // "GOAL" | "YELLOW" | etc.
+  player?: {
+    id: number;
+    name: string;
+  };
 }
 
 /** Returned by GET /gamestate (simplified) */
@@ -31,15 +35,18 @@ export interface SubstitutionPayload {
 
 /* ------------------------------------------------------------------ REST */
 
+/** Get current matchday number from game state */
 export async function getCurrentMatchday(): Promise<number> {
   const { data } = await axios.get<GameState>("/gamestate");
   return data.currentMatchday;
 }
 
-export async function getMatchEvents(matchdayId: number) {
-  const { data } = await axios.get<MatchEvent[]>(
-    `/match-events/${matchdayId}`
-  );
+/**
+ * Fetch events for all matches in a given matchday.
+ * Returns a map: { [matchId]: MatchEvent[] }
+ */
+export async function getMatchEvents(matchdayId: number): Promise<Record<number, MatchEvent[]>> {
+  const { data } = await axios.get(`/match-events/by-matchday/${matchdayId}`);
   return data;
 }
 

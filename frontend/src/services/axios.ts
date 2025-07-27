@@ -1,33 +1,36 @@
-import axios, { AxiosError, AxiosRequestConfig } from "axios";
+// frontend/src/services/axios.ts
+
+import axios, { AxiosError } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
 
 /**
- * ---------------------------------------------------------------------------
- * Axios singleton
- * ---------------------------------------------------------------------------
+ * Axios Singleton
+ * ----------------------------------------------------------------------------
+ * Automatically prepends `/api` to all requests.
+ * Set base URL from:
+ *   1. VITE_API_URL  → e.g., https://prod.api.matchday.app
+ *   2. Fallback      → http://localhost:4000
  *
- * Base URL is taken from:
- *   1.  VITE_API_URL  → e.g. "https://prod.api.matchday.app"
- *   2.  fallback      → "http://localhost:4000"
- *
- * All requests automatically prepend `/api` — do NOT include `/api` in your paths.
+ * ❗️DO NOT include `/api` manually in service calls.
+ *    ✅ api.get('/teams')
+ *    ❌ api.get('/api/teams')
  */
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}/api`,
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 8000,
+  timeout: 20000, // Extended timeout for slow backends
 });
 
 /* ------------------------------------------------------------------------- */
 /* Interceptors                                                              */
 /* ------------------------------------------------------------------------- */
 
-/** Add auth token if stored in localStorage */
+// Add Bearer token from localStorage if available
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem("token");
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -36,24 +39,16 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-/** Global error handler → console + toast placeholder */
+// Log errors in dev mode
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
     if (import.meta.env.DEV) {
       console.error("[axios]", err.response ?? err.message);
     }
-    // TODO: Add toast/notification hook here
+    // TODO: Integrate toast/notification feedback here
     return Promise.reject(err);
   }
 );
-
-/**
- * ---------------------------------------------------------------------------
- * WARNING: DO NOT prepend `/api` manually to axios calls. Use relative paths.
- *   ❌ axios.get('/api/teams')     ← BAD
- *   ✅ axios.get('/teams')         ← GOOD
- * ---------------------------------------------------------------------------
- */
 
 export default api;

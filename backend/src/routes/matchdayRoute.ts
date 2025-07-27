@@ -7,11 +7,20 @@ const router = express.Router();
 
 /**
  * POST /api/matchdays/advance
- * Advances the current matchday: simulates all fixtures, updates results, league tables, and cup bracket.
+ * Advances the current matchday for the given save game ID:
+ * - Simulates fixtures
+ * - Updates matchday records
+ * - Updates standings or cup bracket
  */
 router.post('/advance', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const message = await matchdayService.advanceMatchday();
+    const { saveGameId } = req.body;
+
+    if (typeof saveGameId !== 'number' || isNaN(saveGameId)) {
+      return res.status(400).json({ error: 'Missing or invalid saveGameId' });
+    }
+
+    const message = await matchdayService.advanceMatchday(saveGameId);
     res.status(200).json({ message });
   } catch (error) {
     console.error('❌ Failed to advance matchday:', error);
@@ -42,7 +51,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { number, type } = req.query;
     const matchdayNumber = number ? Number(number) : undefined;
-    const matchdayType = type ? String(type) as any : undefined;
+    const matchdayType = type ? String(type).toUpperCase() as 'LEAGUE' | 'CUP' : undefined;
 
     const fixtures = await matchdayService.getMatchdayFixtures(matchdayNumber, matchdayType);
     res.status(200).json(fixtures);
@@ -59,17 +68,20 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
  */
 router.get('/team-match-info', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { saveGameId, matchday, teamId } = req.query;
+    const saveGameId = parseInt(String(req.query.saveGameId));
+    const matchday = parseInt(String(req.query.matchday));
+    const teamId = parseInt(String(req.query.teamId));
 
-    if (!saveGameId || !matchday || !teamId) {
-      return res.status(400).json({ error: "Missing required query parameters" });
+    if (isNaN(saveGameId) || isNaN(matchday) || isNaN(teamId)) {
+      return res.status(400).json({ error: "Missing or invalid query parameters" });
     }
 
-    const result = await matchdayService.getTeamMatchInfo(
-      Number(saveGameId),
-      Number(matchday),
-      Number(teamId)
-    );
+    const result = await matchdayService.getTeamMatchInfo(saveGameId, matchday, teamId);
+
+    if (!result?.matchId) {
+      console.warn(`⚠️ No match found for team ${teamId} on matchday ${matchday}`);
+      return res.status(404).json({ error: 'Match not found for this team and matchday' });
+    }
 
     res.status(200).json(result);
   } catch (error) {

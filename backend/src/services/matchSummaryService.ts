@@ -1,6 +1,6 @@
 // backend/src/services/matchSummaryService.ts
 
-import prisma from '@/utils/prisma';
+import prisma from '../utils/prisma';
 import { getGameState } from './gameState';
 
 export interface MatchEventRow {
@@ -25,15 +25,15 @@ export async function getMatchSummaries(
   matchdayId: number
 ): Promise<MatchSummaryRow[]> {
   // 1. Get current saveGameId
-  const { currentSaveGameId } = await getGameState();
-  if (!currentSaveGameId) {
+  const state = await getGameState();
+  if (!state?.currentSaveGameId) {
     throw new Error('No active save game');
   }
 
   // 2. Fetch played saveGameMatches for this matchday
   const matches = await prisma.saveGameMatch.findMany({
     where: {
-      saveGameId: currentSaveGameId,
+      saveGameId: state.currentSaveGameId,
       matchdayId,
       played: true,
     },
@@ -61,8 +61,8 @@ export async function getMatchSummaries(
 
     return {
       matchId: m.id,
-      home: m.homeTeam.name,
-      away: m.awayTeam.name,
+      home: m.homeTeam?.name ?? 'Unknown',
+      away: m.awayTeam?.name ?? 'Unknown',
       score,
       events,
     };

@@ -30,21 +30,14 @@ export default function NewGamePage() {
       setError('Please enter your name and select at least one country.');
       return;
     }
-    try {
-      const { data } = await axios.post('/api/save-game', {
-        name: coachName,
+
+    // ✅ Just navigate to DrawPage and pass data
+    navigate("/draw", {
+      state: {
         coachName,
-        countries: selectedCountries,
-      });
-
-      // 🔥 Tell backend to activate this new save game
-      await axios.post(`/api/gamestate/set-save/${data.id}`);
-
-      navigate('/draw-results', { state: data });
-    } catch (err) {
-      console.error(err);
-      setError('Failed to start new game.');
-    }
+        selectedCountries,
+      },
+    });
   };
 
   return (

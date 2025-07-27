@@ -1,15 +1,22 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { getNextMatch } from "@/services/teamService";
+import { useGameState } from "@/store/GameStateStore";
 export default function GameTab({ teamId, teamName, morale }) {
     const [match, setMatch] = useState(null);
+    const { gameStage, matchdayType } = useGameState();
     useEffect(() => {
-        getNextMatch(teamId)
-            .then(setMatch)
-            .catch((err) => {
-            console.error("Failed to load next match:", err);
-        });
-    }, [teamId]);
+        if (gameStage === "ACTION") {
+            getNextMatch(teamId)
+                .then(setMatch)
+                .catch((err) => {
+                console.error("Failed to load next match:", err);
+            });
+        }
+    }, [teamId, gameStage]);
+    if (gameStage !== "ACTION") {
+        return (_jsxs("div", { children: [_jsx("p", { className: "mb-2 font-bold text-accent", children: "Matchday In Progress" }), _jsx("p", { children: "The match is currently being simulated." })] }));
+    }
     if (!match)
         return _jsx("p", { children: "Loading next match..." });
     const kickoff = new Date(match.matchDate).toLocaleDateString();

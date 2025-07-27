@@ -20,18 +20,13 @@ export default function NewGamePage() {
             setError('Please enter your name and select at least one country.');
             return;
         }
-        try {
-            const { data } = await axios.post('/api/save-game', {
-                name: coachName,
+        // ✅ Just navigate to DrawPage and pass data
+        navigate("/draw", {
+            state: {
                 coachName,
-                countries: selectedCountries,
-            });
-            navigate('/draw-results', { state: data });
-        }
-        catch (err) {
-            console.error(err);
-            setError('Failed to start new game.');
-        }
+                selectedCountries,
+            },
+        });
     };
     return (_jsxs("div", { className: "p-4", children: [_jsx("h1", { className: "text-2xl mb-4", children: "Start New Game" }), error && _jsx("p", { className: "text-red-600 mb-2", children: error }), _jsxs("form", { onSubmit: handleSubmit, className: "space-y-4", children: [_jsxs("div", { children: [_jsx("label", { className: "block mb-1", children: "Coach Name" }), _jsx("input", { type: "text", value: coachName, onChange: e => setCoachName(e.target.value), className: "w-full p-2 border rounded" })] }), _jsxs("div", { children: [_jsx("label", { className: "block mb-1", children: "Select Countries" }), _jsx("select", { multiple: true, value: selectedCountries, onChange: e => {
                                     const opts = Array.from(e.target.selectedOptions, o => o.value);

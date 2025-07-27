@@ -15,11 +15,13 @@ export interface PlayerStat {
   assists: number;
   yellow: number;
   red: number;
+  injuries: number;
 }
 
 export interface RecordStatRequest
   extends Omit<PlayerStat, "id"> {
   playerId: number;
+  injuries: number;
 }
 
 export interface TopPlayerRow {

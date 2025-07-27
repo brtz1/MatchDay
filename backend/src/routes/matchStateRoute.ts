@@ -1,7 +1,7 @@
 // backend/src/routes/matchStateRoute.ts
 
 import express, { Request, Response, NextFunction } from 'express';
-import { getMatchStateById, applySubstitution } from '@/services/matchService';
+import { getMatchStateById, applySubstitution } from '../services/matchService';
 
 const router = express.Router();
 

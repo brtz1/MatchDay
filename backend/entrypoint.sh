@@ -4,4 +4,4 @@ echo "⏳ Running migrations before starting the backend…"
 npx prisma migrate deploy
 
 echo "🚀 Starting backend server…"
-npm run start
+exec node dist/index.js

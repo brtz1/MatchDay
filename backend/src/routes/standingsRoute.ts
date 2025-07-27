@@ -1,18 +1,22 @@
 // backend/src/routes/standingsRoute.ts
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { getStandings } from '@/services/standingsService';
+import { getStandingsGrouped } from '../services/standingsService';
 
 const router = Router();
 
 /**
- * GET /api/standings
- * Returns the current standings for the active save & matchday.
+ * GET /api/standings?saveGameId=xx
+ * Returns current standings grouped by division for the given save game.
  */
-router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const table = await getStandings();
-    res.status(200).json(table);
+    // Try saveGameId from query param, fallback to current game state if not set
+    const saveGameId = req.query.saveGameId
+      ? Number(req.query.saveGameId)
+      : undefined;
+    const standings = await getStandingsGrouped(saveGameId);
+    res.status(200).json(standings);
   } catch (error) {
     console.error('❌ Error loading standings:', error);
     next(error);

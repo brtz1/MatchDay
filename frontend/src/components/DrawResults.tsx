@@ -1,6 +1,7 @@
 // File: frontend/src/components/DrawResults.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTeamContext } from "@/store/TeamContext";
 
 interface DrawState {
   saveGameId: number;
@@ -12,7 +13,15 @@ interface DrawState {
 export default function DrawResults() {
   const { state } = useLocation();
   const navigate = useNavigate();
+  const { setCurrentTeamId } = useTeamContext();
   const { userTeamName, userTeamId, divisionPreview } = state as DrawState;
+
+  // Set context as soon as this page mounts
+  useEffect(() => {
+    if (userTeamId) {
+      setCurrentTeamId(userTeamId);
+    }
+  }, [userTeamId, setCurrentTeamId]);
 
   return (
     <div className="p-4">

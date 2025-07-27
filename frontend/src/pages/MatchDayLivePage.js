@@ -17,28 +17,30 @@ export default function MatchDayLivePage() {
     const [error, setError] = useState(null);
     const [currentMatchday, setCurrentMatchday] = useState(null);
     const [matchdayType, setMatchdayType] = useState("LEAGUE");
+    const [coachTeamId, setCoachTeamId] = useState(null);
     const [lineup, setLineup] = useState([]);
     const [bench, setBench] = useState([]);
     const [subsRemaining, setSubsRemaining] = useState(3);
-    /* Fetch fixtures + events + matchday context ----------------------- */
+    /* ---------------------------------------------------------------- */
+    /* Fetch fixtures, events & game state                              */
+    /* ---------------------------------------------------------------- */
     useEffect(() => {
         (async () => {
+            setLoading(true);
             try {
-                const { data: { currentMatchday, matchdayType }, } = await api.get("/gamestate");
-                setCurrentMatchday(currentMatchday);
-                setMatchdayType(matchdayType);
-                const [matchesRes, eventsRes] = await Promise.all([
-                    api.get(`/matches/${currentMatchday}`),
-                    api.get(`/match-events/${currentMatchday}`),
-                ]);
-                setMatches(matchesRes.data);
-                const grouped = {};
-                for (const ev of eventsRes.data) {
-                    (grouped[ev.matchId] ??= []).push(ev);
-                }
-                setEventsByMatch(grouped);
+                const { data: gs } = await api.get("/gamestate");
+                setCurrentMatchday(gs.currentMatchday);
+                setMatchdayType(gs.matchdayType);
+                setCoachTeamId(gs.coachTeamId);
+                const { data: fetchedMatches } = await api.get("/matches", {
+                    params: { matchday: gs.currentMatchday },
+                });
+                setMatches(fetchedMatches);
+                const { data: groupedEvents } = await api.get(`/match-events/by-matchday/${gs.currentMatchday}`);
+                setEventsByMatch(groupedEvents);
             }
-            catch {
+            catch (e) {
+                console.error("Failed to load matchday data:", e);
                 setError("Failed to load live matchday data.");
             }
             finally {
@@ -46,15 +48,17 @@ export default function MatchDayLivePage() {
             }
         })();
     }, []);
-    /* Fetch match state (lineup + bench) for popup ---------------------- */
+    /* ---------------------------------------------------------------- */
+    /* Fetch match state (lineup + bench) for half-time popup           */
+    /* ---------------------------------------------------------------- */
     useEffect(() => {
         if (popupMatchId !== null) {
             (async () => {
                 try {
-                    const { data } = await api.get(`/match-state/${popupMatchId}`);
-                    setLineup(data.lineup ?? []);
-                    setBench(data.bench ?? []);
-                    setSubsRemaining(data.subsRemaining ?? 3);
+                    const { data } = await api.get(`/matchstate/${popupMatchId}`);
+                    setLineup(data.lineup);
+                    setBench(data.bench);
+                    setSubsRemaining(data.subsRemaining);
                 }
                 catch (e) {
                     console.error("Failed to load match state:", e);
@@ -62,7 +66,30 @@ export default function MatchDayLivePage() {
             })();
         }
     }, [popupMatchId]);
-    /* Live updates via WebSocket -------------------------------------- */
+    /* ---------------------------------------------------------------- */
+    /* Substitution handler                                             */
+    /* ---------------------------------------------------------------- */
+    async function handleSub({ out, in: inId }) {
+        if (popupMatchId == null)
+            return;
+        try {
+            await api.post(`/matchstate/${popupMatchId}/substitute`, {
+                out,
+                in: inId,
+                isHomeTeam: true,
+            });
+            const { data } = await api.get(`/matchstate/${popupMatchId}`);
+            setLineup(data.lineup);
+            setBench(data.bench);
+            setSubsRemaining(data.subsRemaining);
+        }
+        catch (e) {
+            console.error("Substitution failed:", e);
+        }
+    }
+    /* ---------------------------------------------------------------- */
+    /* Real-time updates via WebSocket                                  */
+    /* ---------------------------------------------------------------- */
     useSocketEvent("match-event", (ev) => {
         setEventsByMatch((prev) => ({
             ...prev,
@@ -72,27 +99,17 @@ export default function MatchDayLivePage() {
     useSocketEvent("match-tick", (live) => {
         setMatches((prev) => prev.map((m) => (m.id === live.id ? { ...m, ...live } : m)));
     });
-    /* Ticker display -------------------------------------------------- */
-    const tickerGames = matches.map((m) => {
-        const latest = eventsByMatch[m.id]?.at(-1);
-        return {
-            id: m.id,
-            division: m.division,
-            minute: m.minute ?? 0,
-            home: {
-                id: m.homeTeam.id,
-                name: m.homeTeam.name,
-                score: m.homeScore ?? 0,
-            },
-            away: {
-                id: m.awayTeam.id,
-                name: m.awayTeam.name,
-                score: m.awayScore ?? 0,
-            },
-            latestEvent: latest?.description ?? "",
-        };
-    });
-    /* Match event feed ------------------------------------------------ */
+    /* ---------------------------------------------------------------- */
+    /* Prepare data for ticker & popup                                  */
+    /* ---------------------------------------------------------------- */
+    const tickerGames = matches.map((m) => ({
+        id: m.id,
+        division: m.division,
+        minute: m.minute ?? 0,
+        home: { id: m.homeTeam.id, name: m.homeTeam.name, score: m.homeGoals },
+        away: { id: m.awayTeam.id, name: m.awayTeam.name, score: m.awayGoals },
+        latestEvent: eventsByMatch[m.id]?.slice(-1)[0]?.description ?? "",
+    }));
     const popupEvents = useMemo(() => {
         if (popupMatchId == null)
             return [];
@@ -102,17 +119,26 @@ export default function MatchDayLivePage() {
             text: ev.description,
         }));
     }, [eventsByMatch, popupMatchId]);
-    /* Loading / error display ----------------------------------------- */
+    const canSubstitute = useMemo(() => {
+        if (popupMatchId == null || coachTeamId == null)
+            return false;
+        const match = matches.find((m) => m.id === popupMatchId);
+        if (!match)
+            return false;
+        return match.homeTeam.id === coachTeamId;
+    }, [popupMatchId, coachTeamId, matches]);
+    /* ---------------------------------------------------------------- */
+    /* Loading/Error state                                              */
+    /* ---------------------------------------------------------------- */
     if (loading) {
         return (_jsx("div", { className: "flex h-screen items-center justify-center bg-green-900 text-white", children: _jsx(ProgressBar, { className: "w-64" }) }));
     }
     if (error) {
         return (_jsx("div", { className: "flex h-screen items-center justify-center bg-green-900 text-red-300", children: error }));
     }
-    /* Render ----------------------------------------------------------- */
-    return (_jsxs("div", { className: "flex min-h-screen flex-col gap-6 bg-green-900 p-4 text-white", children: [_jsx("h1", { className: "text-2xl font-bold", children: `Matchday ${currentMatchday} - ${matchdayType === "LEAGUE" ? "League" : "Cup"}` }), _jsx(AppCard, { variant: "outline", className: "bg-white/10 p-4", children: _jsx(MatchTicker, { games: tickerGames, onGameClick: (id) => setPopupMatchId(Number(id)) }) }), popupMatchId !== null && (_jsx(HalfTimePopup, { open: true, onClose: () => setPopupMatchId(null), events: popupEvents, lineup: lineup, bench: bench, subsRemaining: subsRemaining, onSubstitute: (payload) => {
-                    console.log("Substitution sent:", payload);
-                    // TODO: wire mutation to backend
-                } }))] }));
+    /* ---------------------------------------------------------------- */
+    /* Main render                                                      */
+    /* ---------------------------------------------------------------- */
+    return (_jsxs("div", { className: "flex min-h-screen flex-col gap-6 bg-green-900 p-4 text-white", children: [_jsx("h1", { className: "text-2xl font-bold", children: `Matchday ${currentMatchday} - ${matchdayType === "LEAGUE" ? "League" : "Cup"}` }), _jsx(AppCard, { variant: "outline", className: "bg-white/10 p-4", children: _jsx(MatchTicker, { games: tickerGames, onGameClick: (id) => setPopupMatchId(Number(id)) }) }), popupMatchId !== null && (_jsx(HalfTimePopup, { open: true, onClose: () => setPopupMatchId(null), events: popupEvents, lineup: lineup, bench: bench, subsRemaining: subsRemaining, onSubstitute: handleSub, canSubstitute: canSubstitute }))] }));
 }
 //# sourceMappingURL=MatchDayLivePage.js.map

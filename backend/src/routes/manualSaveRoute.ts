@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { createSaveGame } from '../services/createSaveGame';
+import { snapshotCurrentGame } from '../services/snapshotService';
 
 const router = express.Router();
 
@@ -16,7 +16,8 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const saveId = await createSaveGame(name, coachName ?? null);
+    // ⬇️ Updated: call snapshot with no arguments (if refactored to use gameState internally)
+    const saveId = await snapshotCurrentGame();
     res.status(201).json({ saveId, saveName: name });
   } catch (error) {
     console.error('❌ Manual save failed:', error);

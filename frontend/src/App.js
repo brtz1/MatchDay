@@ -13,6 +13,6 @@ import AppRouter from "@/routes/AppRouter";
  * – Delegates actual page routing to <AppRouter />.
  */
 export default function App() {
-    return (_jsx(UiProvider, { children: _jsx(GameStateProvider, { children: _jsx(TeamProvider, { children: _jsx(AppRouter, {}) }) }) }));
+    return (_jsx(UiProvider, { children: _jsx(GameStateProvider, { autoLoad: false, children: _jsx(TeamProvider, { children: _jsx(AppRouter, {}) }) }) }));
 }
 //# sourceMappingURL=App.js.map

@@ -1,5 +1,5 @@
 // src/services/fixtureServices.ts
-import prisma from "@/utils/prisma";
+import prisma from "../utils/prisma";
 import { DivisionTier, MatchdayType } from "@prisma/client";
 
 /* ------------------------------------------------------------------ LEAGUE */
@@ -37,20 +37,27 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
   /* 3. persist matchdays + matches */
   for (let r = 0; r < totalRounds; r++) {
     const md = await prisma.matchday.create({
-      data: { number: r + 1, type: MatchdayType.LEAGUE, date: new Date() },
-    });
+  data: {
+    number: r + 1,
+    type: MatchdayType.LEAGUE,
+    date: new Date(),
+    saveGameId: saveGameId,
+  },
+});
+
 
     for (const div of ["D1", "D2", "D3", "D4"] as DivisionTier[]) {
       for (const [homeId, awayId] of fixturesByDivision[div][r]) {
         await prisma.saveGameMatch.create({
-          data: {
-            saveGameId,
-            homeTeamId: homeId,
-            awayTeamId: awayId,
-            matchDate: new Date(),
-            matchdayId: md.id,
-          },
-        });
+  data: {
+    saveGameId,
+    homeTeamId: homeId,
+    awayTeamId: awayId,
+    matchDate: new Date(),
+    matchdayId: md.id,
+    matchdayType: MatchdayType.LEAGUE, // ← explicitly required
+  },
+});
       }
     }
   }
@@ -80,8 +87,14 @@ export async function generateCupFixtures(saveGameId: number): Promise<void> {
   for (let i = 0; i < CUP_ROUNDS.length; i++) {
     remaining = shuffleArray(remaining);
     const md = await prisma.matchday.create({
-      data: { number: 14 + i + 1, type: MatchdayType.CUP, date: new Date() },
-    });
+  data: {
+    number: 14 + i + 1,
+    type: MatchdayType.CUP,
+    date: new Date(),
+    saveGameId: saveGameId,
+  },
+});
+
 
     const winners: number[] = [];
     for (let j = 0; j < remaining.length; j += 2) {
@@ -96,8 +109,10 @@ export async function generateCupFixtures(saveGameId: number): Promise<void> {
           awayTeamId: awayId,
           matchDate: new Date(),
           matchdayId: md.id,
+          matchdayType: MatchdayType.CUP,
         },
       });
+
       winners.push(Math.random() < 0.5 ? homeId : awayId);
     }
     remaining = winners;

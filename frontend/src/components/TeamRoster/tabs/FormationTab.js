@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState } from "react";
+import { useGameState } from "@/store/GameStateStore";
 const FORMATIONS = [
     "3-3-4", "3-4-3", "4-2-4", "4-3-3", "4-4-2", "4-5-1",
     "5-2-3", "5-3-2", "5-4-1", "5-5-0", "6-3-1", "6-4-0",
@@ -7,11 +8,18 @@ const FORMATIONS = [
 export default function FormationTab({ onSetFormation }) {
     const [formation, setFormation] = useState(null);
     const [loading, setLoading] = useState(false);
+    const { coachTeamId } = useGameState();
     const handleApply = async () => {
         if (!formation)
             return;
+        if (!coachTeamId) {
+            console.error("❌ Cannot set formation — coachTeamId is missing.");
+            alert("Coach team is not loaded. Please reload the page.");
+            return;
+        }
         setLoading(true);
         try {
+            console.log("✅ Setting formation for coachTeamId:", coachTeamId);
             await onSetFormation(formation);
         }
         catch (err) {

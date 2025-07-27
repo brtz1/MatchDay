@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useGameState } from "@/store/GameStateStore";
 
 export interface FormationTabProps {
   onSetFormation: (formation: string) => Promise<void>;
@@ -13,10 +14,20 @@ export default function FormationTab({ onSetFormation }: FormationTabProps) {
   const [formation, setFormation] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const { coachTeamId } = useGameState();
+
   const handleApply = async () => {
     if (!formation) return;
+
+    if (!coachTeamId) {
+      console.error("❌ Cannot set formation — coachTeamId is missing.");
+      alert("Coach team is not loaded. Please reload the page.");
+      return;
+    }
+
     setLoading(true);
     try {
+      console.log("✅ Setting formation for coachTeamId:", coachTeamId);
       await onSetFormation(formation);
     } catch (err) {
       console.error("Error applying formation:", err);
