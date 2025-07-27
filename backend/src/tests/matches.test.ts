@@ -1,5 +1,5 @@
 import request from 'supertest';
-import app from '../app'; // ✅ requires `@` alias set in jest.config.js
+import app from '@/app'; // ✅ requires `@` alias set in jest.config.js
 
 describe('🧪 Matches API', () => {
   let homeTeamId: number;

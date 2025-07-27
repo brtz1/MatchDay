@@ -1,5 +1,5 @@
 import request from 'supertest';
-import app from '../app'; // ✅ alias must be configured in jest.config.js
+import app from '@/app'; // ✅ alias must be configured in jest.config.js
 
 describe('🧪 Teams API', () => {
   it('should fetch all teams successfully', async () => {
