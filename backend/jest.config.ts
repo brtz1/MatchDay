@@ -8,7 +8,7 @@ const config: JestConfigWithTsJest = {
   roots: ['<rootDir>/src/tests'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   transform: {
-    '^.+\\.ts$': ['ts-jest', { isolatedModules: true }],
+    '^@/.+\\.ts$': ['ts-jest', { isolatedModules: true }],
   },
 };
 
