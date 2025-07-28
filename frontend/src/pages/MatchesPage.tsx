@@ -1,12 +1,9 @@
-// src/pages/MatchesPage.tsx
-
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
 /* ── Services ─────────────────────────────────────────────────────── */
 import matchService from "@/services/matchService";
 import { getTeams } from "@/services/teamService";
-import refereeService from "@/services/refereeService";
 
 /* ── UI components ────────────────────────────────────────────────── */
 import { AppCard } from "@/components/common/AppCard";
@@ -21,36 +18,33 @@ import { teamUrl, matchUrl } from "@/utils/paths";
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface Match {
   id: number;
-  homeScore?: number;
-  awayScore?: number;
+  homeGoals: number | null;
+  awayGoals: number | null;
   matchDate?: string;
-  season?: number;
   homeTeamId: number;
   awayTeamId: number;
+  played: boolean;
+  homeTeam?: { id: number; name: string };
+  awayTeam?: { id: number; name: string };
+  matchday?: { number: number };
 }
+
 interface Team {
   id: number;
   name: string;
 }
-interface Referee {
-  id: number;
-  name: string;
-}
-interface MatchForm {
+
+interface SimForm {
   homeTeamId: number;
   awayTeamId: number;
-  refereeId: number;
 }
 
-/* ── Component ─────────────────────────────────────────────────────── */
 export default function MatchesPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [referees, setReferees] = useState<Referee[]>([]);
-  const [form, setForm] = useState<MatchForm>({
+  const [form, setForm] = useState<SimForm>({
     homeTeamId: 0,
     awayTeamId: 0,
-    refereeId: 0,
   });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -61,14 +55,9 @@ export default function MatchesPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [m, t, r] = await Promise.all([
-          matchService.getMatches(),
-          getTeams(),
-          refereeService.getReferees(),
-        ]);
+        const [m, t] = await Promise.all([matchService.getMatches(), getTeams()]);
         setMatches(m);
         setTeams(t);
-        setReferees(r);
       } catch {
         setError("Failed to load data.");
       } finally {
@@ -86,12 +75,26 @@ export default function MatchesPage() {
       setError("Home and Away teams must differ.");
       return;
     }
+
+    // Find the first unplayed match between these teams
+    const target = matches.find(
+      (m) =>
+        !m.played &&
+        m.homeTeamId === form.homeTeamId &&
+        m.awayTeamId === form.awayTeamId
+    );
+
+    if (!target) {
+      setError("No scheduled unplayed match found between these teams.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await matchService.simulateMatch(form); // ✅ updated to pass full form
+      await matchService.simulateMatch(target.id);
       const updated = await matchService.getMatches();
       setMatches(updated);
-      setForm({ homeTeamId: 0, awayTeamId: 0, refereeId: 0 });
+      setForm({ homeTeamId: 0, awayTeamId: 0 });
       setError(null);
     } catch {
       setError("Simulation failed.");
@@ -109,19 +112,19 @@ export default function MatchesPage() {
             className="text-blue-600 underline hover:text-blue-800 dark:text-yellow-300 dark:hover:text-yellow-200"
             onClick={() => navigate(teamUrl(m.homeTeamId))}
           >
-            {teamName(m.homeTeamId)}
+            {m.homeTeam?.name ?? teamName(m.homeTeamId)}
           </button>
         ),
       },
       {
         header: "",
         accessor: (m: Match) =>
-          m.homeScore != null && m.awayScore != null ? (
+          m.homeGoals != null && m.awayGoals != null ? (
             <button
               className="text-center font-semibold hover:underline"
               onClick={() => navigate(matchUrl(m.id))}
             >
-              {`${m.homeScore} – ${m.awayScore}`}
+              {`${m.homeGoals} – ${m.awayGoals}`}
             </button>
           ) : (
             "—"
@@ -135,7 +138,7 @@ export default function MatchesPage() {
             className="text-blue-600 underline hover:text-blue-800 dark:text-yellow-300 dark:hover:text-yellow-200"
             onClick={() => navigate(teamUrl(m.awayTeamId))}
           >
-            {teamName(m.awayTeamId)}
+            {m.awayTeam?.name ?? teamName(m.awayTeamId)}
           </button>
         ),
       },
@@ -163,7 +166,7 @@ export default function MatchesPage() {
           <p className="text-red-500">{error}</p>
         ) : (
           <DataTable<Match>
-            data={matches}
+            data={matches.filter((m) => m.homeGoals !== null && m.awayGoals !== null)}
             columns={columns}
             pageSize={10}
             emptyMessage="No matches played yet."
@@ -171,9 +174,9 @@ export default function MatchesPage() {
         )}
       </AppCard>
 
-      {/* Simulate New Match */}
+      {/* Simulate Match (Only if already scheduled) */}
       <AppCard>
-        <h2 className="mb-4 text-xl font-bold">Simulate New Match</h2>
+        <h2 className="mb-4 text-xl font-bold">Simulate Scheduled Match</h2>
         <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
             <span className="font-semibold">Home Team</span>
@@ -208,25 +211,6 @@ export default function MatchesPage() {
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 sm:col-span-2">
-            <span className="font-semibold">Referee</span>
-            <select
-              value={form.refereeId}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, refereeId: Number(e.target.value) }))
-              }
-              required
-              className="rounded-md border border-gray-300 p-2 dark:border-gray-600 dark:bg-gray-800"
-            >
-              <option value={0}>Select…</option>
-              {referees.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
                 </option>
               ))}
             </select>

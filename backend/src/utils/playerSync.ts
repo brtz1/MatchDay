@@ -1,9 +1,8 @@
-// src/utils/playerSync.ts
-
 import prisma from "../utils/prisma";
 import { DivisionTier } from "@prisma/client";
 
-type SaveGameTeamLite = {
+/* ──────────────────────────────── Types ──────────────────────────────── */
+export type SaveGameTeamLite = {
   id: number;
   name: string;
   saveGameId: number;
@@ -12,7 +11,7 @@ type SaveGameTeamLite = {
   baseTeamId: number;
   morale: number;
   currentSeason: number;
-  rating: number; // 🆕 used instead of fixed per-division
+  rating: number;
 };
 
 type BaseTeamWithPlayers = {
@@ -25,8 +24,9 @@ type BaseTeamWithPlayers = {
   }[];
 };
 
+/* ──────────────────────────────── Main Function ──────────────────────────────── */
 /**
- * Creates SaveGamePlayers for each SaveGameTeam based on its actual rating.
+ * Syncs all SaveGamePlayers based on each team's actual rating and base players.
  */
 export async function syncPlayersWithNewTeamRating(
   saveGameTeams: SaveGameTeamLite[],
@@ -37,66 +37,57 @@ export async function syncPlayersWithNewTeamRating(
     BaseTeamWithPlayers[]
   ][]) {
     for (const baseTeam of baseTeams) {
-      const saveTeam = saveGameTeams.find((t) => t.baseTeamId === baseTeam.id);
-      if (!saveTeam) continue;
+      const team = saveGameTeams.find((t) => t.baseTeamId === baseTeam.id);
+      if (!team) continue;
 
-      const ratings = generatePlayerRatingsForTeam(saveTeam.rating, baseTeam.players.length);
+      const totalPlayers = baseTeam.players.length;
+      const generatedRatings = generatePlayerRatings(team.rating, totalPlayers);
 
-      const playerData: {
-        saveGameId: number;
-        basePlayerId: number;
-        name: string;
-        position: string;
-        rating: number;
-        salary: number;
-        behavior: number;
-        contractUntil: number;
-        teamId: number;
-        localIndex: number;
-      }[] = [];
-
-      for (let i = 0; i < baseTeam.players.length; i++) {
-        const p = baseTeam.players[i];
-        if (!p.name || !p.position || typeof p.behavior !== "number") {
-          console.error("❌ Invalid base player:", p);
-          continue;
-        }
-
-        playerData.push({
-          saveGameId: saveTeam.saveGameId,
+      const playersToCreate = baseTeam.players.map((p, index) => {
+        const rating = generatedRatings[index];
+        return {
+          saveGameId: team.saveGameId,
           basePlayerId: p.id,
           name: p.name,
           position: p.position,
-          rating: ratings[i],
-          salary: calculateSalary(ratings[i], p.behavior),
+          rating,
+          salary: calculateSalary(rating, p.behavior),
           behavior: p.behavior,
           contractUntil: 1,
-          teamId: saveTeam.id,
-          localIndex: i,
-        });
+          teamId: team.id,
+          localIndex: index,
+        };
+      });
+
+      // Optional: validation before write
+      const valid = playersToCreate.filter(p => p.name && p.position);
+
+      if (valid.length !== totalPlayers) {
+        console.warn(`⚠️ Skipping ${totalPlayers - valid.length} invalid players from team ${team.name}`);
       }
 
-      if (playerData.length > 0) {
-        await prisma.saveGamePlayer.createMany({
-          data: playerData,
-        });
+      if (valid.length > 0) {
+        await prisma.saveGamePlayer.createMany({ data: valid });
       }
     }
   }
 }
 
-function generatePlayerRatingsForTeam(teamRating: number, count: number): number[] {
+/* ──────────────────────────────── Helpers ──────────────────────────────── */
+
+function generatePlayerRatings(teamRating: number, count: number): number[] {
   const ratings: number[] = [];
   for (let i = 0; i < count; i++) {
-    const variance = Math.floor(Math.random() * 11) - 5; // ±5 variation
-    ratings.push(clamp(teamRating + variance));
+    const variation = Math.floor(Math.random() * 11) - 5; // ±5
+    ratings.push(clamp(teamRating + variation));
   }
   return ratings;
 }
 
 function calculateSalary(rating: number, behavior: number): number {
   const base = rating * 50;
-  const behaviorFactor = behavior >= 4 ? 0.9 : behavior === 1 ? 1.1 : 1.0;
+  const behaviorFactor =
+    behavior >= 4 ? 0.9 : behavior === 1 ? 1.1 : 1.0;
   return Math.round(base * behaviorFactor);
 }
 

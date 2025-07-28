@@ -5,11 +5,15 @@ const config: JestConfigWithTsJest = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.ts'],
-  roots: ['<rootDir>/src/tests'],
+  roots: ['<rootDir>/src'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  transform: {
-    '^@/.+\\.ts$': ['ts-jest', { isolatedModules: true }],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1'
   },
+  transform: {
+    '^@.+\\.ts$': ['ts-jest', { useESM: false }]
+  },
+  setupFiles: ["dotenv/config"],
 };
 
 export default config;

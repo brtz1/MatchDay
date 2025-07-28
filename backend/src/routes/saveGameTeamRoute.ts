@@ -4,7 +4,38 @@ import { getGameState } from "../services/gameState";
 
 const router = express.Router();
 
-// 🔍 List all team IDs and names (temporary debug)
+/** 
+ * GET /api/save-game-teams/
+ * List all teams in the current save game
+ */
+router.get("/", async (_req: Request, res: Response) => {
+  try {
+    const gameState = await getGameState();
+    if (!gameState || !gameState.currentSaveGameId) {
+      return res.status(404).json({ error: "No active save game found" });
+    }
+
+    const teams = await prisma.saveGameTeam.findMany({
+      where: { saveGameId: gameState.currentSaveGameId },
+      select: {
+        id: true,
+        name: true,
+        division: true,
+        morale: true,
+        rating: true,
+        localIndex: true,
+      },
+      orderBy: { localIndex: "asc" }
+    });
+
+    res.json(teams);
+  } catch (err) {
+    console.error("❌ Error fetching all teams:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 🔍 Debug/legacy routes
 router.get("/debug-list", async (_req: Request, res: Response) => {
   const teams = await prisma.saveGameTeam.findMany({
     select: { id: true, name: true },

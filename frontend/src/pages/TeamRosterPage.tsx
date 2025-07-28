@@ -100,7 +100,7 @@ export default function TeamRosterPage() {
 
     if (location.state?.fromResults && saveGameId) {
       api
-        .post("/matchdays/advance", { saveGameId })
+        .post("/matchday/advance", { saveGameId })
         .catch((err) => console.error("Failed to advance matchday", err));
     }
 
@@ -113,7 +113,7 @@ export default function TeamRosterPage() {
         throw new Error("Missing required context data");
       }
 
-      const response = await api.get("/matchdays/team-match-info", {
+      const response = await api.get("/matchday/team-match-info", {
         params: {
           saveGameId,
           matchday: currentMatchday,

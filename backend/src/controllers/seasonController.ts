@@ -1,28 +1,40 @@
 import { Request, Response, NextFunction } from 'express';
-import * as seasonService from '../services/seasonService';
+import { scheduleSeason } from '../services/seasonService';
 import { getGameState } from '../services/gameState';
+import prisma from '../utils/prisma'; // ✅ add this to fetch teams
 
 /**
  * POST /api/season/start
- * Initializes league tables and schedules all fixtures for the season.
+ * Initializes league tables and schedules all fixtures for the current save game.
  */
-export async function startSeason(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function startSeason(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const gameState = await getGameState();
 
     if (!gameState || !gameState.currentSaveGameId || gameState.currentSaveGameId <= 0) {
-      res.status(400).json({ error: "No active save game found" });
+      res.status(400).json({ error: 'No active save game found' });
       return;
     }
 
     const saveGameId = gameState.currentSaveGameId;
 
-    await seasonService.initializeLeagueTable(saveGameId);
-    const fixtures = await seasonService.scheduleSeason(saveGameId);
+    // ✅ Fetch teams before passing to scheduleSeason
+    const teams = await prisma.saveGameTeam.findMany({
+      where: { saveGameId },
+    });
 
-    res.status(200).json({ fixtures });
+    await scheduleSeason(saveGameId, teams);
+
+    res.status(200).json({
+      message: 'Season scheduled successfully.',
+      saveGameId,
+    });
   } catch (error) {
-    console.error("❌ Failed to start season:", error);
+    console.error('❌ Failed to start season:', error);
     next(error);
   }
 }

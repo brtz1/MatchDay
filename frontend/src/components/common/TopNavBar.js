@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useLocation, matchPath } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import clsx from "clsx";
 /* ── Dropdown Menu Config ───────────────────────────── */
 const dropdownMenus = [
@@ -83,8 +83,7 @@ export const TopNavBar = ({ coachTeamId }) => {
     const [openDropdown, setOpenDropdown] = useState(null);
     const navRef = useRef(null);
     const isMatchdayPage = location.pathname === "/matchday";
-    const teamMatch = matchPath("/team/:id", location.pathname);
-    const isCoachTeam = teamMatch && parseInt(teamMatch.params?.id || "-1", 10) === coachTeamId;
+    const isCoachTeam = location.pathname.startsWith(`/teams/${coachTeamId}`);
     const handleBack = () => navigate(-1);
     const handleHome = () => {
         if (coachTeamId > 0)

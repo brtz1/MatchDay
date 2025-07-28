@@ -1,138 +1,84 @@
-// backend/src/routes/saveGameRoute.ts
-
 import express, { Request, Response } from "express";
-import { MatchdayType, DivisionTier } from "@prisma/client";
 import prisma from "../utils/prisma";
 import { setCurrentSaveGame, setCoachTeam } from "../services/gameState";
+import { scheduleSeason } from "../services/seasonService";
+import { syncPlayersWithNewTeamRating } from "../utils/playerSync";
+import { DivisionTier } from "@prisma/client";
 
 const router = express.Router();
 
-/* ------------------------------ Fixture Generators ------------------------------ */
-
-export function generateLeagueFixtures(teams: any[], saveGameId: number) {
-  if (teams.length !== 8) throw new Error("League fixture generator requires exactly 8 teams.");
-  const fixtures = [];
-  const matchups = [];
-
-  for (let i = 0; i < teams.length; i++) {
-    for (let j = i + 1; j < teams.length; j++) {
-      matchups.push({ home: teams[i].id, away: teams[j].id });
-      matchups.push({ home: teams[j].id, away: teams[i].id });
-    }
-  }
-
-  for (let i = matchups.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [matchups[i], matchups[j]] = [matchups[j], matchups[i]];
-  }
-
-  for (let md = 1; md <= 14; md++) {
-    for (let i = 0; i < 4; i++) {
-      const match = matchups.pop();
-      if (!match) break;
-      fixtures.push({
-        saveGameId,
-        matchdayNumber: md,
-        matchdayType: MatchdayType.LEAGUE,
-        homeTeamId: match.home,
-        awayTeamId: match.away,
-      });
-    }
-  }
-
-  return fixtures;
-}
-
-export function generateCupFixtures(teams: any[], saveGameId: number) {
-  if (teams.length !== 128) throw new Error("Cup fixture generator requires exactly 128 teams.");
-  const shuffled = [...teams];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-
-  const fixtures = [];
-  let currentMatchday = 3;
-  let currentTeams = shuffled;
-
-  while (currentTeams.length >= 2) {
-    const nextRoundTeams = [];
-
-    for (let i = 0; i < currentTeams.length; i += 2) {
-      const home = currentTeams[i];
-      const away = currentTeams[i + 1];
-      fixtures.push({
-        saveGameId,
-        matchdayNumber: currentMatchday,
-        matchdayType: MatchdayType.CUP,
-        homeTeamId: home.id,
-        awayTeamId: away.id,
-      });
-      nextRoundTeams.push(home); // TEMP winner logic
-    }
-
-    currentMatchday += 3;
-    currentTeams = nextRoundTeams;
-  }
-
-  return fixtures;
-}
-
-/* ------------------------------------ Routes ------------------------------------ */
-
-// ✅ GET /api/save-game?includeTeams=true
+/* ────────────────────────────────────────────────────────────────────────── */
+/* GET /api/save-game?includeTeams=true                                      */
+/* ────────────────────────────────────────────────────────────────────────── */
 router.get("/", async (req: Request, res: Response) => {
   try {
     const includeTeams = req.query.includeTeams === "true";
-    const games = await prisma.saveGame.findMany({
+    const saves = await prisma.saveGame.findMany({
       include: includeTeams ? { teams: true } : undefined,
     });
-    res.json(games);
+    res.json(saves);
   } catch (err) {
-    console.error("Failed to fetch save games", err);
+    console.error("❌ Failed to fetch save games:", err);
     res.status(500).json({ error: "Failed to fetch save games" });
   }
 });
 
-// ✅ POST /api/save-game — create new save game
+/* ────────────────────────────────────────────────────────────────────────── */
+/* POST /api/save-game — Create new save game                                */
+/* ────────────────────────────────────────────────────────────────────────── */
 router.post("/", async (req: Request, res: Response) => {
   try {
     const { name, coachName, countries } = req.body;
 
+    // 1. Fetch and filter base teams
     const baseTeams = await prisma.baseTeam.findMany({
       where: { country: { in: countries } },
       include: { players: true },
     });
 
+    if (baseTeams.length < 128) {
+      return res.status(400).json({ error: "Need at least 128 clubs across chosen countries." });
+    }
+
     const selected = baseTeams.slice(0, 128);
+
+    // 2. Assign divisions and randomized ratings
+    const divisionMap: Record<DivisionTier, typeof selected> = {
+      D1: selected.slice(0, 8),
+      D2: selected.slice(8, 16),
+      D3: selected.slice(16, 24),
+      D4: selected.slice(24, 32),
+      DIST: selected.slice(32),
+    };
 
     const saveGame = await prisma.saveGame.create({
       data: {
         name,
         coachName,
         teams: {
-          create: selected.map((team, index) => {
-            const division =
-              index < 8 ? DivisionTier.D1 :
-              index < 16 ? DivisionTier.D2 :
-              index < 24 ? DivisionTier.D3 :
-              index < 32 ? DivisionTier.D4 :
-              DivisionTier.DIST;
+          create: selected.map((bt, idx) => {
+            const division: DivisionTier =
+              idx < 8 ? "D1" : idx < 16 ? "D2" : idx < 24 ? "D3" : idx < 32 ? "D4" : "DIST";
 
+            // Randomized team rating per division
             const rating =
-              division === DivisionTier.D1 ? Math.floor(Math.random() * 10) + 38 :
-              division === DivisionTier.D2 ? Math.floor(Math.random() * 13) + 28 :
-              division === DivisionTier.D3 ? Math.floor(Math.random() * 13) + 18 :
-              division === DivisionTier.D4 ? Math.floor(Math.random() * 13) + 8 :
-              Math.floor(Math.random() * 8) + 1;
+              division === "D1"
+                ? getRandomInt(38, 47)
+                : division === "D2"
+                ? getRandomInt(28, 40)
+                : division === "D3"
+                ? getRandomInt(18, 30)
+                : division === "D4"
+                ? getRandomInt(8, 20)
+                : getRandomInt(1, 8);
 
             return {
-              baseTeamId: team.id,
-              name: team.name,
-              morale: 50,
+              baseTeamId: bt.id,
+              name: bt.name,
               division,
+              morale: 50,
               currentSeason: 1,
-              localIndex: index,
+              localIndex: idx,
               rating,
             };
           }),
@@ -141,65 +87,54 @@ router.post("/", async (req: Request, res: Response) => {
       include: { teams: true },
     });
 
-    const teamMap = new Map<number, (typeof saveGame.teams)[number]>();
-    for (const team of saveGame.teams) {
-      if (typeof team.localIndex === "number") {
-        teamMap.set(team.localIndex, team);
-      }
-    }
-
-    const playersToCreate = selected.flatMap((baseTeam, teamIndex) => {
-      const team = teamMap.get(teamIndex);
-      if (!team) return [];
-
-      return baseTeam.players
-        .filter((p) => p.position !== "unknown")
-        .map((basePlayer, playerIndex) => {
-          const behavior = Math.floor(Math.random() * 5) + 1;
-          const rating = Math.max(1, Math.min(99, team.rating + Math.floor(Math.random() * 5) - 2));
-          const salary = rating * behavior * 10;
-
-          return {
-            saveGameId: saveGame.id,
-            teamId: team.id,
-            basePlayerId: basePlayer.id,
-            name: basePlayer.name,
-            nationality: basePlayer.nationality,
-            position: basePlayer.position,
-            rating,
-            salary,
-            behavior,
-            contractUntil: 0,
-            localIndex: playerIndex,
-          };
-        });
-    });
-
-    const validPlayers = playersToCreate.filter(
-      (p) => ["GK", "DF", "MF", "AT"].includes(p.position)
-    );
-
-    const inserted = await prisma.saveGamePlayer.createMany({
-      data: validPlayers,
-      skipDuplicates: false,
-    });
-
-    console.log(`✅ Inserted ${inserted.count} players.`);
-
-    const division4Teams = saveGame.teams.filter((t) => t.division === "D4");
-    const coachTeam = division4Teams[Math.floor(Math.random() * division4Teams.length)];
-
-    await setCurrentSaveGame(saveGame.id);
-    await setCoachTeam(coachTeam.id);
-
-    return res.status(201).json({
-      userTeamId: coachTeam.id,
-      userTeamName: coachTeam.name,
+    // 3. Generate players using playerSync.ts logic
+    const saveGameTeams = saveGame.teams;
+    const liteTeams = saveGameTeams.map((t) => ({
+      id: t.id,
+      name: t.name,
       saveGameId: saveGame.id,
-      divisionPreview: (["D1", "D2", "D3", "D4"] as DivisionTier[]).map((tier) => {
-        const teams = saveGame.teams.filter((t) => t.division === tier).map((t) => t.id).join(", ");
-        return `${tier}: ${teams}`;
-      }),
+      division: t.division,
+      localIndex: t.localIndex!,
+      baseTeamId: t.baseTeamId,
+      morale: t.morale,
+      currentSeason: t.currentSeason,
+      rating: t.rating,
+    }));
+
+    // Build map by division
+    const divisionBaseMap: Record<DivisionTier, typeof baseTeams> = {
+      D1: divisionMap.D1,
+      D2: divisionMap.D2,
+      D3: divisionMap.D3,
+      D4: divisionMap.D4,
+      DIST: divisionMap.DIST,
+    };
+
+    await syncPlayersWithNewTeamRating(liteTeams, divisionBaseMap);
+
+    console.log(`✅ Inserted players for saveGame ${saveGame.id}`);
+
+    // 4. Schedule league & cup season
+    console.log(`🔨 Scheduling full season for saveGame ${saveGame.id}`);
+    await scheduleSeason(saveGame.id, saveGame.teams);
+
+    // 5. Randomly assign coach team from Division 4
+    const d4 = saveGame.teams.filter((t) => t.division === "D4");
+    const coach = d4[Math.floor(Math.random() * d4.length)];
+    await setCurrentSaveGame(saveGame.id);
+    await setCoachTeam(coach.id);
+
+    // 6. Return response
+    res.status(201).json({
+      userTeamId: coach.id,
+      userTeamName: coach.name,
+      saveGameId: saveGame.id,
+      divisionPreview: ["D1", "D2", "D3", "D4"].map((tier) =>
+        `${tier}: ${saveGame.teams
+          .filter((t) => t.division === tier)
+          .map((t) => t.id)
+          .join(", ")}`,
+      ),
     });
   } catch (err) {
     console.error("❌ Failed to create save game", err);
@@ -207,44 +142,37 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-// ✅ POST /api/save-game/load — load existing save by ID
+/* ────────────────────────────────────────────────────────────────────────── */
+/* POST /api/save-game/load — Load an existing save                          */
+/* ────────────────────────────────────────────────────────────────────────── */
 router.post("/load", async (req: Request, res: Response) => {
   try {
     const { id } = req.body;
 
-    const saveGame = await prisma.saveGame.findUnique({
-      where: { id },
-      include: {
-        teams: true,
-        players: true,
-        matches: true,
-      },
-    });
-
-    if (!saveGame) {
-      return res.status(404).json({ error: "Save game not found" });
-    }
+    const saveGame = await prisma.saveGame.findUnique({ where: { id } });
+    if (!saveGame) return res.status(404).json({ error: "Save game not found" });
 
     await setCurrentSaveGame(saveGame.id);
 
-    const gameState = await prisma.gameState.findFirst({
-      where: {
-        currentSaveGameId: saveGame.id, // ✅ This matches your schema
-      },
-    });
-
-    if (!gameState || !gameState.coachTeamId) {
+    const gs = await prisma.gameState.findFirst({ where: { currentSaveGameId: saveGame.id } });
+    if (!gs?.coachTeamId) {
       return res.status(400).json({ error: "No coach team assigned to this save game." });
     }
 
-    res.json({
-      coachTeamId: gameState.coachTeamId,
-      saveGameId: saveGame.id,
-    });
+    res.json({ coachTeamId: gs.coachTeamId, saveGameId: saveGame.id });
   } catch (err) {
     console.error("❌ Failed to load save game", err);
     res.status(500).json({ error: "Failed to load save game" });
   }
 });
 
+/* ────────────────────────────────────────────────────────────────────────── */
+
 export default router;
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Helper                                                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+function getRandomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}

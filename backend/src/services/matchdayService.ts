@@ -1,27 +1,20 @@
 // backend/src/services/matchdayService.ts
 
 import prisma from '../utils/prisma';
-import { simulateMatchday } from './matchService';
-import { updateLeagueTableForMatchday } from './leagueTableService';
-import { updateMoraleAndContracts } from './moraleContractService';
-import { getGameState } from './gameState';
+import { simulateMatchday } from '../services/matchService';
+import { updateLeagueTableForMatchday } from '../services/leagueTableService';
+import { updateMoraleAndContracts } from '../services/moraleContractService';
+import { getGameState } from '../services/gameState';
 import { MatchdayType, SaveGameMatch } from '@prisma/client';
 
-/**
- * Matchday number → match type logic
- * Every season has 21 matchdays: 14 league, 7 cup
- */
 function getMatchdayTypeForNumber(matchday: number): MatchdayType {
   const cupDays = [3, 6, 8, 11, 14, 17, 20];
   return cupDays.includes(matchday) ? MatchdayType.CUP : MatchdayType.LEAGUE;
 }
 
-/**
- * Only advances the matchday type and number — no simulation
- */
 export async function advanceMatchdayType() {
   const gameState = await prisma.gameState.findFirst({
-    where: { currentSaveGameId: { not: undefined } },
+    where: { currentSaveGameId: { not: null as any } },
   });
 
   if (!gameState) throw new Error('Game state not found');
@@ -44,9 +37,6 @@ export async function advanceMatchdayType() {
   };
 }
 
-/**
- * Full matchday simulation + standings + morale + advance number/type
- */
 export async function advanceMatchday(saveGameId: number): Promise<string> {
   const state = await prisma.gameState.findFirst({
     where: { currentSaveGameId: saveGameId },
@@ -61,29 +51,23 @@ export async function advanceMatchday(saveGameId: number): Promise<string> {
     where: {
       number: currentMatchday,
       type: matchdayType,
-      saveGameMatches: {
-        some: { saveGameId },
-      },
+      saveGameId,
     },
-    orderBy: { number: 'asc' },
+    include: {
+      saveGameMatches: true,
+    },
   });
 
-  if (!matchday) {
-    return 'Season complete. No more matchdays.';
-  }
+  if (!matchday) return 'Season complete. No more matchday.';
 
-  // 1. Simulate matches
   await simulateMatchday(matchday.id);
 
-  // 2. League table update
   if (matchdayType === MatchdayType.LEAGUE) {
     await updateLeagueTableForMatchday(matchday.id, saveGameId);
   }
 
-  // 3. Morale and contracts
   await updateMoraleAndContracts(matchday.id, saveGameId);
 
-  // 4. Advance matchday
   const nextMatchday = currentMatchday + 1;
   const nextType = getMatchdayTypeForNumber(nextMatchday);
 
@@ -99,9 +83,6 @@ export async function advanceMatchday(saveGameId: number): Promise<string> {
   return `Matchday ${currentMatchday} (${matchdayType}) simulated for saveGame ${saveGameId}.`;
 }
 
-/**
- * Retrieve fixtures for current or specified matchday.
- */
 export async function getMatchdayFixtures(
   matchdayNumber?: number,
   matchdayType?: MatchdayType
@@ -120,9 +101,7 @@ export async function getMatchdayFixtures(
     where: {
       number,
       type,
-      saveGameMatches: {
-        some: { saveGameId: state.currentSaveGameId },
-      },
+      saveGameId: state.currentSaveGameId ?? undefined,
     },
   });
 
@@ -131,7 +110,7 @@ export async function getMatchdayFixtures(
   return prisma.saveGameMatch.findMany({
     where: {
       matchdayId: matchday.id,
-      saveGameId: state.currentSaveGameId,
+      saveGameId: state.currentSaveGameId ?? undefined,
     },
     include: {
       homeTeam: { select: { id: true, name: true } },
@@ -149,56 +128,38 @@ export async function getMatchdayFixtures(
   });
 }
 
-/**
- * Used to retrieve the coach's match for the current matchday.
- * Returns matchId and if the team is home.
- */
 export async function getTeamMatchInfo(
   saveGameId: number,
   matchdayNumber: number,
   teamId: number
 ): Promise<{ matchId: number; isHomeTeam: boolean }> {
-  try {
-    const state = await getGameState();
-    if (!state) throw new Error('Game state not initialized');
+  const state = await getGameState();
+  if (!state) throw new Error('Game state not initialized');
 
-    const matchdayType = getMatchdayTypeForNumber(matchdayNumber);
-    console.log(`🔍 Looking for matchday: #${matchdayNumber}, type=${matchdayType}, saveGameId=${saveGameId}`);
+  const matchdayType = getMatchdayTypeForNumber(matchdayNumber);
+  console.log(`🔍 getTeamMatchInfo → saveGameId: ${saveGameId}, matchday: ${matchdayNumber}, type: ${matchdayType}`);
 
-    const matchday = await prisma.matchday.findFirst({
-      where: {
-        number: matchdayNumber,
-        type: matchdayType,
-        saveGameId: saveGameId,
-      },
-      include: {
-        saveGameMatches: true,
-      },
-    });
+  const matchday = await prisma.matchday.findFirst({
+    where: {
+      number: matchdayNumber,
+      type: matchdayType,
+      saveGameId,
+    },
+    include: {
+      saveGameMatches: true,
+    },
+  });
 
-    if (!matchday) {
-      console.warn('⚠️ No matchday found');
-      throw new Error('Matchday not found');
-    }
+  if (!matchday) throw new Error('Matchday not found');
 
-    console.log(`✅ Matchday found: ID ${matchday.id}, total matches: ${matchday.saveGameMatches.length}`);
+  const match = matchday.saveGameMatches.find(
+    (m) => m.homeTeamId === teamId || m.awayTeamId === teamId
+  );
 
-    const match = matchday.saveGameMatches.find(
-      (m) => m.homeTeamId === teamId || m.awayTeamId === teamId
-    );
+  if (!match) throw new Error('Match not found for this team');
 
-    if (!match) {
-      console.warn(`⚠️ No match found for team ${teamId}`);
-      throw new Error('Match not found for team');
-    }
-
-    return {
-      matchId: match.id,
-      isHomeTeam: match.homeTeamId === teamId,
-    };
-  } catch (err) {
-    console.error('❌ getTeamMatchInfo failed:', err);
-    throw err;
-  }
+  return {
+    matchId: match.id,
+    isHomeTeam: match.homeTeamId === teamId,
+  };
 }
-

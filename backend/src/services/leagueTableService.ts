@@ -7,7 +7,7 @@ type Result = 'win' | 'draw' | 'loss';
 
 /**
  * Updates the LeagueTable for every match in a given matchday.
- * Only processes matchdays of type LEAGUE.
+ * Only processes matchday of type LEAGUE.
  *
  * @param saveGameId – the ID of the save game to process
  * @param matchdayId – the ID of the matchday to process
@@ -23,7 +23,7 @@ export async function updateLeagueTableForMatchday(saveGameId: number, matchdayI
   }
 
   if (matchday.type !== MatchdayType.LEAGUE) {
-    return; // only process LEAGUE matchdays
+    return; // only process LEAGUE matchday
   }
 
   // 2. Get all played saveGameMatches for this matchday and saveGame

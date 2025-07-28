@@ -1,29 +1,39 @@
 import { io, type Socket } from "socket.io-client";
 
-/**
- * ---------------------------------------------------------------------------
+/* ----------------------------------------------------------------------------
  * Configuration
- * ---------------------------------------------------------------------------
- *
- * `VITE_SOCKET_URL` can point to prod / staging server.
- * Falls back to `VITE_API_URL` (REST base) or localhost.
+ * ----------------------------------------------------------------------------
+ * SOCKET_URL:
+ * - Uses VITE_SOCKET_URL if defined (for production or staging)
+ * - Falls back to VITE_API_URL or localhost:4000 by default
+ * ----------------------------------------------------------------------------
  */
-export const SOCKET_URL =
+export const SOCKET_URL: string =
   import.meta.env.VITE_SOCKET_URL ??
   import.meta.env.VITE_API_URL ??
   "http://localhost:4000";
 
-/**
- * Use a single, shared socket instance across the entire app.
+/* ----------------------------------------------------------------------------
+ * Shared Socket.IO Client Instance
+ * ----------------------------------------------------------------------------
+ * Configuration:
+ * - path: customize if backend uses a non-default socket.io path
+ * - transports: prioritize websocket
+ * - autoConnect: manual connection trigger (recommended with auth)
+ * - withCredentials: allow sending cookies if needed
+ * ----------------------------------------------------------------------------
  */
 const socket: Socket = io(SOCKET_URL, {
-  path: "/socket",            // adjust if backend uses a custom path
-  transports: ["websocket"],  // modern browsers → websocket first
-  autoConnect: false,         // call socket.connect() when ready
-  withCredentials: true,      // include cookies if your auth relies on them
+  path: "/socket",
+  transports: ["websocket"],
+  autoConnect: false,
+  withCredentials: true,
 });
 
-/* --------------------------------------------------------------------- Debug */
+/* ----------------------------------------------------------------------------
+ * Debug Logging (only in DEV)
+ * ----------------------------------------------------------------------------
+ */
 if (import.meta.env.DEV) {
   socket.on("connect", () =>
     console.info("[socket] connected:", socket.id)
@@ -36,15 +46,10 @@ if (import.meta.env.DEV) {
   );
 }
 
-/**
- * Export singleton for app-wide use.
- *
- * Typical startup (e.g. in `main.tsx`):
- *
- * ```ts
- * import socket from "@/socket";
- *
- * socket.connect();   // establish connection once user is authenticated
- * ```
+/* ----------------------------------------------------------------------------
+ * Export
+ * ----------------------------------------------------------------------------
+ * Use `socket.connect()` once the user is authenticated (e.g. in `main.tsx`)
+ * ----------------------------------------------------------------------------
  */
 export default socket;

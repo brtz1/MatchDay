@@ -1,17 +1,19 @@
 // backend/src/routes/matchdayRoute.ts
 
 import express, { Request, Response, NextFunction } from 'express';
-import * as matchdayService from '../services/matchdayService';
+import {
+  advanceMatchday,
+  advanceMatchdayType,
+  getMatchdayFixtures,
+  getTeamMatchInfo,
+} from '../services/matchdayService';
 
 const router = express.Router();
 
-/**
- * POST /api/matchdays/advance
- * Advances the current matchday for the given save game ID:
- * - Simulates fixtures
- * - Updates matchday records
- * - Updates standings or cup bracket
- */
+/* -------------------------------------------------------------------------- */
+/* POST /api/matchday/advance                                                */
+/* Advance the current matchday: simulate matches, update tables              */
+/* -------------------------------------------------------------------------- */
 router.post('/advance', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { saveGameId } = req.body;
@@ -20,22 +22,21 @@ router.post('/advance', async (req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({ error: 'Missing or invalid saveGameId' });
     }
 
-    const message = await matchdayService.advanceMatchday(saveGameId);
-    res.status(200).json({ message });
+    const result = await advanceMatchday(saveGameId);
+    res.status(200).json({ message: result });
   } catch (error) {
     console.error('❌ Failed to advance matchday:', error);
     next(error);
   }
 });
 
-/**
- * POST /api/matchdays/advance-type
- * Advances just the matchday number and toggles matchday type (LEAGUE/CUP).
- * Does not simulate fixtures or update results.
- */
+/* -------------------------------------------------------------------------- */
+/* POST /api/matchday/advance-type                                           */
+/* Advances matchday number and toggles LEAGUE/CUP (no simulation)            */
+/* -------------------------------------------------------------------------- */
 router.post('/advance-type', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const updated = await matchdayService.advanceMatchdayType();
+    const updated = await advanceMatchdayType();
     res.status(200).json(updated);
   } catch (error) {
     console.error('❌ Failed to advance matchday type:', error);
@@ -43,17 +44,20 @@ router.post('/advance-type', async (_req: Request, res: Response, next: NextFunc
   }
 });
 
-/**
- * GET /api/matchdays
- * Optionally fetch fixtures or results for a given matchday number
- */
+/* -------------------------------------------------------------------------- */
+/* GET /api/matchday                                                         */
+/* Optionally fetch fixtures for a given matchday number and type            */
+/* -------------------------------------------------------------------------- */
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { number, type } = req.query;
-    const matchdayNumber = number ? Number(number) : undefined;
-    const matchdayType = type ? String(type).toUpperCase() as 'LEAGUE' | 'CUP' : undefined;
+    const number = req.query.number ? parseInt(String(req.query.number)) : undefined;
+    const type = req.query.type ? String(req.query.type).toUpperCase() : undefined;
 
-    const fixtures = await matchdayService.getMatchdayFixtures(matchdayNumber, matchdayType);
+    if (type && type !== 'LEAGUE' && type !== 'CUP') {
+      return res.status(400).json({ error: 'Invalid matchday type. Use LEAGUE or CUP.' });
+    }
+
+    const fixtures = await getMatchdayFixtures(number, type as 'LEAGUE' | 'CUP' | undefined);
     res.status(200).json(fixtures);
   } catch (error) {
     console.error('❌ Error fetching matchday fixtures:', error);
@@ -61,11 +65,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-/**
- * GET /api/matchdays/team-match-info
- * Gets matchId and whether the team is home/away for a specific matchday.
- * Query params: saveGameId, matchday (number), teamId
- */
+/* -------------------------------------------------------------------------- */
+/* GET /api/matchday/team-match-info                                         */
+/* Get matchId and home/away info for a team in a given matchday             */
+/* -------------------------------------------------------------------------- */
 router.get('/team-match-info', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const saveGameId = parseInt(String(req.query.saveGameId));
@@ -73,19 +76,19 @@ router.get('/team-match-info', async (req: Request, res: Response, next: NextFun
     const teamId = parseInt(String(req.query.teamId));
 
     if (isNaN(saveGameId) || isNaN(matchday) || isNaN(teamId)) {
-      return res.status(400).json({ error: "Missing or invalid query parameters" });
+      return res.status(400).json({ error: 'Missing or invalid query parameters' });
     }
 
-    const result = await matchdayService.getTeamMatchInfo(saveGameId, matchday, teamId);
+    const result = await getTeamMatchInfo(saveGameId, matchday, teamId);
 
-    if (!result?.matchId) {
+    if (!result || !result.matchId) {
       console.warn(`⚠️ No match found for team ${teamId} on matchday ${matchday}`);
       return res.status(404).json({ error: 'Match not found for this team and matchday' });
     }
 
     res.status(200).json(result);
   } catch (error) {
-    console.error('❌ Error in team-match-info:', error);
+    console.error('❌ Error fetching team match info:', error);
     next(error);
   }
 });

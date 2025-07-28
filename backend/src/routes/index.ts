@@ -34,7 +34,7 @@ router.use('/teams', teamRoute);
 router.use('/players', playerRoute);
 
 // Matchday and game flow
-router.use('/matchdays', matchdayRoute);
+router.use('/matchday', matchdayRoute);
 router.use('/gamestate', gameStateRoute);
 router.use('/matchstate', matchStateRoute);
 

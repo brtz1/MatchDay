@@ -1,5 +1,3 @@
-// frontend/src/services/matchService.ts
-
 import api from "@/services/axios";
 
 /* ------------------------------------------------------------------------- */
@@ -10,19 +8,24 @@ export interface Match {
   id: number;
   homeTeamId: number;
   awayTeamId: number;
-  matchdayNumber: number;
+  matchdayId?: number;
   matchdayType: "LEAGUE" | "CUP";
   homeGoals: number | null;
   awayGoals: number | null;
   played: boolean;
-  homeTeamName?: string;
-  awayTeamName?: string;
+  matchDate?: string;
+
+  // Enriched data from backend
+  homeTeam?: { id: number; name: string };
+  awayTeam?: { id: number; name: string };
+  matchday?: { number: number; type: string };
 }
 
 export interface MatchForm {
   homeTeamId: number;
   awayTeamId: number;
-  refereeId: number;
+  matchDate: string;
+  matchdayType?: "LEAGUE" | "CUP";
 }
 
 /* ------------------------------------------------------------------------- */
@@ -44,12 +47,12 @@ export async function setFormation(
 }
 
 export async function getMatches(): Promise<Match[]> {
-  const response = await api.get<Match[]>("/match");
+  const response = await api.get<Match[]>("/matches");
   return response.data;
 }
 
-export async function simulateMatch(form: MatchForm): Promise<Match> {
-  const response = await api.post<Match>("/match/simulate", form);
+export async function simulateMatch(matchId: number): Promise<Match> {
+  const response = await api.post<Match>(`/matches/${matchId}/simulate`);
   return response.data;
 }
 

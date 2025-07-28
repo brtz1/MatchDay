@@ -2,7 +2,7 @@ import { SaveGameTeam, MatchdayType } from "@prisma/client";
 
 /**
  * Generates a double round-robin fixture list for a list of 8 teams.
- * Each team plays the others twice (home and away) = 14 matchdays.
+ * Each team plays the others twice (home and away) = 14 matchday.
  */
 export function generateLeagueFixtures(teams: SaveGameTeam[]) {
   if (teams.length !== 8) {
@@ -31,10 +31,10 @@ export function generateLeagueFixtures(teams: SaveGameTeam[]) {
     [matchups[i], matchups[j]] = [matchups[j], matchups[i]];
   }
 
-  const totalMatchdays = 14;
+  const totalMatchday = 14;
   const matchesPerMatchday = 4;
 
-  for (let matchdayNumber = 1; matchdayNumber <= totalMatchdays; matchdayNumber++) {
+  for (let matchdayNumber = 1; matchdayNumber <= totalMatchday; matchdayNumber++) {
     for (let i = 0; i < matchesPerMatchday; i++) {
       const match = matchups.pop();
       if (!match) break;

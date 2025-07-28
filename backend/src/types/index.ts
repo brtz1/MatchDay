@@ -1,9 +1,9 @@
 // src/types/index.ts
-
+import type { DivisionTier as PrismaDivisionTier } from "@prisma/client";
 // ========== Enums ==========
 export type GameStage = 'ACTION' | 'MATCHDAY' | 'HALFTIME' | 'RESULTS' | 'STANDINGS';
 export type MatchdayType = 'LEAGUE' | 'CUP';
-export type DivisionTier = 'D1' | 'D2' | 'D3' | 'D4';
+export type DivisionTier = PrismaDivisionTier;
 
 // ========== Core DTOs (Frontend Responses Only) ==========
 
@@ -20,7 +20,6 @@ export interface PlayerDTO {
   teamName: string;
   price: number;
 }
-
 
 export interface SaveGamePlayerDTO {
   id: number;
@@ -89,4 +88,18 @@ export interface SaveGameDTO {
   coachName?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ========== Internal Model Transfer Types ==========
+
+export interface SaveGameTeamLite {
+  id: number;
+  name: string;
+  rating: number;
+  saveGameId: number;
+  baseTeamId: number;
+  division: DivisionTier;
+  morale: number;
+  currentSeason: number;
+  localIndex: number;
 }

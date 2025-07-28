@@ -52,45 +52,46 @@ export default function DrawPage() {
 
   // ── Handle team draw and save creation ──
   const handleDraw = async () => {
-    if (!coachName.trim()) {
-      setError("Please enter your coach name");
-      return;
+  if (!coachName.trim()) {
+    setError("Please enter your coach name");
+    return;
+  }
+  if (!selectedCountries) return;
+
+  setLoading(true);
+  setError(null);
+
+  try {
+    const { data } = await axios.post<DrawResponse>("/save-game", {
+      name: "New Save",
+      coachName,
+      countries: selectedCountries,
+    });
+
+    const { userTeamId, userTeamName, saveGameId } = data;
+
+    if (!userTeamId || !saveGameId) {
+      throw new Error("Invalid draw response from server");
     }
-    if (!selectedCountries) return;
 
-    setLoading(true);
-    setError(null);
+    // ✅ Update all stores
+    setCurrentTeamId(userTeamId);
+    setCurrentSaveGameId(saveGameId);
+    setCoachTeamId(userTeamId);
+    setSaveGameId(saveGameId);
+    await refreshGameState();
 
-    try {
-      const { data } = await axios.post<DrawResponse>("/save-game", {
-        name: "New Save",
-        coachName,
-        countries: selectedCountries,
-      });
+    // ✅ Clear local data and navigate
+    localStorage.removeItem("selectedCountries");
+    navigate(teamUrl(userTeamId), { replace: true });
+  } catch (err: any) {
+    console.error("❌ Draw failed:", err);
+    setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
+  } finally {
+    setLoading(false);
+  }
+};
 
-      const { userTeamId, userTeamName, saveGameId } = data;
-
-      if (!userTeamId || !saveGameId) {
-        throw new Error("Invalid draw response from server");
-      }
-
-      // ✅ Update all stores
-      setCurrentTeamId(userTeamId);
-      setCurrentSaveGameId(saveGameId);
-      setCoachTeamId(userTeamId);
-      setSaveGameId(saveGameId);
-      await refreshGameState();
-
-      // ✅ Clear local data and navigate
-      localStorage.removeItem("selectedCountries");
-      navigate(teamUrl(userTeamId), { replace: true });
-    } catch (err: any) {
-      console.error("❌ Draw failed:", err);
-      setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (!selectedCountries) {
     return (

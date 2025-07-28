@@ -54,7 +54,8 @@ model Match {
   refereeId   Int?
   referee     Referee?           @relation(fields: [refereeId], references: [id])
   events      MatchEvent[]       @relation("MatchEvents")
-  MatchState  MatchState?
+  MatchState  MatchState? @relation(fields: [MatchStateid], references: [id])
+  MatchStateid Int?
   playerStats PlayerMatchStats[]
   createdAt   DateTime           @default(now())
 }
@@ -106,7 +107,6 @@ model Team {
   finances       Finance[]
   homeMatches    Match[]      @relation("HomeTeam")
   awayMatches    Match[]      @relation("AwayTeam")
-  leagueTable    LeagueTable?
   transfersFrom  Transfer[]   @relation("FromTeam")
   transfersTo    Transfer[]   @relation("ToTeam")
   primaryColor   String       @default("#facc15") // a yellow fallback
@@ -124,17 +124,18 @@ model Finance {
 }
 
 model LeagueTable {
-  id           Int  @id @default(autoincrement())
-  teamId       Int  @unique
-  team         Team @relation(fields: [teamId], references: [id])
-  played       Int  @default(0)
-  wins         Int  @default(0)
-  draws        Int  @default(0)
-  losses       Int  @default(0)
-  goalsFor     Int  @default(0)
-  goalsAgainst Int  @default(0)
-  points       Int  @default(0)
+  id              Int            @id @default(autoincrement())
+  teamId          Int            @unique
+  team            SaveGameTeam   @relation(fields: [teamId], references: [id])
+  played          Int            @default(0)
+  wins            Int            @default(0)
+  draws           Int            @default(0)
+  losses          Int            @default(0)
+  goalsFor        Int            @default(0)
+  goalsAgainst    Int            @default(0)
+  points          Int            @default(0)
 }
+
 
 model Transfer {
   id Int @id @default(autoincrement())
@@ -202,6 +203,7 @@ model SaveGameTeam {
   morale        Int
   currentSeason Int
   localIndex    Int? // 0-127, REQUIRED
+  leagueTable    LeagueTable?
 
   // relations
   SaveGame    SaveGame         @relation(fields: [saveGameId], references: [id])
@@ -254,6 +256,8 @@ model SaveGameMatch {
   MatchEvent MatchEvent[]
 
   matchday Matchday? @relation("MatchdayToSaveGameMatches", fields: [matchdayId], references: [id])
+
+  MatchState MatchState[]
 }
 
 model BaseTeam {
@@ -296,17 +300,29 @@ model GameState {
 }
 
 model MatchState {
-  id           Int     @id @default(autoincrement())
-  matchId      Int     @unique
-  match        Match   @relation(fields: [matchId], references: [id])
-  homeLineup   Int[] // Player IDs
-  awayLineup   Int[] // Player IDs
-  homeReserves Int[] // Player IDs
-  awayReserves Int[] // Player IDs
-  homeSubsMade Int     @default(0)
-  awaySubsMade Int     @default(0)
-  isPaused     Boolean @default(false)
+  id             Int      @id @default(autoincrement())
+  matchId        Int      @unique
+  match          SaveGameMatch @relation(fields: [matchId], references: [id])
+
+  /// Formation strings, e.g. "4-5-1"
+  homeFormation  String?
+  awayFormation  String?
+
+  /// Player IDs on the pitch
+  homeLineup     Int[]
+  awayLineup     Int[]
+
+  /// Bench player IDs
+  homeReserves   Int[]
+  awayReserves   Int[]
+
+  homeSubsMade   Int      @default(0)
+  awaySubsMade   Int      @default(0)
+  isPaused       Boolean  @default(false)
+
+  Match Match[]
 }
+
 
 model Country {
   id        Int     @id @default(autoincrement())

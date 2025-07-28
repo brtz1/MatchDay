@@ -6,7 +6,7 @@ import { MatchdayType } from '@prisma/client';
  * grouped by round (matchday number).
  */
 export async function getCupLog(saveGameId: number) {
-  const matchdays = await prisma.matchday.findMany({
+  const matchday = await prisma.matchday.findMany({
     where: {
       type: MatchdayType.CUP,
       saveGameMatches: {
@@ -27,13 +27,15 @@ export async function getCupLog(saveGameId: number) {
     },
   });
 
-  return matchdays.map((md) => ({
+  return matchday.map((md) => ({
     matchdayNumber: md.number,
     stage: mapCupStage(md.number),
     matches: md.saveGameMatches.map((m) => ({
       id: m.id,
       homeTeam: m.homeTeam.name,
+      homeTeamId: m.homeTeam.id,
       awayTeam: m.awayTeam.name,
+      awayTeamId: m.awayTeam.id,
       homeGoals: m.homeGoals,
       awayGoals: m.awayGoals,
       isPlayed: m.played,
@@ -46,13 +48,14 @@ export async function getCupLog(saveGameId: number) {
  */
 function mapCupStage(number: number): string {
   const stageMap: Record<number, string> = {
-    3: 'Round of 128',
-    6: 'Round of 64',
-    8: 'Round of 32',
-    11: 'Round of 16',
-    14: 'Quarterfinal',
-    17: 'Semifinal',
-    20: 'Final',
+    15: 'Round of 128',
+    16: 'Round of 64',
+    17: 'Round of 32',
+    18: 'Round of 16',
+    19: 'Quarterfinal',
+    20: 'Semifinal',
+    21: 'Final',
   };
   return stageMap[number] ?? `Matchday ${number}`;
 }
+

@@ -60,6 +60,13 @@ export default function DrawPage() {
             setCoachTeamId(userTeamId);
             setSaveGameId(saveGameId);
             await refreshGameState();
+            // 🆕 Optional: Trigger fixture generation if split into own endpoint
+            try {
+                await axios.post(`/fixtures/generate`, { saveGameId });
+            }
+            catch (fixtureErr) {
+                console.warn("⚠️ Fixture generation skipped or failed:", fixtureErr);
+            }
             // ✅ Clear local data and navigate
             localStorage.removeItem("selectedCountries");
             navigate(teamUrl(userTeamId), { replace: true });

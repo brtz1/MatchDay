@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 export interface CupMatch {
   id: number;
   homeTeam: string;
+  homeTeamId: number;
   awayTeam: string;
+  awayTeamId: number;
   homeGoals: number | null;
   awayGoals: number | null;
   matchdayNumber: number;
@@ -62,13 +64,13 @@ export default function CupBracket({ matches }: CupBracketProps) {
                             : 'bg-blue-100/60 dark:bg-blue-950/30'}
                           hover:bg-yellow-100 dark:hover:bg-yellow-900/30`
                         }
-                        onClick={() => navigate(`/teams/${match.homeTeam}`)}
+                        onClick={() => navigate(`/teams/${match.homeTeamId}`)}
                       >
                         <td className="py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate"
                           title={match.homeTeam}
                           onClick={e => {
                             e.stopPropagation();
-                            navigate(`/teams/${match.homeTeam}`);
+                            navigate(`/teams/${match.homeTeamId}`);
                           }}
                           style={{ cursor: 'pointer' }}
                         >
