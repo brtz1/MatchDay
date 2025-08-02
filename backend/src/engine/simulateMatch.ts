@@ -3,12 +3,11 @@ import prisma from "../utils/prisma";
 
 // Types for returned events
 interface SimulatedMatchEvent {
-  matchId: number;
   matchdayId: number;
   minute: number;
   eventType: "GOAL" | "YELLOW" | "RED" | "INJURY";
   description: string;
-  playerId: number;
+  saveGamePlayerId: number;
 }
 
 /**
@@ -72,12 +71,11 @@ export async function simulateMatch(
   }
 
   const event: SimulatedMatchEvent = {
-    matchId: match.id,
     matchdayId: match.matchdayId!, // ✅ required by schema
     minute,
     eventType,                    // ✅ match Prisma field name
     description,
-    playerId: player.id,
+    saveGamePlayerId: player.id,
   };
 
   return [event];

@@ -77,7 +77,7 @@ export default function TeamRosterPage() {
       setLoading(true);
       for (let i = 0; i < retries; i++) {
         try {
-          const data = await getTeamById(teamId, coachedId);
+          const data = await getTeamById(teamId, coachedId!);
           if (!data?.players?.length) {
             console.warn(`Team ${teamId} has no players yet (retrying)`);
             throw new Error("Players not ready");
@@ -98,14 +98,8 @@ export default function TeamRosterPage() {
       setLoading(false);
     };
 
-    if (location.state?.fromResults && saveGameId) {
-      api
-        .post("/matchday/advance", { saveGameId })
-        .catch((err) => console.error("Failed to advance matchday", err));
-    }
-
     loadTeam();
-  }, [teamId, navigate, location.state, saveGameId, coachedId]);
+  }, [teamId, navigate, saveGameId, coachedId, bootstrapping]);
 
   const handleFormationSet = async (formation: string) => {
     try {
@@ -119,18 +113,16 @@ export default function TeamRosterPage() {
           matchday: currentMatchday,
           teamId,
         },
-    });
+      });
 
-      console.log("📦 team-match-info response:", response.data); // 🔍 Added logging here
+      console.log("📦 team-match-info response:", response.data);
 
       const { matchId, isHomeTeam } = response.data;
-
       if (!matchId) {
         throw new Error("❌ Could not retrieve valid matchId for team formation");
       }
 
       console.log("✅ Setting formation for", { matchId, teamId, formation, isHomeTeam });
-
       const result = await setFormation(matchId, teamId, formation, isHomeTeam);
       setLineupIds(result.lineup);
       setBenchIds(result.bench);
@@ -142,19 +134,15 @@ export default function TeamRosterPage() {
   const handleRenewContract = (player: Player) => {
     alert(`Renew contract for ${player.name} (not implemented)`);
   };
-
   const handleSell = (player: Player) => {
     alert(`Sell player ${player.name} (not implemented)`);
   };
-
   const handleBuyPlayer = (player: Player) => {
     alert(`Buy player ${player.name} (API integration pending)`);
   };
-
   const handleScoutPlayer = (player: Player) => {
     alert(`Scout player ${player.name} (not implemented yet)`);
   };
-
   const handleLoanPlayer = (player: Player) => {
     alert(`Loan player ${player.name} (not implemented yet)`);
   };
@@ -192,7 +180,7 @@ export default function TeamRosterPage() {
 
   return (
     <>
-      {isTeamRosterPage && <TopNavBar coachTeamId={coachedId ?? -1} />}
+      {isTeamRosterPage && <TopNavBar coachTeamId={coachedId!} />}
 
       <div className="min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12">
         <div
@@ -201,8 +189,8 @@ export default function TeamRosterPage() {
         >
           <h1 className="flex items-center gap-2 text-2xl font-bold">{team.name}</h1>
           <p className="text-xs">
-            Division {typeof team.division === "number" ? team.division : "—"}&nbsp;|&nbsp;
-            Coach {team.coachName ?? (isCoachTeam ? "You" : "—")}&nbsp;|&nbsp;Morale{" "}
+            Division {typeof team.division === "number" ? team.division : "—"} | 
+            Coach {team.coachName ?? (isCoachTeam ? "You" : "—")} | Morale{' '}
             {typeof team.morale === "number" ? team.morale : "—"}
           </p>
         </div>
@@ -224,7 +212,7 @@ export default function TeamRosterPage() {
                 <p>
                   Stadium: <span className="font-semibold">{team.stadiumCapacity ?? "—"}</span>
                 </p>
-                <p>Next-fixture &amp; morale widgets coming soon…</p>
+                <p>Next-fixture & morale widgets coming soon…</p>
               </div>
 
               {isCoachTeam ? (
@@ -263,7 +251,13 @@ export default function TeamRosterPage() {
                 />
               )}
 
-              {isCoachTeam && <FormationTab onSetFormation={handleFormationSet} />}
+              {isCoachTeam && (
+                <FormationTab
+                  onSetFormation={handleFormationSet}
+                  saveGameId={saveGameId}
+                />
+              )}
+
               {isCoachTeam && <div className="text-sm">Financial breakdown coming soon…</div>}
             </TeamRosterTabs>
           </div>

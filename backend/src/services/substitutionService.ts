@@ -63,7 +63,7 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
       minute: e.minute,
       eventType: e.eventType,
       description: e.description,
-      playerId: e.playerId ?? undefined,
+      saveGamePlayerId: e.saveGamePlayerId ?? undefined,
     })),
   };
 }
@@ -142,7 +142,7 @@ export async function runAISubstitutions(matchId: number): Promise<void> {
 
     // Sub injured players first
     const injured = injuryEvents
-      .map((e) => e.playerId)
+      .map((e) => e.saveGamePlayerId)
       .filter((pid): pid is number => pid !== null)
       .filter((pid) => lineup.includes(pid));
 

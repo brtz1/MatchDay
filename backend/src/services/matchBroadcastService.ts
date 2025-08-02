@@ -13,7 +13,7 @@ export interface LiveEvent {
   matchId: number;
   minute: number;
   type: 'GOAL' | 'INJURY' | 'RED_CARD';
-  playerId: number;
+  saveGamePlayerId: number;
   message: string;
 }
 
@@ -54,7 +54,7 @@ export async function broadcastMatchday(
             minute: event.minute,
             eventType: event.type,
             description: event.message,
-            playerId: event.playerId,
+            saveGamePlayerId: event.saveGamePlayerId,
           },
         });
       }
@@ -116,7 +116,7 @@ function makeEvent(
     matchId: match.id,
     minute,
     type,
-    playerId: player.id,
+    saveGamePlayerId: player.id,
     message: `${icons[type]} ${type === 'GOAL' ? player.name : ''} ${
       type === 'INJURY' ? 'Injury' : type === 'RED_CARD' ? 'Red Card' : 'Goal'
     }: ${player.name} (${team.name}) at ${minute}'`,

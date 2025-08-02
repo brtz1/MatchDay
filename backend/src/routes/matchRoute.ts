@@ -1,35 +1,28 @@
 import express, { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
-import { getGameState } from '../services/gameState';
+import { getCurrentSaveGameId, getGameState } from '../services/gameState';
 import {
   getMatchStateById,
   simulateMatchday,
   setCoachFormation,
+  applySubstitution
 } from '../services/matchService';
 
 const router = express.Router();
 
 /* -------------------------------------------------------------------------- */
-/* GET: All Matches with Team Names & Matchday Numbers                        */
+/* GET: All Matches                                                           */
 /* -------------------------------------------------------------------------- */
-router.get('/', async (_req, res, next) => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const gameState = await getGameState();
-    if (!gameState?.currentSaveGameId) {
-      return res.status(400).json({ error: 'No active save game found' });
-    }
+    const saveGameId = await getCurrentSaveGameId();
+    if (!saveGameId) return res.status(400).json({ error: 'No active save game found' });
 
     const matches = await prisma.saveGameMatch.findMany({
-      where: { saveGameId: gameState.currentSaveGameId },
+      where: { saveGameId },
       include: {
-        homeTeam: { select: { id: true, name: true } },
-        awayTeam: { select: { id: true, name: true } },
-        matchday: { select: { number: true, type: true } },
-      },
-      orderBy: {
-        matchday: {
-          number: 'asc',
-        },
+        homeTeam: true,
+        awayTeam: true,
       },
     });
 
@@ -43,79 +36,41 @@ router.get('/', async (_req, res, next) => {
 /* -------------------------------------------------------------------------- */
 /* GET: Single Match by ID                                                    */
 /* -------------------------------------------------------------------------- */
-router.get('/:matchId', async (req, res, next) => {
-  const matchId = Number(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
-
+router.get('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const gameState = await getGameState();
-    if (!gameState?.currentSaveGameId) {
-      return res.status(400).json({ error: 'No active save game found' });
-    }
+    const matchId = parseInt(req.params.matchId, 10);
+    if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid matchId' });
 
-    const match = await prisma.saveGameMatch.findFirst({
-      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        matchday: true,
-      },
+    const match = await prisma.saveGameMatch.findUnique({
+      where: { id: matchId },
+      include: { homeTeam: true, awayTeam: true, MatchEvent: true },
     });
 
     if (!match) return res.status(404).json({ error: 'Match not found' });
     res.status(200).json(match);
   } catch (error) {
-    console.error(`❌ Error fetching match ${matchId}:`, error);
+    console.error('❌ Error fetching match:', error);
     next(error);
   }
 });
 
 /* -------------------------------------------------------------------------- */
-/* GET: Match State (Lineup + Bench)                                          */
-/* -------------------------------------------------------------------------- */
-router.get('/match-state/:matchId', async (req, res, next) => {
-  const matchId = parseInt(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
-
-  try {
-    const gameState = await getGameState();
-    if (!gameState?.currentSaveGameId) {
-      return res.status(400).json({ error: 'No active save game found' });
-    }
-
-    const match = await prisma.saveGameMatch.findFirst({
-      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
-    });
-    if (!match) return res.status(404).json({ error: 'Match not found in current save' });
-
-    const matchState = await getMatchStateById(matchId);
-    if (!matchState) return res.status(404).json({ error: 'Match state not found' });
-
-    res.json(matchState);
-  } catch (error) {
-    console.error(`❌ Error fetching match state ${matchId}:`, error);
-    next(error);
-  }
-});
-
-/* -------------------------------------------------------------------------- */
-/* POST: Set Formation + Lineup for Coach's Team                              */
+/* POST /api/matches/:matchId/formation                                        */
+/* Confirm coach's formation, lineup, and bench                                */
 /* -------------------------------------------------------------------------- */
 router.post('/:matchId/formation', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const matchId = Number(req.params.matchId);
-    const { teamId, formation, isHomeTeam } = req.body;
+    const matchId = parseInt(req.params.matchId, 10);
+    const { formation, isHomeTeam } = req.body;
 
-    if (!matchId || !teamId || !formation || typeof isHomeTeam !== 'boolean') {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: 'Invalid matchId parameter' });
+    }
+    if (typeof formation !== 'string' || typeof isHomeTeam !== 'boolean') {
+      return res.status(400).json({ error: 'Body must include formation (string) and isHomeTeam (boolean)' });
     }
 
-    const gameState = await getGameState();
-    if (gameState?.coachTeamId !== teamId) {
-      return res.status(403).json({ error: 'You can only modify your own team' });
-    }
-
-    const result = await setCoachFormation(matchId, teamId, formation, isHomeTeam);
+    const result = await setCoachFormation(matchId, formation, isHomeTeam);
     res.status(200).json(result);
   } catch (error) {
     console.error('❌ Error setting formation:', error);
@@ -124,84 +79,25 @@ router.post('/:matchId/formation', async (req: Request, res: Response, next: Nex
 });
 
 /* -------------------------------------------------------------------------- */
-/* POST: Simulate Random Match (DEBUG only)                                   */
+/* POST /api/matches/:matchId/substitution                                     */
+/* Apply a substitution                                                         */
 /* -------------------------------------------------------------------------- */
-router.post('/:matchId/simulate', async (req: Request, res: Response, next: NextFunction) => {
-  const matchId = Number(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
-
+router.post('/:matchId/substitution', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const gameState = await getGameState();
-    if (!gameState?.currentSaveGameId) {
-      return res.status(400).json({ error: 'No active save game found' });
+    const matchId = parseInt(req.params.matchId, 10);
+    const { outId, inId, isHomeTeam } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: 'Invalid matchId parameter' });
+    }
+    if (typeof outId !== 'number' || typeof inId !== 'number' || typeof isHomeTeam !== 'boolean') {
+      return res.status(400).json({ error: 'Body must include outId (number), inId (number), and isHomeTeam (boolean)' });
     }
 
-    const existing = await prisma.saveGameMatch.findFirst({
-      where: { id: matchId, saveGameId: gameState.currentSaveGameId },
-    });
-    if (!existing) return res.status(404).json({ error: 'Match not found' });
-
-    const homeGoals = Math.floor(Math.random() * 5);
-    const awayGoals = Math.floor(Math.random() * 5);
-
-    const updated = await prisma.saveGameMatch.update({
-      where: { id: matchId },
-      data: {
-        homeGoals,
-        awayGoals,
-        played: true,
-        matchDate: new Date(),
-      },
-    });
-
-    res.status(200).json(updated);
+    await applySubstitution(matchId, outId, inId, isHomeTeam);
+    res.sendStatus(200);
   } catch (error) {
-    console.error(`❌ Error simulating match ${matchId}:`, error);
-    next(error);
-  }
-});
-
-/* -------------------------------------------------------------------------- */
-/* POST: Create New Match                                                     */
-/* -------------------------------------------------------------------------- */
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { homeTeamId, awayTeamId, matchDate, matchdayType = "LEAGUE" } = req.body;
-
-    const gameState = await getGameState();
-    if (!gameState?.currentSaveGameId) {
-      return res.status(400).json({ error: 'No active save game found' });
-    }
-
-    const newMatch = await prisma.saveGameMatch.create({
-      data: {
-        saveGameId: gameState.currentSaveGameId,
-        homeTeamId: Number(homeTeamId),
-        awayTeamId: Number(awayTeamId),
-        matchDate: new Date(matchDate),
-        matchdayType,
-      },
-    });
-
-    res.status(201).json(newMatch);
-  } catch (error) {
-    console.error('❌ Error creating match:', error);
-    next(error);
-  }
-});
-
-/* -------------------------------------------------------------------------- */
-/* DELETE: Match by ID                                                        */
-/* -------------------------------------------------------------------------- */
-router.delete('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
-  const matchId = Number(req.params.matchId);
-  if (isNaN(matchId)) return res.status(400).json({ error: 'Invalid match ID' });
-
-  try {
-    await prisma.saveGameMatch.delete({ where: { id: matchId } });
-    res.status(200).json({ message: 'Match deleted' });
-  } catch (error) {
-    console.error(`❌ Error deleting match ${matchId}:`, error);
+    console.error('❌ Error applying substitution:', error);
     next(error);
   }
 });

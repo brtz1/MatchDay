@@ -1,3 +1,5 @@
+// frontend/src/pages/CupLogPage.tsx
+
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/axios';
@@ -7,6 +9,9 @@ import { AppCard } from '@/components/common/AppCard';
 import { AppButton } from '@/components/common/AppButton';
 
 interface ApiCupMatch {
+  id: number;
+  homeTeamId: number;
+  awayTeamId: number;
   homeTeam: { name: string; goals: number | null };
   awayTeam: { name: string; goals: number | null };
   played: boolean;
@@ -27,10 +32,11 @@ export default function CupLogPage() {
     api
       .get<ApiCupRound[]>('/cup/log')
       .then((res) => {
-        let id = 1;
         const flat: CupMatch[] = res.data.flatMap((round) =>
           round.matches.map((m) => ({
-            id: id++,
+            id: m.id,
+            homeTeamId: m.homeTeamId,
+            awayTeamId: m.awayTeamId,
             homeTeam: m.homeTeam.name,
             awayTeam: m.awayTeam.name,
             homeGoals: m.homeTeam.goals,
@@ -47,7 +53,6 @@ export default function CupLogPage() {
 
   return (
     <div className="relative flex flex-col gap-6 p-4 w-full min-h-screen bg-gradient-to-b from-blue-50 to-blue-100">
-      {/* Back Button */}
       <div className="absolute right-6 top-6 z-10">
         <AppButton
           variant="secondary"

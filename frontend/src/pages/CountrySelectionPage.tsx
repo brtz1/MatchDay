@@ -1,9 +1,11 @@
+// frontend/src/pages/CountrySelectionPage.tsx
+
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import axios from "@/services/axios";
+import api from "@/services/axios";
 import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import { ProgressBar } from "@/components/common/ProgressBar";
@@ -30,12 +32,15 @@ export default function CountrySelectionPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios
+    api
+      // Explicit full API path ensures correct endpoint hit
       .get<CountryApiResponse>("/countries")
       .then(({ data }) => {
-        if (!data?.countries) throw new Error("Invalid response");
+        if (!Array.isArray(data.countries)) {
+          throw new Error("Invalid response: countries must be an array");
+        }
         setCountries(data.countries);
-        setTeamCounts(data.teamCounts);
+        setTeamCounts(data.teamCounts || {});
       })
       .catch(() => setError("Failed to load country list"))
       .finally(() => setLoading(false));
@@ -50,7 +55,7 @@ export default function CountrySelectionPage() {
     if (selected.length === countries.length) {
       setSelected([]);
     } else {
-      setSelected(countries);
+      setSelected([...countries]);
     }
   };
 
@@ -73,6 +78,23 @@ export default function CountrySelectionPage() {
     navigate("/draw", { state: { selectedCountries: selected, coachName } });
   }
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-green-900">
+        <ProgressBar height={1} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-green-900 p-4">
+        <p className="mb-4 text-red-400 font-semibold">{error}</p>
+        <AppButton onClick={() => window.location.reload()}>Retry</AppButton>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-green-900 px-4 py-10 text-white">
       <h1 className="mb-10 text-6xl font-bold tracking-wide text-yellow-400">
@@ -80,13 +102,12 @@ export default function CountrySelectionPage() {
       </h1>
 
       <AppCard className="flex w-full max-w-6xl flex-col gap-6 bg-white/10 p-6 backdrop-blur-sm sm:flex-row">
-        {/* ── Country table */}
+        {/* Country table */}
         <div className="flex-1">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xl font-semibold">Select Countries</h2>
             <button
               onClick={toggleSelectAll}
-              disabled={loading}
               className="rounded bg-yellow-400 px-3 py-1 text-sm font-semibold text-black hover:bg-yellow-300 disabled:opacity-50"
             >
               {selected.length === countries.length ? "Clear All" : "Select All"}
@@ -97,18 +118,9 @@ export default function CountrySelectionPage() {
             Pick countries until you hit <strong>128 clubs</strong>.
           </p>
 
-          {error && (
-            <p className="mb-4 font-semibold text-red-400">{error}</p>
-          )}
-
-          {loading ? (
-            <div className="flex items-center gap-3">
-              <ProgressBar height={0.5} />
-              <span>Loading countries…</span>
-            </div>
-          ) : (
-            <table className="w-full overflow-hidden rounded bg-white text-black">
-              <thead>
+          <div className="max-h-[500px] overflow-y-auto rounded bg-white text-black">
+            <table className="w-full table-auto border-collapse">
+              <thead className="sticky top-0 bg-white">
                 <tr className="border-b border-gray-300 text-left text-sm font-semibold text-yellow-600">
                   <th className="p-2">Flag</th>
                   <th className="p-2">Country</th>
@@ -117,14 +129,14 @@ export default function CountrySelectionPage() {
               </thead>
               <tbody>
                 {countries.map((c) => {
-                  const selectedRow = selected.includes(c);
+                  const isSelected = selected.includes(c);
                   return (
                     <tr
                       key={c}
                       onClick={() => toggleCountry(c)}
                       className={clsx(
                         "cursor-pointer border-b border-gray-300 transition-colors hover:bg-yellow-100",
-                        selectedRow && "bg-yellow-200 font-bold"
+                        isSelected && "bg-yellow-200 font-bold"
                       )}
                     >
                       <td className="p-2">
@@ -145,19 +157,17 @@ export default function CountrySelectionPage() {
                 })}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
 
-        {/* ── Summary sidebar */}
+        {/* Summary sidebar */}
         <AppCard
           variant="outline"
           className="flex w-full flex-col items-center justify-between bg-white/10 sm:w-64"
         >
           <div className="text-center">
             <h3 className="mb-2 text-lg font-bold">Selected Clubs</h3>
-            <p className="text-3xl font-bold text-yellow-300">
-              {totalClubs}
-            </p>
+            <p className="text-3xl font-bold text-yellow-300">{totalClubs}</p>
             <p className="mt-1 text-sm text-gray-300">
               from {selected.length} countries
             </p>
@@ -168,7 +178,7 @@ export default function CountrySelectionPage() {
                 placeholder="Enter your coach name"
                 value={coachName}
                 onChange={(e) => setCoachName(e.target.value)}
-                className="w-full rounded-md border border-gray-300 p-2 text-black dark:border-gray-600"
+                className="w-full rounded-md border border-gray-300 p-2 text-black"
               />
             </div>
           </div>

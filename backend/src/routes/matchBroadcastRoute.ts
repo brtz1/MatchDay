@@ -43,7 +43,7 @@ router.post(
             minute: event.minute,
             eventType: event.type,
             description: event.message,
-            playerId: event.playerId,
+            saveGamePlayerId: event.saveGamePlayerId,
           },
         });
       });

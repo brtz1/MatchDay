@@ -6,45 +6,50 @@ import {
   MatchdayType,
   GameState as GameStateModel,
 } from "@prisma/client";
-import { advanceMatchday } from "./matchdayService";
+// ── Replace the old advanceMatchday import with our new start/complete APIs:
+import { startMatchday, completeMatchday } from "./matchdayService";
 
 /* ---------------------------------------------------------------- helpers */
 
 /** Returns a default GameState object when none exists */
 function defaultData(): Omit<GameStateModel, "id"> {
   return {
-    season: 1,
-    coachTeamId: null,
+    season:            1,
+    coachTeamId:       null,
     currentSaveGameId: 0,
-    currentMatchday: 1,
-    matchdayType: MatchdayType.LEAGUE,
-    gameStage: GameStage.ACTION,
+    currentMatchday:   1,
+    matchdayType:      MatchdayType.LEAGUE,
+    gameStage:         GameStage.ACTION,
   };
 }
 
 function getMatchdayTypeForNumber(matchday: number): MatchdayType {
   const cupDays = [3, 6, 8, 11, 14, 17, 20];
-  return cupDays.includes(matchday) ? MatchdayType.CUP : MatchdayType.LEAGUE;
+  return cupDays.includes(matchday)
+    ? MatchdayType.CUP
+    : MatchdayType.LEAGUE;
 }
 
 /* ---------------------------------------------------------------- public API */
 
 /**
- * Only returns existing game state, or null.
- * Used for: frontend startup, Title Page detection
+ * Only returns the existing GameState (with coachTeam relation), or null.
+ * Used on front-end startup to know where we left off.
  */
 export async function getGameState(): Promise<GameStateModel | null> {
-  return await prisma.gameState.findFirst({
+  return prisma.gameState.findFirst({
     include: { coachTeam: true },
   });
 }
 
 /**
- * Forces game state to exist — used when starting or loading a game.
+ * Ensures a GameState row exists.  If `update.saveGameId` is given,
+ * sets that on first create or on update.
  */
-export async function ensureGameState(update?: { saveGameId?: number }) {
+export async function ensureGameState(update?: {
+  saveGameId?: number;
+}) {
   let state = await prisma.gameState.findFirst();
-
   if (!state) {
     state = await prisma.gameState.create({
       data: {
@@ -58,7 +63,6 @@ export async function ensureGameState(update?: { saveGameId?: number }) {
       data: { currentSaveGameId: update.saveGameId },
     });
   }
-
   return state;
 }
 
@@ -74,26 +78,28 @@ export async function getCoachTeamId(): Promise<number | null> {
 
 /* ---------------------------------------------------------------- mutators */
 
+/** Set gameStage explicitly (e.g. from front-end) */
 export async function setGameStage(stage: GameStage | string) {
   const current = await ensureGameState();
   const next =
     typeof stage === "string"
-      ? (GameStage[stage as keyof typeof GameStage] ?? GameStage.ACTION)
+      ? (GameStage[stage as keyof typeof GameStage] ??
+          GameStage.ACTION)
       : stage;
-
   return prisma.gameState.update({
     where: { id: current.id },
     data: { gameStage: next },
   });
 }
 
+/** Cycle through stages in pre-defined order */
 export async function advanceStage() {
   const current = await ensureGameState();
   const flow: Record<GameStage, GameStage> = {
-    ACTION: GameStage.MATCHDAY,
+    ACTION:   GameStage.MATCHDAY,
     MATCHDAY: GameStage.HALFTIME,
     HALFTIME: GameStage.RESULTS,
-    RESULTS: GameStage.STANDINGS,
+    RESULTS:  GameStage.STANDINGS,
     STANDINGS: GameStage.ACTION,
   };
   return prisma.gameState.update({
@@ -102,21 +108,22 @@ export async function advanceStage() {
   });
 }
 
+/** Directly set matchday number & type (does *not* touch gameStage) */
 export async function setMatchday(
-  matchdayId: number,
-  type: MatchdayType | string,
+  matchdayNumber: number,
+  type: MatchdayType | string
 ) {
   const current = await ensureGameState();
   const next =
     typeof type === "string"
-      ? (MatchdayType[type as keyof typeof MatchdayType] ?? MatchdayType.LEAGUE)
+      ? (MatchdayType[type as keyof typeof MatchdayType] ??
+          MatchdayType.LEAGUE)
       : type;
-
   return prisma.gameState.update({
     where: { id: current.id },
     data: {
-      currentMatchday: matchdayId,
-      matchdayType: next,
+      currentMatchday: matchdayNumber,
+      matchdayType:    next,
     },
   });
 }
@@ -131,57 +138,56 @@ export async function setCurrentSaveGame(saveGameId: number) {
 
 export async function setCoachTeam(coachTeamId: number) {
   const current = await ensureGameState();
-
-  // Prevent overwriting once a coach team has been assigned
-  if (current.coachTeamId !== null && current.coachTeamId !== undefined) {
-    console.warn("🛑 Coach team already set — skipping overwrite.");
+  if (current.coachTeamId !== null) {
+    console.warn(
+      "🛑 Coach team already set — skipping overwrite."
+    );
     return current;
   }
-
   return prisma.gameState.update({
     where: { id: current.id },
     data: { coachTeamId },
   });
 }
 
-
 /* ---------------------------------------------------------------- matchday flow */
 
+/**
+ * Manually bump matchday (no simulation), resetting to ACTION.
+ * Useful if you want to skip cup rounds or force-advance.
+ */
 export async function advanceToNextMatchday() {
   const state = await ensureGameState();
-  const nextMatchday = state.currentMatchday + 1;
-  const nextType = getMatchdayTypeForNumber(nextMatchday);
-
+  const next = state.currentMatchday + 1;
   return prisma.gameState.update({
     where: { id: state.id },
     data: {
-      currentMatchday: nextMatchday,
-      matchdayType: nextType,
-      gameStage: GameStage.ACTION,
+      currentMatchday: next,
+      matchdayType:    getMatchdayTypeForNumber(next),
+      gameStage:       GameStage.ACTION,
     },
   });
 }
 
-export async function advanceAfterResults(coachTeamId: number): Promise<void> {
+/**
+ * After RESULTS, show STANDINGS for 30s, then kick off the next matchday
+ * (MATCHDAY → simulate → bump to ACTION) using our two-step service.
+ */
+export async function advanceAfterResults(
+  saveGameId: number
+): Promise<void> {
   const state = await ensureGameState();
-
-  // Step 1: Show standings
+  // 1) show standings
   await prisma.gameState.update({
     where: { id: state.id },
     data: { gameStage: GameStage.STANDINGS },
   });
-
-  // Step 2: Wait 30s before continuing
-  await new Promise((resolve) => setTimeout(resolve, 30000));
-
-  // Step 3: Simulate next matchday
-  await advanceMatchday(state.currentSaveGameId);
-
-  // Step 4: Back to action phase
-  await prisma.gameState.update({
-    where: { id: state.id },
-    data: { gameStage: GameStage.ACTION },
-  });
+  // 2) wait 30 seconds
+  await new Promise((r) => setTimeout(r, 30_000));
+  // 3) flip to MATCHDAY
+  await startMatchday(saveGameId);
+  // 4) simulate & bump back to ACTION
+  await completeMatchday(saveGameId);
 }
 
 /* ---------------------------------------------------------------- alias */

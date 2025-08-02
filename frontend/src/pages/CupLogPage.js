@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// frontend/src/pages/CupLogPage.tsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/axios';
@@ -15,9 +16,10 @@ export default function CupLogPage() {
         api
             .get('/cup/log')
             .then((res) => {
-            let id = 1;
             const flat = res.data.flatMap((round) => round.matches.map((m) => ({
-                id: id++,
+                id: m.id,
+                homeTeamId: m.homeTeamId,
+                awayTeamId: m.awayTeamId,
                 homeTeam: m.homeTeam.name,
                 awayTeam: m.awayTeam.name,
                 homeGoals: m.homeTeam.goals,

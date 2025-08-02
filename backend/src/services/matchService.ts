@@ -5,6 +5,7 @@ import { simulateMatch } from '../engine/simulateMatch';
 import { broadcastEvent, broadcastMatchTick } from '../sockets/broadcast';
 import { sleep } from '../utils/time';
 import { applyAISubstitutions } from './halftimeService';
+import { GameStage } from '@prisma/client';
 
 /**
  * Retrieves the persistent match state for a given match ID.
@@ -21,41 +22,70 @@ export async function getMatchStateById(matchId: number) {
  */
 export async function setCoachFormation(
   matchId: number,
-  teamId: number,
   formation: string,
   isHomeTeam: boolean
-): Promise<void> {
-  // Fetch all players on the team, ordered by rating descending
+): Promise<{ matchId: number; isHomeTeam: boolean }> {
+  // 1. Find the saveGameMatch record to know which saveGame and teams
+  const saveMatch = await prisma.saveGameMatch.findUnique({
+    where: { id: matchId },
+    select: { homeTeamId: true, awayTeamId: true, saveGameId: true },
+  });
+  if (!saveMatch) throw new Error(`SaveGameMatch ${matchId} not found`);
+
+  const teamId = isHomeTeam ? saveMatch.homeTeamId : saveMatch.awayTeamId;
+
+  // 2. Load all players of that team
   const players = await prisma.saveGamePlayer.findMany({
     where: { teamId },
-    orderBy: { rating: 'desc' },
+    select: { id: true, position: true, rating: true },
   });
 
-  // Build lineup and reserves arrays
-  const { lineup, bench } = generateLineup(
-    players.map(p => ({ id: p.id, rating: p.rating, position: p.position as 'GK' | 'DF' | 'MF' | 'AT' })),
-    formation
-  );
+  // 3. Cast each player's position to the known union type for lineup generation
+  const typedPlayers = players.map(p => ({
+    id: p.id,
+    position: p.position as 'GK' | 'DF' | 'MF' | 'AT',
+    rating: p.rating,
+  }));
 
-  const updateData = isHomeTeam
-    ? {
-        homeFormation: formation,
-        homeLineup:    lineup,
-        homeReserves:  bench,
-        homeSubsMade:  0,
-      }
-    : {
-        awayFormation: formation,
-        awayLineup:    lineup,
-        awayReserves:  bench,
-        awaySubsMade:  0,
-      };
+  // 4. Generate lineup and bench based on formation
+  const { lineup, bench } = generateLineup(typedPlayers, formation);
 
+  // 5. Build homeData and awayData objects
+  const homeData = {
+    homeFormation: formation,
+    homeLineup: lineup,
+    homeReserves: bench,
+    homeSubsMade: 0,
+  };
+  const awayData = {
+    awayFormation: formation,
+    awayLineup: lineup,
+    awayReserves: bench,
+    awaySubsMade: 0,
+  };
+
+  // Upsert the matchState row
   await prisma.matchState.upsert({
     where: { matchId },
-    create: { matchId, ...updateData },
-    update: updateData,
+    create: isHomeTeam
+      ? { matchId, ...homeData }
+      : { matchId, ...awayData },
+    update: isHomeTeam ? homeData : awayData,
   });
+
+  // Advance the global gameStage to MATCHDAY
+  const gsRow = await prisma.gameState.findFirst({
+    where: { currentSaveGameId: saveMatch.saveGameId },
+    select: { id: true },
+  });
+  if (gsRow) {
+    await prisma.gameState.update({
+      where: { id: gsRow.id },
+      data: { gameStage: GameStage.MATCHDAY },
+    });
+  }
+
+  return { matchId, isHomeTeam };
 }
 
 /**
@@ -83,12 +113,10 @@ export async function applySubstitution(
   if (!lineup.includes(outId)) throw new Error('Player to sub out not in lineup');
   if (!reserves.includes(inId)) throw new Error('Player to sub in not on bench');
 
-  // Perform swap
   lineup[lineup.indexOf(outId)] = inId;
   reserves[reserves.indexOf(inId)] = outId;
   subsMade += 1;
 
-  // Persist updated state
   await prisma.matchState.update({
     where: { matchId },
     data: {
@@ -118,9 +146,18 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
       // Generate events for this minute
       const events = await simulateMatch(match, state, minute);
       for (const event of events) {
-        const saved = await prisma.matchEvent.create({ data: event });
-        broadcastEvent(saved);
-      }
+  const saved = await prisma.matchEvent.create({
+    data: {
+      matchdayId: event.matchdayId,
+      minute: event.minute,
+      eventType: event.eventType,
+      description: event.description,
+      saveGamePlayerId: event.saveGamePlayerId, // ✅ the only correct key now
+      saveGameMatchId: match.id,
+    },
+  });
+}
+
 
       // Broadcast current minute tick
       broadcastMatchTick(match.id, minute);
@@ -128,20 +165,17 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
 
     // Halftime substitutions
     if (minute === 45) {
-      // Update global game stage
-      await prisma.gameState.updateMany({ data: { gameStage: 'HALFTIME' } });
-
+      await prisma.gameState.updateMany({ data: { gameStage: GameStage.HALFTIME } });
       const gs = await getGameState();
       const coachTeamId = gs?.coachTeamId;
 
-      // Let AI-controlled teams make substitutions
       for (const match of matches) {
         if (match.homeTeamId !== coachTeamId && match.awayTeamId !== coachTeamId) {
           await applyAISubstitutions(match.id);
         }
       }
 
-      // Pause real-time for halftime
+      // Pause for halftime
       await sleep(10000);
     }
 
@@ -149,11 +183,11 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
     await sleep(1000);
   }
 
-  // Mark matches as played and advance game stage
+  // Mark matches as played and advance game stage to RESULTS
   await Promise.all(
-    matches.map(m =>
+    matches.map((m) =>
       prisma.saveGameMatch.update({ where: { id: m.id }, data: { played: true } })
     )
   );
-  await prisma.gameState.updateMany({ data: { gameStage: 'RESULTS' } });
+  await prisma.gameState.updateMany({ data: { gameStage: GameStage.RESULTS } });
 }

@@ -1,26 +1,31 @@
-import { Router } from 'express';
+import express from 'express';
 import { setCoachFormation } from '../services/matchService';
 
-const router = Router();
+const router = express.Router();
 
 /**
- * POST /api/formation
- * Sets the formation and lineup for the coach's team for a given match.
- * Body: { matchId: number, teamId: number, formation: string, isHomeTeam: boolean }
+ * POST /api/matches/:matchId/formation
+ * Body: { formation: string, isHomeTeam: boolean }
  */
-router.post('/', async (req, res) => {
-  const { matchId, teamId, formation, isHomeTeam } = req.body;
-
-  if (!matchId || !teamId || !formation || typeof isHomeTeam !== "boolean") {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
-
+router.post('/:matchId/formation', async (req, res, next) => {
   try {
-    await setCoachFormation(matchId, teamId, formation, isHomeTeam);
-    res.json({ success: true });
-  } catch (err: any) {
-    console.error('Error setting formation:', err);
-    res.status(500).json({ error: err.message || 'Internal error' });
+    const matchId = parseInt(req.params.matchId, 10);
+    const { formation, isHomeTeam } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: 'Invalid matchId' });
+    }
+    if (typeof formation !== 'string' || typeof isHomeTeam !== 'boolean') {
+      return res
+        .status(400)
+        .json({ error: 'Request body must include formation (string) and isHomeTeam (boolean)' });
+    }
+
+    const result = await setCoachFormation(matchId, formation, isHomeTeam);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error setting formation:', error);
+    next(error);
   }
 });
 

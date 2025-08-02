@@ -18,9 +18,9 @@ export default function CupBracket({ matches }) {
                           ${idx % 2 === 0
                                         ? 'bg-blue-50 dark:bg-blue-900/30'
                                         : 'bg-blue-100/60 dark:bg-blue-950/30'}
-                          hover:bg-yellow-100 dark:hover:bg-yellow-900/30`, onClick: () => navigate(`/teams/${match.homeTeam}`), children: [_jsx("td", { className: "py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate", title: match.homeTeam, onClick: e => {
+                          hover:bg-yellow-100 dark:hover:bg-yellow-900/30`, onClick: () => navigate(`/teams/${match.homeTeamId}`), children: [_jsx("td", { className: "py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate", title: match.homeTeam, onClick: e => {
                                                 e.stopPropagation();
-                                                navigate(`/teams/${match.homeTeam}`);
+                                                navigate(`/teams/${match.homeTeamId}`);
                                             }, style: { cursor: 'pointer' }, children: match.homeTeam }), _jsx("td", { className: "py-2 px-2 w-[16px] font-bold text-yellow-700 text-center align-middle", children: match.homeGoals !== null && match.awayGoals !== null
                                                 ? `${match.homeGoals} - ${match.awayGoals}`
                                                 : "-" }), _jsx("td", { className: "py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate", title: match.awayTeam, onClick: e => {

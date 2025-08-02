@@ -101,7 +101,7 @@ export function toMatchEventDTO(
   return {
     id: event.id,
     matchdayId: event.matchdayId,
-    matchId: event.matchId,
+    matchId: event.matchId ?? 0, // 👈 fallback
     minute: event.minute,
     eventType: event.eventType,
     description: event.description,
@@ -109,3 +109,4 @@ export function toMatchEventDTO(
     teamName: event.team?.name,
   };
 }
+

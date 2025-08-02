@@ -13,9 +13,9 @@ export async function broadcastEvent(event: MatchEvent) {
     minute: event.minute,
     type: event.eventType,
     description: event.description,
-    player: event.playerId
+    player: event.saveGamePlayerId
   ? await prisma.saveGamePlayer.findUnique({
-      where: { id: event.playerId },
+      where: { id: event.saveGamePlayerId },
       select: { id: true, name: true },
     })
   : null,

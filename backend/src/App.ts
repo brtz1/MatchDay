@@ -34,6 +34,7 @@ app.use(express.json());
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'OK' });
+  res.sendStatus(200);
 });
 
 // Routes

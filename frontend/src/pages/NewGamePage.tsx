@@ -19,7 +19,7 @@ export default function NewGamePage() {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    axios.get<Country[]>('/api/countries')
+    axios.get<Country[]>('/countries')
       .then(res => setCountries(res.data))
       .catch(() => setError('Failed to load countries'));
   }, []);

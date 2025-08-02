@@ -65,26 +65,21 @@ export default function TeamRosterPage() {
             }
             setLoading(false);
         };
-        if (location.state?.fromResults && saveGameId) {
-            api
-                .post("/matchdays/advance", { saveGameId })
-                .catch((err) => console.error("Failed to advance matchday", err));
-        }
         loadTeam();
-    }, [teamId, navigate, location.state, saveGameId, coachedId]);
+    }, [teamId, navigate, saveGameId, coachedId, bootstrapping]);
     const handleFormationSet = async (formation) => {
         try {
             if (!teamId || !saveGameId || currentMatchday == null) {
                 throw new Error("Missing required context data");
             }
-            const response = await api.get("/matchdays/team-match-info", {
+            const response = await api.get("/matchday/team-match-info", {
                 params: {
                     saveGameId,
                     matchday: currentMatchday,
                     teamId,
                 },
             });
-            console.log("📦 team-match-info response:", response.data); // 🔍 Added logging here
+            console.log("📦 team-match-info response:", response.data);
             const { matchId, isHomeTeam } = response.data;
             if (!matchId) {
                 throw new Error("❌ Could not retrieve valid matchId for team formation");
@@ -132,6 +127,6 @@ export default function TeamRosterPage() {
     }
     const primary = team.colors?.primary ?? "#facc15";
     const secondary = team.colors?.secondary ?? "#000000";
-    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId ?? -1 }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", typeof team.division === "number" ? team.division : "—", "\u00A0|\u00A0 Coach ", team.coachName ?? (isCoachTeam ? "You" : "—"), "\u00A0|\u00A0Morale", " ", typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsx("div", { className: "w-[65%]", children: _jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer, lineupIds: lineupIds, benchIds: benchIds }) }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsxs("div", { className: "space-y-2 text-sm", children: [_jsxs("p", { children: ["Stadium: ", _jsx("span", { className: "font-semibold", children: team.stadiumCapacity ?? "—" })] }), _jsx("p", { children: "Next-fixture & morale widgets coming soon\u2026" })] }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: handleRenewContract, onSell: handleSell })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: (player) => (_jsxs("div", { className: "flex gap-2", children: [_jsx("button", { className: "rounded bg-blue-600 px-2 py-1 text-xs hover:bg-blue-800", onClick: () => handleBuyPlayer(player), children: "Buy" }), _jsx("button", { className: "rounded bg-yellow-600 px-2 py-1 text-xs hover:bg-yellow-700", onClick: () => handleScoutPlayer(player), disabled: true, children: "Scout" }), _jsx("button", { className: "rounded bg-gray-600 px-2 py-1 text-xs hover:bg-gray-700", onClick: () => handleLoanPlayer(player), disabled: true, children: "Loan" })] })) })), isCoachTeam && _jsx(FormationTab, { onSetFormation: handleFormationSet }), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
+    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", typeof team.division === "number" ? team.division : "—", "\u00A0| Coach ", team.coachName ?? (isCoachTeam ? "You" : "—"), "\u00A0|\u00A0Morale", ' ', typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsx("div", { className: "w-[65%]", children: _jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer, lineupIds: lineupIds, benchIds: benchIds }) }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsxs("div", { className: "space-y-2 text-sm", children: [_jsxs("p", { children: ["Stadium: ", _jsx("span", { className: "font-semibold", children: team.stadiumCapacity ?? "—" })] }), _jsx("p", { children: "Next-fixture & morale widgets coming soon\u2026" })] }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: handleRenewContract, onSell: handleSell })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: (player) => (_jsxs("div", { className: "flex gap-2", children: [_jsx("button", { className: "rounded bg-blue-600 px-2 py-1 text-xs hover:bg-blue-800", onClick: () => handleBuyPlayer(player), children: "Buy" }), _jsx("button", { className: "rounded bg-yellow-600 px-2 py-1 text-xs hover:bg-yellow-700", onClick: () => handleScoutPlayer(player), disabled: true, children: "Scout" }), _jsx("button", { className: "rounded bg-gray-600 px-2 py-1 text-xs hover:bg-gray-700", onClick: () => handleLoanPlayer(player), disabled: true, children: "Loan" })] })) })), isCoachTeam && (_jsx(FormationTab, { onSetFormation: handleFormationSet, saveGameId: saveGameId })), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
 }
 //# sourceMappingURL=TeamRosterPage.js.map

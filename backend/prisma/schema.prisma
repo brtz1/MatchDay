@@ -64,15 +64,15 @@ model MatchEvent {
   id              Int            @id @default(autoincrement())
   matchdayId      Int
   matchday        Matchday       @relation(fields: [matchdayId], references: [id], name: "MatchdayEvents")
-  matchId         Int
-  match           Match          @relation(fields: [matchId], references: [id], name: "MatchEvents")
+  matchId         Int?
+  match           Match?          @relation(fields: [matchId], references: [id], name: "MatchEvents")
   saveGameMatchId Int?
   saveGameMatch   SaveGameMatch? @relation(fields: [saveGameMatchId], references: [id])
   minute          Int
   eventType       String
   description     String
-  playerId        Int?
-  player          Player?        @relation("PlayerEvents", fields: [playerId], references: [id]) // 👈 ADD relation name
+  saveGamePlayerId  Int?
+  saveGamePlayer  Player?        @relation("PlayerEvents", fields: [saveGamePlayerId], references: [id]) // 👈 ADD relation name
 }
 
 model Player {

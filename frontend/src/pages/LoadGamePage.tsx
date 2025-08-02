@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import axios from "@/services/axios";
@@ -7,7 +6,6 @@ import { useTeamContext } from "@/store/TeamContext";
 import { useGameState } from "@/store/GameStateStore";
 import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
-import { ProgressBar } from "@/components/common/ProgressBar";
 
 import { teamUrl, titlePageUrl, newGameUrl } from "@/utils/paths";
 
@@ -38,28 +36,43 @@ export default function LoadGamePage() {
   useEffect(() => {
     axios
       .get<SaveGame[]>("/save-game", { params: { includeTeams: true } })
-      .then(({ data }) => setSaves(data))
-      .catch(() => setError("Could not load saved games."))
-      .finally(() => setLoading(false));
+      .then(({ data }) => {
+        // ensure we always end up with an array
+        if (Array.isArray(data)) {
+          setSaves(data);
+        } else {
+          console.warn("Unexpected save-game payload:", data);
+          setSaves([]);
+        }
+      })
+      .catch(() => {
+        setError("Could not load saved games.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
 
   async function handleLoad(saveGameId: number, saveName: string) {
-    const confirmed = window.confirm(
-      `Load save "${saveName}"?\nUnsaved progress will be lost.`
-    );
-    if (!confirmed) return;
+    if (
+      !window.confirm(
+        `Load save "${saveName}"?\nUnsaved progress will be lost.`
+      )
+    )
+      return;
 
     setLoadingId(saveGameId);
     setError(null);
 
     try {
-      // 🔥 Tell backend to set this save as active
+      // mark this save as active
       await axios.post(`/gamestate/set-save/${saveGameId}`);
 
-      // Load save data
-      const { data } = await axios.post<LoadResponse>("/save-game/load", {
-        id: saveGameId,
-      });
+      // fetch coachTeamId
+      const { data } = await axios.post<LoadResponse>(
+        "/save-game/load",
+        { id: saveGameId }
+      );
 
       if (!data.coachTeamId) {
         throw new Error("Missing coach team ID from save");
@@ -68,7 +81,7 @@ export default function LoadGamePage() {
       setCurrentSaveGameId(saveGameId);
       setCurrentTeamId(data.coachTeamId);
 
-      // ✅ Also refresh GameState
+      // refresh the global GameState
       await refreshGameState();
 
       navigate(teamUrl(data.coachTeamId));
@@ -79,27 +92,24 @@ export default function LoadGamePage() {
     }
   }
 
-  function getCoachTeamName(save: SaveGame): string {
-    const gameState = saves.find((s) => s.id === save.id);
-    const coachTeamId = gameState?.teams.find((t) => t.id === gameState?.teams[0]?.id)?.id;
-    const coachTeam = save.teams.find((t) => t.id === coachTeamId);
-    return coachTeam?.name || "N/A";
-  }
-
   return (
     <div className="flex min-h-screen flex-col items-center gap-8 bg-green-900 px-4 py-12 text-white">
       <h1 className="text-4xl font-bold">Load Save-Game</h1>
 
+      {/* loader / error / empty list / cards */}
       {loading ? (
-        <ProgressBar className="w-64" />
+        <p className="text-xl">Loading saved games…</p>
       ) : error ? (
         <p className="font-semibold text-red-400">{error}</p>
       ) : saves.length === 0 ? (
-        <p className="text-gray-200">No saves found. Start a new game to begin!</p>
+        <p className="text-gray-200">
+          No saves found. Start a new game to begin!
+        </p>
       ) : (
         <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
-            const coachTeam = save.teams.find((t) => t.id === save.teams[0]?.id);
+            // we’ll treat the first team in the list as the “coach team”
+            const coachTeam = save.teams[0];
 
             return (
               <AppCard
@@ -112,7 +122,8 @@ export default function LoadGamePage() {
                   <p className="text-sm text-gray-300">
                     Coach: {save.coachName || "Unknown"} — Team:{" "}
                     {coachTeam?.name || "N/A"} <br />
-                    Created: {new Date(save.createdAt).toLocaleString()}
+                    Created:{" "}
+                    {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>
 
@@ -128,11 +139,18 @@ export default function LoadGamePage() {
         </div>
       )}
 
+      {/* always-visible back/new buttons */}
       <div className="mt-10 flex gap-4">
-        <AppButton variant="secondary" onClick={() => navigate(titlePageUrl)}>
+        <AppButton
+          variant="secondary"
+          onClick={() => navigate(titlePageUrl)}
+        >
           Back to Menu
         </AppButton>
-        <AppButton variant="primary" onClick={() => navigate(newGameUrl)}>
+        <AppButton
+          variant="primary"
+          onClick={() => navigate(newGameUrl)}
+        >
           Start New Game
         </AppButton>
       </div>

@@ -8,7 +8,7 @@ export async function getEventsByMatchId(matchId: number) {
     where: { matchId },
     orderBy: { minute: 'asc' },
     include: {
-      player: { select: { id: true, name: true } },
+      saveGamePlayer: { select: { id: true, name: true } },
     },
   });
 }
@@ -30,16 +30,20 @@ export async function getEventsByMatchdayId(matchdayId: number) {
     },
     orderBy: { minute: 'asc' },
     include: {
-      player: { select: { id: true, name: true } },
+      saveGamePlayer: { select: { id: true, name: true } },
     },
   });
 
   // Group by matchId
-  const grouped: Record<number, typeof allEvents> = {};
-  for (const event of allEvents) {
-    if (!grouped[event.matchId]) grouped[event.matchId] = [];
+const grouped: Record<number, typeof allEvents> = {};
+for (const event of allEvents) {
+  if (event.matchId != null) { // ✅ ensure it's a number
+    if (!grouped[event.matchId]) {
+      grouped[event.matchId] = [];
+    }
     grouped[event.matchId].push(event);
   }
+}
+return grouped;
 
-  return grouped;
 }

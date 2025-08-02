@@ -36,7 +36,7 @@ export default function FullTimeResultsPage() {
 
   const handleProceed = async () => {
     try {
-      const { data } = await api.post("/api/matchday/advance-after-results");
+      const { data } = await api.post("/matchday/advance-after-results");
       const coachTeamId = data.coachTeamId;
       navigate("/standings", { state: { coachTeamId } });
     } catch (error) {
