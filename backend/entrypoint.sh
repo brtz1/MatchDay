@@ -1,7 +1,11 @@
 #!/bin/sh
+set -e
 
 echo "⏳ Running migrations before starting the backend…"
-npx prisma migrate deploy
+npx prisma migrate reset --force
+
+echo "⏳ Generating Prisma client…"
+npx prisma generate
 
 echo "🚀 Starting backend server…"
-exec node dist/index.js
+npm run start

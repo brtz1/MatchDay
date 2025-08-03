@@ -8,11 +8,11 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "prestart": "npm run build",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "test": "npm run prisma:seed && jest",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed": "node dist/prisma/seed.js",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "type-check": "tsc --noEmit"
@@ -49,6 +49,6 @@
     "typescript": "^5.8.3"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "npm run prisma:seed"
   }
 }

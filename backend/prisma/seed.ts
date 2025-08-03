@@ -1,8 +1,9 @@
-// prisma/seed.ts – clean dev DB and reseed countries + base clubs
+// backend/src/prisma/seed.ts – clean dev DB and reseed countries + base clubs
 
 import path from "path";
 import fs from "fs";
-import prisma from "../src/utils/prisma";
+// ← fixed relative path here:
+import prisma from "../src/prisma/client";
 
 const SALARY_MULTIPLIER = 1_000;
 
@@ -64,8 +65,8 @@ async function seedCountries(): Promise<void> {
           flag: c.flag,
           continent: c.continent,
         },
-      }),
-    ),
+      })
+    )
   );
   console.log(`✅ Countries upserted: ${countries.length}`);
 }

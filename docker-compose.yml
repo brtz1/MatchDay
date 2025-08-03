@@ -1,3 +1,4 @@
+
 services:
   db:
     image: postgres:16
@@ -18,24 +19,23 @@ services:
 
   backend:
     build: ./backend
-    entrypoint: ["sh", "/usr/src/app/entrypoint.sh"]  # runs `npx prisma migrate reset --force` then `npm run start`
-    volumes:
-      - ./backend:/usr/src/app
+    entrypoint: ["sh", "/usr/src/app/entrypoint.sh"]
+    # ◀— remove any `volumes:` here so node_modules & dist stay intact
     ports:
       - "4000:4000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/elifoot
-      - PORT=4000
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/elifoot"
+      PORT: 4000
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
     healthcheck:
       disable: true
       test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
 
   frontend:
     build: ./frontend
