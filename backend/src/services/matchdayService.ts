@@ -5,12 +5,19 @@ import { simulateMatchday } from './matchService';
 import { updateLeagueTableForMatchday } from './leagueTableService';
 import { updateMoraleAndContracts } from './moraleContractService';
 import { getGameState } from './gameState';
-import { MatchdayType, SaveGameMatch, GameState } from '@prisma/client';
+import {
+  MatchdayType,
+  SaveGameMatch,
+  GameState,
+  GameStage,
+} from '@prisma/client';
 
 /** Determines LEAGUE vs CUP days by number */
 function getMatchdayTypeForNumber(matchday: number): MatchdayType {
   const cupDays = [3, 6, 8, 11, 14, 17, 20];
-  return cupDays.includes(matchday) ? MatchdayType.CUP : MatchdayType.LEAGUE;
+  return cupDays.includes(matchday)
+    ? MatchdayType.CUP
+    : MatchdayType.LEAGUE;
 }
 
 /**
@@ -66,10 +73,10 @@ export async function startMatchday(saveGameId: number): Promise<GameState> {
     );
   }
 
-  // flip stage
+  // flip stage to MATCHDAY
   const updated = await prisma.gameState.update({
     where: { id: state.id },
-    data: { gameStage: 'MATCHDAY' },
+    data: { gameStage: GameStage.MATCHDAY },
   });
 
   return updated;
@@ -116,7 +123,7 @@ export async function completeMatchday(
     data: {
       currentMatchday: nextMatchday,
       matchdayType: nextType,
-      gameStage: 'ACTION',
+      gameStage: GameStage.ACTION,
     },
   });
 
