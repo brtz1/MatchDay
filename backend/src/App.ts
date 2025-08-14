@@ -19,22 +19,24 @@ import countryRoute from './routes/countryRoute';
 import importRoute from './routes/importRoute';
 import standingsRoute from './routes/standingsRoute';
 import matchdayRoute from './routes/matchdayRoute';
+import matchEventRoute from './routes/matchEventRoute'; // ⬅️ NEW
 
 dotenv.config();
 
 const app = express();
 
 // Middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    credentials: true,
+  })
+);
 app.use(express.json());
 
-// Health check
+// Health check (return JSON once)
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'OK' });
-  res.sendStatus(200);
+  res.status(200).json({ status: 'OK' });
 });
 
 // Routes
@@ -54,5 +56,27 @@ app.use('/api/import', importRoute);
 app.use('/api/standings', standingsRoute);
 app.use('/api/cup', cupRoute);
 app.use('/api/matchday', matchdayRoute);
+
+// ⬇️ Mount match-events (needed for /api/match-events/by-matchday/:matchdayId)
+app.use('/api/match-events', matchEventRoute);
+console.log('✅ Route /api/match-events is mounted');
+
+// 404 JSON fallback
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not Found', path: req.originalUrl });
+});
+
+// Error handler (JSON)
+app.use(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('❌ Unhandled error:', err);
+    const status = typeof err?.status === 'number' ? err.status : 500;
+    res.status(status).json({
+      error: status === 500 ? 'Internal Server Error' : 'Request Failed',
+      message: err?.message ?? 'Unexpected error',
+    });
+  }
+);
 
 export default app;

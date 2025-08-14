@@ -1,45 +1,34 @@
-// backend/src/routes/matchEventRoute.ts
+import express from 'express';
+import { getEventsByMatchId, getEventsByMatchdayNumber } from '../services/matchEventService';
 
-import { Router, Request, Response, NextFunction } from 'express';
-import { getEventsByMatchId, getEventsByMatchdayId } from '../services/matchEventService';
-
-const router = Router();
+const router = express.Router();
 
 /**
  * GET /api/match-events/:matchId
- * Fetches all events for a given match, ordered by minute.
  */
-router.get('/:matchId', async (req: Request, res: Response, next: NextFunction) => {
-  const matchId = Number(req.params.matchId);
-  if (isNaN(matchId)) {
-    return res.status(400).json({ error: 'Invalid match ID' });
-  }
-
+router.get('/:matchId', async (req, res, next) => {
   try {
+    const matchId = Number(req.params.matchId);
+    if (Number.isNaN(matchId)) return res.status(400).json({ error: 'Invalid matchId' });
     const events = await getEventsByMatchId(matchId);
-    res.status(200).json(events);
-  } catch (error) {
-    console.error(`❌ Error fetching events for match ${matchId}:`, error);
-    next(error);
+    res.json(events);
+  } catch (e) {
+    next(e);
   }
 });
 
 /**
- * GET /api/match-events/by-matchday/:matchdayId
- * Fetches all events for all matches in a given matchday, grouped by matchId.
+ * GET /api/match-events/by-matchday/:number
+ * Returns EventsByMatch (grouped by saveGameMatchId)
  */
-router.get('/by-matchday/:matchdayId', async (req: Request, res: Response, next: NextFunction) => {
-  const matchdayId = Number(req.params.matchdayId);
-  if (isNaN(matchdayId)) {
-    return res.status(400).json({ error: 'Invalid matchday ID' });
-  }
-
+router.get('/by-matchday/:number', async (req, res, next) => {
   try {
-    const eventsByMatch = await getEventsByMatchdayId(matchdayId);
-    res.status(200).json(eventsByMatch);
-  } catch (error) {
-    console.error(`❌ Error fetching events for matchday ${matchdayId}:`, error);
-    next(error);
+    const number = Number(req.params.number);
+    if (Number.isNaN(number)) return res.status(400).json({ error: 'Invalid matchday number' });
+    const grouped = await getEventsByMatchdayNumber(number);
+    res.json(grouped);
+  } catch (e) {
+    next(e);
   }
 });
 

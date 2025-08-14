@@ -1,34 +1,27 @@
-import prisma from "../prisma/client";
-import { io } from "../index"; // your socket.io instance
-import { MatchEvent } from "@prisma/client";
+import { io } from "../index";
 
-/**
- * Broadcast a match event to the correct matchday room.
- * Frontend clients should be joined to: "matchday:<id>"
- */
-export async function broadcastEvent(event: MatchEvent) {
-  const matchdayRoom = `matchday:${event.matchdayId ?? "unknown"}`;
-  io.to(matchdayRoom).emit("match-event", {
-    matchId: event.matchId,
-    minute: event.minute,
-    type: event.eventType,
-    description: event.description,
-    player: event.saveGamePlayerId
-  ? await prisma.saveGamePlayer.findUnique({
-      where: { id: event.saveGamePlayerId },
-      select: { id: true, name: true },
-    })
-  : null,
-
-  });
+// Emit match events to all clients (no room join required).
+export function broadcastEventPayload(payload: {
+  matchId: number;
+  minute: number;
+  type: string;
+  description: string;
+  player: { id: number; name: string } | null;
+}) {
+  io.emit("match-event", payload);
 }
 
-/**
- * Broadcast a match minute update (tick)
- */
-export function broadcastMatchTick(matchId: number, minute: number) {
+// Unified minute tick with optional live score
+export function broadcastMatchTick(
+  matchId: number,
+  minute: number,
+  homeGoals?: number,
+  awayGoals?: number
+) {
   io.emit("match-tick", {
     id: matchId,
     minute,
+    ...(typeof homeGoals === "number" ? { homeGoals } : {}),
+    ...(typeof awayGoals === "number" ? { awayGoals } : {}),
   });
 }

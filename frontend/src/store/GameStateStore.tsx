@@ -38,6 +38,18 @@ export interface GameStateContextType {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Helpers                                                                   */
+/* ------------------------------------------------------------------------- */
+
+function isGameStage(v: unknown): v is GameStage {
+  return v === "ACTION" || v === "MATCHDAY" || v === "HALFTIME" || v === "RESULTS" || v === "STANDINGS";
+}
+
+function isMatchdayType(v: unknown): v is MatchdayType {
+  return v === "LEAGUE" || v === "CUP";
+}
+
+/* ------------------------------------------------------------------------- */
 /* Context                                                                   */
 /* ------------------------------------------------------------------------- */
 
@@ -49,7 +61,7 @@ const GameStateContext = createContext<GameStateContextType | undefined>(undefin
 
 interface GameStateProviderProps {
   children: ReactNode;
-  autoLoad?: boolean; // ✅ Allow skipping auto-refresh
+  autoLoad?: boolean; // Allow skipping auto-refresh
 }
 
 export function GameStateProvider({ children, autoLoad = true }: GameStateProviderProps) {
@@ -60,27 +72,42 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
   const [matchdayType, setMatchdayType] = useState<MatchdayType>("LEAGUE");
   const [bootstrapping, setBootstrapping] = useState(true);
 
+  const resetState = () => {
+    setSaveGameId(null);
+    setCoachTeamId(null);
+    setCurrentMatchday(null);
+    setGameStage("ACTION");
+    setMatchdayType("LEAGUE");
+  };
+
   const refreshGameState = async () => {
     try {
       const state = await gameStateService.getGameState();
       console.log("[GameState] Loaded:", state);
 
-      if (!state || !state.currentSaveGameId) {
-        setSaveGameId(null);
-        setCoachTeamId(null);
-        setCurrentMatchday(null);
-        setGameStage("ACTION");
-        setMatchdayType("LEAGUE");
+      // If there is no active save, hard reset the store.
+      if (!state || state.currentSaveGameId == null) {
+        resetState();
         return;
       }
 
-      setSaveGameId(state.currentSaveGameId);
+      // Apply only defined fields from the backend to avoid accidental downgrades.
+      setSaveGameId(state.currentSaveGameId ?? null);
       setCoachTeamId(state.coachTeamId ?? null);
-      setCurrentMatchday(state.currentMatchday ?? 1);
-      setGameStage(state.gameStage ?? "ACTION");
-      setMatchdayType(state.matchdayType ?? "LEAGUE");
+      setCurrentMatchday(
+        typeof state.currentMatchday === "number" ? state.currentMatchday : null
+      );
+
+      if (isGameStage(state.gameStage)) {
+        setGameStage(state.gameStage);
+      }
+
+      if (isMatchdayType(state.matchdayType)) {
+        setMatchdayType(state.matchdayType);
+      }
     } catch (err) {
-      console.error("[GameState] failed to refresh:", err);
+      // Network / server hiccup: keep existing store values so we don't bounce routes.
+      console.error("[GameState] failed to refresh (keeping previous state):", err);
     }
   };
 

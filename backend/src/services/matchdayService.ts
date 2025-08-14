@@ -1,7 +1,5 @@
-// backend/src/services/matchdayService.ts
-
 import prisma from '../utils/prisma';
-import { simulateMatchday } from './matchService';
+import { simulateMatchday, ensureInitialMatchState } from './matchService';
 import { updateLeagueTableForMatchday } from './leagueTableService';
 import { updateMoraleAndContracts } from './moraleContractService';
 import { getGameState } from './gameState';
@@ -50,6 +48,8 @@ export async function advanceMatchdayType() {
 
 /**
  * STEP 1: Flip into MATCHDAY and return the new GameState immediately.
+ * Also: eagerly create MatchState rows (both sides) so UI has lineups
+ * and the simulation can run without user input.
  */
 export async function startMatchday(saveGameId: number): Promise<GameState> {
   const state = await prisma.gameState.findFirst({
@@ -66,12 +66,19 @@ export async function startMatchday(saveGameId: number): Promise<GameState> {
       type: getMatchdayTypeForNumber(state.currentMatchday),
       saveGameId,
     },
+    include: { saveGameMatches: true },
   });
   if (!md) {
     throw new Error(
       `Matchday ${state.currentMatchday} not found for saveGame ${saveGameId}`
     );
   }
+
+  // EAGER: create/complete MatchState for all matches (both sides)
+  // so halftime popup has data and simulateMatchday won't skip.
+  await Promise.all(
+    md.saveGameMatches.map((m) => ensureInitialMatchState(m.id, '4-4-2', '4-4-2'))
+  );
 
   // flip stage to MATCHDAY
   const updated = await prisma.gameState.update({
@@ -106,7 +113,7 @@ export async function completeMatchday(
     return 'Season complete. No more matchday.';
   }
 
-  // simulate all matches
+  // simulate all matches (90s real-time)
   await simulateMatchday(matchday.id);
 
   // league table / cup bracket updates

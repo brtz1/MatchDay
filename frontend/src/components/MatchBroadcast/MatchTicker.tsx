@@ -1,173 +1,116 @@
-import * as React from "react";
-import {
-  forwardRef,
-  type HTMLAttributes,
-  Fragment,
-  useMemo,
-} from "react";
-import clsx from "clsx";
-import { ChevronRight } from "lucide-react";
-import Clock from "@/components/MatchBroadcast/Clock";
+import React from "react";
 
-/**
- * ---------------------------------------------------------------------------
- * Types
- * ---------------------------------------------------------------------------
- */
-
-export interface TickerGame {
-  id: string | number;
-  division: string | number;
-  home: {
-    id: string | number;
-    name: string;
-    score: number;
-  };
-  away: {
-    id: string | number;
-    name: string;
-    score: number;
-  };
-  /** Current minute (or >90 for added time). */
+export type TickerEvent = { minute: number; type: string; text: string };
+export type TickerTeam = { id: number; name: string; score: number };
+export type TickerGame = {
+  id: number;
+  division: string;
   minute: number;
-  /** Latest short event summary (optional). */
-  latestEvent?: React.ReactNode;
-}
+  home: TickerTeam;
+  away: TickerTeam;
+  events?: TickerEvent[]; // we will show only the latest one
+};
 
-export interface MatchTickerProps
-  extends HTMLAttributes<HTMLDivElement> {
+interface Props {
   games: TickerGame[];
-  /** Coached team for highlight. */
-  coachTeamId?: string | number;
-  /** Click callback – passes game id. */
-  onGameClick?: (gameId: TickerGame["id"]) => void;
+  onGameClick?: (matchId: number) => void;
+  onTeamClick?: (p: { matchId: number; teamId: number; isHome: boolean }) => void;
+  showMinute?: boolean;
+  groupByDivision?: boolean;
 }
 
-/**
- * ---------------------------------------------------------------------------
- * Component
- * ---------------------------------------------------------------------------
- */
+const divisionOrder = ["D1", "D2", "D3", "D4", "DIST"];
 
-export const MatchTicker = forwardRef<
-  HTMLDivElement,
-  MatchTickerProps
->(({ games, coachTeamId, onGameClick, className, ...rest }, ref) => {
-  /** Group games by division for header sections. */
-  const grouped = useMemo(() => {
-    return games.reduce(
-      (acc, game) => {
-        const key = game.division;
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(game);
-        return acc;
-      },
-      {} as Record<string | number, TickerGame[]>
-    );
-  }, [games]);
+export default function MatchTicker({
+  games,
+  onGameClick,
+  onTeamClick,
+  showMinute = false,
+  groupByDivision = false,
+}: Props) {
+  const grouped = React.useMemo(() => {
+    if (!groupByDivision) return { order: ["ALL"], groups: { ALL: games } as Record<string, TickerGame[]> };
+    const groups: Record<string, TickerGame[]> = {};
+    for (const d of divisionOrder) groups[d] = [];
+    for (const g of games) (groups[g.division] ?? (groups[g.division] = [])).push(g);
+    const order = divisionOrder.filter((d) => (groups[d] ?? []).length > 0);
+    return { order, groups };
+  }, [games, groupByDivision]);
 
   return (
-    <div
-      ref={ref}
-      className={clsx("space-y-6", className)}
-      {...rest}
-    >
-      {Object.entries(grouped)
-        .sort(([a], [b]) =>
-          String(a).localeCompare(String(b), undefined, {
-            numeric: true,
-          })
-        )
-        .map(([division, list]) => (
-          <Fragment key={division}>
-            {/* Division header */}
-            <h3 className="border-l-4 border-blue-600 pl-2 text-sm font-semibold uppercase text-gray-700 dark:text-gray-300">
-              Division {division}
-            </h3>
-
-            <div className="space-y-1">
-              {list.map((g) => {
-                const isCoach =
-                  g.home.id === coachTeamId ||
-                  g.away.id === coachTeamId;
-
-                return (
-                  <button
-                    key={g.id}
-                    onClick={() => onGameClick?.(g.id)}
-                    className={clsx(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
-                      "hover:bg-gray-100 dark:hover:bg-gray-800",
-                      isCoach &&
-                        "ring-1 ring-inset ring-blue-500/50"
-                    )}
-                  >
-                    {/* Teams & score */}
-                    <div className="flex flex-1 items-center gap-2">
-                      <TeamBox
-                        name={g.home.name}
-                        highlight={g.home.id === coachTeamId}
-                      />
-                      <span className="text-sm font-semibold tabular-nums">
-                        {g.home.score}
-                      </span>
-
-                      <ChevronRight className="h-4 w-4 text-gray-400" />
-
-                      <span className="text-sm font-semibold tabular-nums">
-                        {g.away.score}
-                      </span>
-                      <TeamBox
-                        name={g.away.name}
-                        highlight={g.away.id === coachTeamId}
-                      />
-                    </div>
-
-                    {/* Clock */}
-                    <Clock
-                      minute={g.minute}
-                      showProgress={false}
-                      className="w-16"
-                    />
-                  </button>
-                );
-              })}
+    <div className="flex flex-col gap-4">
+      {grouped.order.map((key) => (
+        <div key={key} className="rounded-xl border border-white/10">
+          {groupByDivision && (
+            <div className="px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80">
+              {label(key)}
             </div>
-          </Fragment>
-        ))}
+          )}
+          <ul className="divide-y divide-white/10">
+            {(grouped.groups[key] ?? []).map((g) => {
+              const latest = (g.events ?? []).slice(-1)[0];
+              return (
+                <li
+                  key={g.id}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-white/5 cursor-pointer"
+                  onClick={() => onGameClick?.(g.id)}
+                >
+                  <div className="flex items-center gap-2">
+                    {showMinute && <span className="w-10 text-right tabular-nums">{g.minute}'</span>}
+
+                    {/* Left team name (clickable) */}
+                    <span
+                      className="font-semibold hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTeamClick?.({ matchId: g.id, teamId: g.home.id, isHome: true });
+                      }}
+                    >
+                      {g.home.name}
+                    </span>
+
+                    {/* Scoreboard "x" style */}
+                    <span className="tabular-nums font-semibold">
+                      {" "}{g.home.score}{" "}x{" "}{g.away.score}{" "}
+                    </span>
+
+                    {/* Right team name (clickable) */}
+                    <span
+                      className="font-semibold hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTeamClick?.({ matchId: g.id, teamId: g.away.id, isHome: false });
+                      }}
+                    >
+                      {g.away.name}
+                    </span>
+                  </div>
+
+                  {/* Latest event only */}
+                  <div className="flex items-center gap-2 text-xs opacity-90">
+                    {latest && (
+                      <span className="rounded bg-white/10 px-2 py-0.5 tabular-nums">
+                        {latest.minute}' {latest.text}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
   );
-});
-
-MatchTicker.displayName = "MatchTicker";
-
-/**
- * ---------------------------------------------------------------------------
- * Helper – TeamBox
- * ---------------------------------------------------------------------------
- */
-
-function TeamBox({
-  name,
-  highlight,
-}: {
-  name: string;
-  highlight?: boolean;
-}) {
-  return (
-    <span
-      className={clsx(
-        "truncate rounded-md px-2 py-0.5 text-xs font-medium",
-        highlight
-          ? "bg-blue-600 text-white dark:bg-blue-500"
-          : "bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100"
-      )}
-      style={{ maxWidth: "7rem" }}
-      title={name}
-    >
-      {name}
-    </span>
-  );
 }
 
-export default MatchTicker;
+function label(code: string) {
+  switch (code) {
+    case "D1": return "Division 1";
+    case "D2": return "Division 2";
+    case "D3": return "Division 3";
+    case "D4": return "Division 4";
+    case "DIST": return "Distrital";
+    default: return code;
+  }
+}
