@@ -6,7 +6,9 @@ const router = express.Router();
 
 /* -------------------------------------------------------------------------- */
 /* GET: Matches (optionally filter by matchday number)                         */
-/* -------------------------------------------------------------------------- */
+/*    Query:
+ *      - matchday?: number   (filters by the matchday number within this save)
+ * -------------------------------------------------------------------------- */
 router.get('/', async (req, res, next) => {
   try {
     const saveGameId = await getCurrentSaveGameId();
@@ -14,32 +16,48 @@ router.get('/', async (req, res, next) => {
       return res.status(400).json({ error: 'No active save game found' });
     }
 
-    const matchdayNum = req.query.matchday
-      ? parseInt(String(req.query.matchday), 10)
-      : undefined;
+    // Parse matchday number safely
+    let matchdayNum: number | undefined;
+    if (typeof req.query.matchday === 'string' && req.query.matchday.trim() !== '') {
+      const n = Number(req.query.matchday);
+      if (Number.isFinite(n)) matchdayNum = n;
+    }
+
+    // If a matchday number was provided, resolve its id within this save
+    let matchdayFilter: { matchdayId?: number } = {};
+    if (typeof matchdayNum === 'number') {
+      const md = await prisma.matchday.findFirst({
+        where: { saveGameId, number: matchdayNum },
+        select: { id: true },
+      });
+      if (!md) {
+        // No such matchday for this save — return empty list
+        return res.status(200).json([]);
+      }
+      matchdayFilter.matchdayId = md.id;
+    }
 
     const matches = await prisma.saveGameMatch.findMany({
       where: {
         saveGameId,
-        ...(matchdayNum ? { matchday: { number: matchdayNum } } : {}),
+        ...matchdayFilter,
       },
       include: {
-        homeTeam: true,
-        awayTeam: true,
-        matchday: { select: { number: true, type: true } },
+        homeTeam: { select: { id: true, name: true, division: true } },
+        awayTeam: { select: { id: true, name: true } },
       },
       orderBy: [{ id: 'asc' }],
     });
 
-    // Shape to frontend DTO, without colors, and with minute defaulted to 0.
+    // Shape to frontend DTO
     const result = matches.map((m) => ({
       id: m.id,
       homeTeam: {
-        id: m.homeTeamId,
+        id: m.homeTeam.id,
         name: m.homeTeam.name,
       },
       awayTeam: {
-        id: m.awayTeamId,
+        id: m.awayTeam.id,
         name: m.awayTeam.name,
       },
       homeGoals: m.homeGoals ?? 0,

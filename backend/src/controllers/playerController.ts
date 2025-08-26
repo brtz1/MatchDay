@@ -1,28 +1,36 @@
-import { Request, Response, NextFunction } from 'express';
-import prisma from '../utils/prisma';
+// backend/src/controllers/playerController.ts
+import { Request, Response, NextFunction } from "express";
+import prisma from "../utils/prisma";
+import { Prisma } from "@prisma/client";
 
 /**
  * GET /api/players
  * Returns all players with optional filters (teamId, position, nationality).
  */
-export async function getAllPlayers(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getAllPlayers(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const { teamId, position, nationality } = req.query;
-    const where: any = {};
-    if (teamId) where.teamId = Number(teamId);
-    if (position) where.position = String(position);
-    if (nationality) where.nationality = String(nationality);
+
+    const where: Prisma.PlayerWhereInput = {};
+    if (teamId != null) where.teamId = Number(teamId);
+    if (position != null) where.position = String(position);
+    if (nationality != null) where.nationality = String(nationality);
 
     const players = await prisma.player.findMany({
       where,
       include: {
         team: true,
-        events: true,
+        // ❌ events: true,  // removed — no longer exists on Player
       },
     });
+
     res.status(200).json(players);
   } catch (error) {
-    console.error('❌ Error fetching players:', error);
+    console.error("❌ Error fetching players:", error);
     next(error);
   }
 }
@@ -31,7 +39,11 @@ export async function getAllPlayers(req: Request, res: Response, next: NextFunct
  * GET /api/players/:id
  * Returns a single player by ID with team and matchStats.
  */
-export async function getPlayerById(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getPlayerById(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   const playerId = Number(req.params.id);
   try {
     const player = await prisma.player.findUnique({
@@ -39,13 +51,15 @@ export async function getPlayerById(req: Request, res: Response, next: NextFunct
       include: {
         team: true,
         matchStats: true,
-        events: true,
+        // ❌ events: true,  // removed — no longer exists on Player
       },
     });
+
     if (!player) {
-      res.status(404).json({ error: 'Player not found' });
+      res.status(404).json({ error: "Player not found" });
       return;
     }
+
     res.status(200).json(player);
   } catch (error) {
     console.error(`❌ Error fetching player ${playerId}:`, error);

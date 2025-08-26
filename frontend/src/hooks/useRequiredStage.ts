@@ -1,55 +1,45 @@
-import { useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useGameState } from "@/store/GameStateStore";
 
-type Stage = "ACTION" | "MATCHDAY" | "TRANSFER" | "OFFSEASON";
+/** Keep this union in sync with backend GameStage enum */
+export type Stage =
+  | "ACTION"
+  | "MATCHDAY"
+  | "HALFTIME"
+  | "RESULTS"
+  | "STANDINGS";
 
 type Options = {
   redirectTo?: string;
-  graceMs?: number;     // how long to wait after mount *once bootstrapping is done*
-  debug?: boolean;
+  graceMs?: number; // delay before redirect, useful during stage transitions
 };
 
 /**
- * Keep user on the page if gameStage matches one of `required`.
- * If not, wait until bootstrapping is done, then start a timer.
- * Only redirect if, after `graceMs`, stage still doesn't match.
- * The timer cancels automatically when stage flips to a valid value.
+ * Guard a page so it only shows when gameStage matches one of the required stages.
+ * Accepts a single Stage or an array of allowed Stage values.
  */
-export function useRequiredStage(required: Stage | Stage[], opts: Options = {}) {
-  const requiredSet = useRef(new Set(Array.isArray(required) ? required : [required])).current;
-  const { gameStage, bootstrapping } = useGameState();
+export function useRequiredStage(required: Stage | Stage[], options?: Options) {
   const navigate = useNavigate();
-  const location = useLocation();
-
-  const redirectTo = opts.redirectTo ?? "/";
-  const graceMs = opts.graceMs ?? 6000;
-  const redirected = useRef(false);
+  const { gameStage, bootstrapping } = useGameState();
 
   useEffect(() => {
-    const ok = requiredSet.has(gameStage as Stage);
+    if (bootstrapping) return;
 
-    // While store is loading or we're already OK, never schedule a redirect.
-    if (bootstrapping || ok) {
-      if (opts.debug) {
-        console.log("[useRequiredStage] HOLD", { bootstrapping, ok, gameStage, path: location.pathname });
+    const allowed: Stage[] = Array.isArray(required) ? required : [required];
+
+    if (!allowed.includes(gameStage as Stage)) {
+      const to = options?.redirectTo ?? "/";
+      const delay = options?.graceMs ?? 0;
+
+      if (delay > 0) {
+        const t = setTimeout(() => navigate(to), delay);
+        return () => clearTimeout(t);
+      } else {
+        navigate(to);
       }
-      return;
     }
-
-    // Not bootstrapping and not OK -> arm a timer.
-    const t = window.setTimeout(() => {
-      const stillNotOk = !requiredSet.has(gameStage as Stage);
-      if (stillNotOk && !redirected.current) {
-        redirected.current = true;
-        if (opts.debug) {
-          console.log("[useRequiredStage] REDIRECT", { from: location.pathname, to: redirectTo, gameStage });
-        }
-        navigate(redirectTo, { replace: true });
-      }
-    }, graceMs);
-
-    // If gameStage changes (e.g., flips to MATCHDAY), this cleanup cancels the redirect.
-    return () => clearTimeout(t);
-  }, [gameStage, bootstrapping, graceMs, redirectTo, navigate, location.pathname, opts.debug, requiredSet]);
+  }, [bootstrapping, gameStage, navigate, required, options?.redirectTo, options?.graceMs]);
 }
+
+export default useRequiredStage;

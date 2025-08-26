@@ -1,3 +1,5 @@
+// backend/src/services/fixtureServices.ts
+
 import prisma from "../utils/prisma";
 import { DivisionTier, MatchdayType } from "@prisma/client";
 
@@ -16,7 +18,11 @@ const CUP_ROUNDS = [
 
 /* ───────────────────────────── Entrypoint ───────────────────────────── */
 
-export async function generateFullSeason(saveGameId: number, teams: { id: number }[]): Promise<void> {
+export async function generateFullSeason(
+  saveGameId: number,
+  teams: { id: number }[]
+): Promise<void> {
+  // Ensure league table rows exist
   for (const { id: teamId } of teams) {
     await prisma.leagueTable.upsert({
       where: { teamId },
@@ -34,7 +40,6 @@ export async function generateFullSeason(saveGameId: number, teams: { id: number
   }
 }
 
-
 /* ───────────────────────────── League Fixtures ───────────────────────────── */
 
 export async function generateLeagueFixtures(saveGameId: number): Promise<void> {
@@ -46,9 +51,8 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
     DIST: [],
   };
 
-  // Gather team IDs per division
-  for (const div of Object.keys(teamsByDivision) as DivisionTier[]) {
-    if (div === "DIST") continue; // skip DIST
+  // Gather team IDs per division (skip DIST)
+  for (const div of ["D1", "D2", "D3", "D4"] as DivisionTier[]) {
     const teams = await prisma.saveGameTeam.findMany({
       where: { saveGameId, division: div },
       orderBy: { localIndex: "asc" },
@@ -58,7 +62,7 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
     console.log(`📌 Division ${div} has ${teams.length} teams`);
   }
 
-  // Create double round robin fixtures
+  // Create double round robin fixtures for each division
   const fixturesByDivision: Record<DivisionTier, number[][][]> = {
     D1: createDoubleRoundRobinFixtures(teamsByDivision.D1),
     D2: createDoubleRoundRobinFixtures(teamsByDivision.D2),
@@ -67,14 +71,14 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
     DIST: [],
   };
 
-  // Create matchday and matches
+  // Create matchdays and matches
   for (let round = 0; round < LEAGUE_ROUNDS; round++) {
     const matchday = await prisma.matchday.create({
       data: {
         number: round + 1,
         type: MatchdayType.LEAGUE,
-        date: new Date(),
-        saveGameId,
+        date: addDays(new Date(), round),
+        saveGame: { connect: { id: saveGameId } },
       },
     });
 
@@ -89,12 +93,11 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
       for (const [homeId, awayId] of roundFixtures) {
         await prisma.saveGameMatch.create({
           data: {
-            saveGameId,
-            homeTeamId: homeId,
-            awayTeamId: awayId,
-            matchDate: new Date(),
-            matchdayId: matchday.id,
-            matchdayType: MatchdayType.LEAGUE,
+            saveGame: { connect: { id: saveGameId } },
+            matchday: { connect: { id: matchday.id } },
+            homeTeam: { connect: { id: homeId } },
+            awayTeam: { connect: { id: awayId } },
+            // isPlayed defaults to false if you added it in schema; otherwise omit
           },
         });
 
@@ -104,11 +107,10 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
   }
 }
 
-
 /* ───────────────────────────── Cup Fixtures ───────────────────────────── */
 
 export async function generateCupFixtures(saveGameId: number): Promise<void> {
-  let teams = await prisma.saveGameTeam.findMany({
+  const teams = await prisma.saveGameTeam.findMany({
     where: { saveGameId },
     select: { id: true },
   });
@@ -126,8 +128,8 @@ export async function generateCupFixtures(saveGameId: number): Promise<void> {
       data: {
         number: LEAGUE_ROUNDS + i + 1,
         type: MatchdayType.CUP,
-        date: new Date(),
-        saveGameId,
+        date: addDays(new Date(), LEAGUE_ROUNDS + i),
+        saveGame: { connect: { id: saveGameId } },
       },
     });
 
@@ -140,16 +142,14 @@ export async function generateCupFixtures(saveGameId: number): Promise<void> {
 
       await prisma.saveGameMatch.create({
         data: {
-          saveGameId,
-          homeTeamId: homeId,
-          awayTeamId: awayId,
-          matchDate: new Date(),
-          matchdayId: matchday.id,
-          matchdayType: MatchdayType.CUP,
+          saveGame: { connect: { id: saveGameId } },
+            matchday: { connect: { id: matchday.id } },
+            homeTeam: { connect: { id: homeId } },
+            awayTeam: { connect: { id: awayId } },
         },
       });
 
-      // Temporarily pick a winner to continue the tree
+      // Temporary winner pick to advance the bracket
       winners.push(Math.random() < 0.5 ? homeId : awayId);
     }
 
@@ -167,7 +167,7 @@ function createDoubleRoundRobinFixtures(ids: number[]): number[][][] {
 
 function createRoundRobinFixtures(ids: number[]): number[][][] {
   const teams = [...ids];
-  if (teams.length % 2 !== 0) teams.push(-1); // use -1 as BYE placeholder
+  if (teams.length % 2 !== 0) teams.push(-1); // BYE placeholder
 
   const rounds = teams.length - 1;
   const half = teams.length / 2;
@@ -185,7 +185,7 @@ function createRoundRobinFixtures(ids: number[]): number[][][] {
     }
 
     schedule.push(round);
-    teams.splice(1, 0, teams.pop()!); // rotate teams except first
+    teams.splice(1, 0, teams.pop()!); // rotate all but the first
   }
 
   return schedule;
@@ -198,4 +198,10 @@ function shuffleArray<T>(arr: T[]): T[] {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function addDays(d: Date, days: number): Date {
+  const x = new Date(d.getTime());
+  x.setDate(x.getDate() + days);
+  return x;
 }

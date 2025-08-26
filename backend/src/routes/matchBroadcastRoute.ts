@@ -1,25 +1,27 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import prisma from '../utils/prisma';
-import { broadcastMatchday, LiveEvent } from '../services/matchBroadcastService';
-import { getGameState } from '../services/gameState';
+// backend/src/routes/matchBroadcastRoute.ts
+
+import { Router, Request, Response, NextFunction } from "express";
+import prisma from "../utils/prisma";
+import { getGameState } from "../services/gameState";
 
 const router = Router();
 
 /**
  * POST /api/broadcast/matchday
- * Kick off a live broadcast for the current matchday.
- * - Validates saveGameId
- * - Retrieves current matchday based on GameState
- * - Starts broadcasting and persists each LiveEvent
+ *
+ * ❗️Deprecated: use POST /api/matchday/advance instead.
+ * This endpoint is kept for backward compatibility. It validates the current
+ * GameState + Matchday and returns a 202 Accepted, indicating the caller
+ * should switch to the new engine entrypoint.
  */
 router.post(
-  '/matchday',
+  "/matchday",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const state = await getGameState();
 
       if (!state?.currentSaveGameId || state.currentSaveGameId <= 0) {
-        return res.status(400).json({ error: 'No active save game found' });
+        return res.status(400).json({ error: "No active save game found" });
       }
 
       const matchday = await prisma.matchday.findFirst({
@@ -28,29 +30,27 @@ router.post(
           number: state.currentMatchday,
           type: state.matchdayType,
         },
+        select: { id: true, number: true, type: true },
       });
 
       if (!matchday) {
-        return res.status(404).json({ error: 'Matchday not found' });
+        return res.status(404).json({ error: "Matchday not found" });
       }
 
-      // Start the async broadcast; events will be saved via the callback
-      broadcastMatchday(matchday.id, async (event: LiveEvent) => {
-        await prisma.matchEvent.create({
-          data: {
-            matchdayId: matchday.id,
-            matchId: event.matchId,
-            minute: event.minute,
-            eventType: event.type,
-            description: event.message,
-            saveGamePlayerId: event.saveGamePlayerId,
-          },
-        });
+      // No more in-process broadcast kick-off here.
+      // The simulation/broadcast is driven by /api/matchday/advance and sockets.
+      return res.status(202).json({
+        message:
+          "Deprecated: use POST /api/matchday/advance to start the live engine.",
+        details: {
+          matchdayId: matchday.id,
+          number: matchday.number,
+          type: matchday.type,
+          saveGameId: state.currentSaveGameId,
+        },
       });
-
-      res.status(200).json({ message: 'Matchday broadcast initiated' });
     } catch (error) {
-      console.error('❌ Broadcast error:', error);
+      console.error("❌ Broadcast endpoint error:", error);
       next(error);
     }
   }

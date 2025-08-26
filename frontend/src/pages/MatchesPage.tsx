@@ -2,7 +2,7 @@ import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
 /* ── Services ─────────────────────────────────────────────────────── */
-import matchService from "@/services/matchService";
+import api from "@/services/axios"; // ← use axios instance directly
 import { getTeams } from "@/services/teamService";
 
 /* ── UI components ────────────────────────────────────────────────── */
@@ -39,6 +39,21 @@ interface SimForm {
   awayTeamId: number;
 }
 
+/* ── Endpoints (keep in sync with backend routes) ──────────────────── */
+const MATCHES_ENDPOINT = "/matches";
+const SIMULATE_ENDPOINT = (id: number) => `/matches/${id}/simulate`;
+
+/* ── Local helpers ─────────────────────────────────────────────────── */
+async function getMatchesHttp(): Promise<Match[]> {
+  const { data } = await api.get(MATCHES_ENDPOINT);
+  // Accept either raw array or { matches: [...] }
+  return Array.isArray(data) ? (data as Match[]) : (data?.matches ?? []);
+}
+
+async function simulateMatchHttp(id: number): Promise<void> {
+  await api.post(SIMULATE_ENDPOINT(id));
+}
+
 export default function MatchesPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -55,7 +70,7 @@ export default function MatchesPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [m, t] = await Promise.all([matchService.getMatches(), getTeams()]);
+        const [m, t] = await Promise.all([getMatchesHttp(), getTeams()]);
         setMatches(m);
         setTeams(t);
       } catch {
@@ -91,8 +106,8 @@ export default function MatchesPage() {
 
     setSubmitting(true);
     try {
-      await matchService.simulateMatch(target.id);
-      const updated = await matchService.getMatches();
+      await simulateMatchHttp(target.id);
+      const updated = await getMatchesHttp();
       setMatches(updated);
       setForm({ homeTeamId: 0, awayTeamId: 0 });
       setError(null);
@@ -166,7 +181,9 @@ export default function MatchesPage() {
           <p className="text-red-500">{error}</p>
         ) : (
           <DataTable<Match>
-            data={matches.filter((m) => m.homeGoals !== null && m.awayGoals !== null)}
+            data={matches.filter(
+              (m) => m.homeGoals !== null && m.awayGoals !== null
+            )}
             columns={columns}
             pageSize={10}
             emptyMessage="No matches played yet."

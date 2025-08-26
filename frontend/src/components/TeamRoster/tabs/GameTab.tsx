@@ -1,68 +1,180 @@
 import { useEffect, useState } from "react";
-import { getNextMatch } from "@/services/teamService";
+import { Link } from "react-router-dom";
+import { getNextMatch, type MatchLite } from "@/services/teamService";
 import { useGameState } from "@/store/GameStateStore";
 
-interface MatchLite {
-  id: number;
-  homeTeamId: number;
-  awayTeamId: number;
-  matchDate: string;
-  refereeName?: string;
-  matchdayNumber?: number;
-  matchdayType?: "LEAGUE" | "CUP";
-}
-
 interface GameTabProps {
+  /** Team currently being viewed */
   teamId: number;
+  /** Used for heading + ESLint usage */
   teamName: string;
   morale: number | null;
 }
 
-export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
-  const [match, setMatch] = useState<MatchLite | null>(null);
-  const { gameStage, matchdayType } = useGameState();
+function cupStageBySeasonMd(md: number): string {
+  switch (md) {
+    case 3: return "Round of 128";
+    case 6: return "Round of 64";
+    case 9: return "Round of 32";
+    case 12: return "Round of 16";
+    case 15: return "Quarterfinal";
+    case 18: return "Semifinal";
+    case 21: return "Final";
+    default: return "—";
+  }
+}
 
-  useEffect(() => {
-    if (gameStage === "ACTION") {
-      getNextMatch(teamId)
-        .then(setMatch)
-        .catch((err: unknown) => {
-          console.error("Failed to load next match:", err);
-        });
+function safeTeamLabel(name?: string | null, id?: number) {
+  if (name && name.trim().length > 0) return name;
+  return typeof id === "number" ? `Team ${id}` : "Unknown team";
+}
+
+function TeamLink({ id, name }: { id?: number; name?: string | null }) {
+  const label = safeTeamLabel(name, id);
+  if (typeof id !== "number") return <span className="opacity-80">{label}</span>;
+  return (
+    <Link to={`/teams/${id}`} className="underline hover:opacity-80">
+      {label}
+    </Link>
+  );
+}
+
+/**
+ * Best-effort H2H fetcher:
+ * 1) Tries to use whatever export exists in @/services/matchService.
+ * 2) Falls back to GET /api/matches/last-head-to-head?homeId=&awayId=
+ * Accepts shapes: { text } | { summary } | { result } | string.
+ */
+async function fetchLastH2H(homeId: number, awayId: number): Promise<string | null> {
+  // Try dynamic import of the service to avoid compile errors from missing named exports
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod: any = await import("@/services/matchService");
+    const fn =
+      mod?.getLastHeadToHead ??
+      mod?.getHeadToHeadSummary ??
+      mod?.getLastH2H;
+
+    if (typeof fn === "function") {
+      const res = await fn(homeId, awayId);
+      if (!res) return null;
+      if (typeof res === "string") return res;
+      if (typeof res === "object") {
+        if (typeof res.text === "string") return res.text;
+        if (typeof res.summary === "string") return res.summary;
+        if (typeof res.result === "string") return res.result;
+      }
+      try {
+        return JSON.stringify(res);
+      } catch {
+        return String(res);
+      }
     }
-  }, [teamId, gameStage]);
-
-  if (gameStage !== "ACTION") {
-    return (
-      <div>
-        <p className="mb-2 font-bold text-accent">Matchday In Progress</p>
-        <p>The match is currently being simulated.</p>
-      </div>
-    );
+  } catch {
+    // ignore and try HTTP fallback
   }
 
-  if (!match) return <p>Loading next match...</p>;
+  // HTTP fallback (keep endpoint in sync with your backend)
+  try {
+    const qs = new URLSearchParams({ homeId: String(homeId), awayId: String(awayId) });
+    const resp = await fetch(`/api/matches/last-head-to-head?${qs.toString()}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      const t = data?.text ?? data?.summary ?? data?.result ?? null;
+      return typeof t === "string" ? t : null;
+    }
+  } catch {
+    // network errors -> null
+  }
+  return null;
+}
 
-  const kickoff = new Date(match.matchDate).toLocaleDateString();
+export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
+  const [match, setMatch] = useState<MatchLite | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  // Read GameState to label the upcoming simulated matchday (fallback to match payload)
+  const { currentMatchday: seasonMd, matchdayType: seasonType } = useGameState();
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    setError(null);
+    setLastResult(null);
+
+    // Fetch for the DISPLAYED TEAM (not the coached team)
+    getNextMatch(teamId)
+      .then(async (m) => {
+        if (cancelled) return;
+        setMatch(m ?? null);
+        setLoaded(true);
+
+        if (m) {
+          try {
+            const h2hText = await fetchLastH2H(m.homeTeamId, m.awayTeamId);
+            if (!cancelled) setLastResult(h2hText);
+          } catch {
+            if (!cancelled) setLastResult(null);
+          }
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to load next match:", err);
+        if (!cancelled) {
+          setError("Failed to load next match.");
+          setLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch when switching team page OR when matchday advances
+  }, [teamId, seasonMd]);
+
+  if (!loaded) return <p>Loading next match...</p>;
+  if (error) return <p className="text-error">{error}</p>;
+  if (!match) return <p>Next Fixture: —</p>;
+
+  // Prefer GameState; fall back to match payload if needed
+  const mdNum =
+    typeof seasonMd === "number" && seasonMd > 0
+      ? seasonMd
+      : match.matchdayNumber ?? undefined;
+
+  const mdType = (seasonType ?? match.matchdayType ?? "LEAGUE") as "LEAGUE" | "CUP";
+
+  const legText =
+    mdType === "LEAGUE"
+      ? mdNum
+        ? mdNum <= 7
+          ? "League 1st leg"
+          : "League 2nd leg"
+        : "League —"
+      : `Cup ${mdNum ? cupStageBySeasonMd(mdNum) : "—"}`;
 
   return (
     <div>
-      <p className="mb-2 font-bold text-accent">Next Match</p>
-      <p>Match ID: {match.id}</p>
-      <p>Home Team ID: {match.homeTeamId}</p>
-      <p>Away Team ID: {match.awayTeamId}</p>
-      <p>Referee: {match.refereeName ?? "Unknown"}</p>
-      <p>
-        Matchday:{" "}
-        {match.matchdayNumber
-          ? `${match.matchdayNumber} (${match.matchdayType})`
-          : "TBD"}
+      <p className="mb-1 font-bold text-accent">Next Fixture for {teamName}:</p>
+
+      <p className="text-sm mb-1">{`Matchday ${mdNum ?? "—"}: ${legText}`}</p>
+
+      <p className="text-sm">
+        <TeamLink id={match.homeTeamId} name={match.homeTeamName} />{" "}
+        <span className="opacity-70">x</span>{" "}
+        <TeamLink id={match.awayTeamId} name={match.awayTeamName} />
       </p>
-      <p>Kickoff: {kickoff}</p>
 
-      <hr className="my-2" />
+      <p className="text-sm">Referee: {match.refereeName ?? "Unknown"}</p>
+      <p className="text-sm">
+        Last result: {lastResult ? lastResult : "First match-up!"}
+      </p>
 
-      <p>Coach Morale: {morale !== null ? `${morale}%` : "N/A"}</p>
+      <hr className="my-3" />
+
+      <p className="text-sm">Coach Morale: {morale !== null ? `${morale}%` : "N/A"}</p>
     </div>
   );
 }

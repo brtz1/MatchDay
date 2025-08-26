@@ -1,3 +1,5 @@
+// backend/src/routes/summaryRoute.ts
+
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { getGameState } from '../services/gameState';
@@ -18,49 +20,76 @@ router.get('/:matchdayId', async (req: Request, res: Response, next: NextFunctio
 
   try {
     const gameState = await getGameState();
-    if (!gameState || !gameState.currentSaveGameId) {
+    if (!gameState?.currentSaveGameId) {
       return res.status(400).json({ error: 'No active save game found' });
     }
+    const saveGameId = gameState.currentSaveGameId;
 
+    // 1) Fetch matches for this matchday (no fragile relation includes)
     const matches = await prisma.saveGameMatch.findMany({
-      where: {
-        saveGameId: gameState.currentSaveGameId,
-        matchdayId,
+      where: { saveGameId, matchdayId },
+      select: {
+        id: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        homeGoals: true,
+        awayGoals: true,
       },
-      include: {
-        homeTeam: true,
-        awayTeam: true,
-        MatchEvent: { orderBy: { minute: 'asc' } },
-        // matchStats: true, // enable if/when relation is added to Prisma schema
+      orderBy: { id: 'asc' },
+    });
+
+    if (matches.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 2) Resolve team names
+    const teamIds = Array.from(new Set(matches.flatMap(m => [m.homeTeamId, m.awayTeamId])));
+    const teams = await prisma.saveGameTeam.findMany({
+      where: { id: { in: teamIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map<number, string>(teams.map(t => [t.id, t.name]));
+
+    // 3) Fetch ordered events for all matches
+    const matchIds = matches.map(m => m.id);
+    const events = await prisma.matchEvent.findMany({
+      where: { saveGameMatchId: { in: matchIds } },
+      orderBy: { minute: 'asc' },
+      select: {
+        saveGameMatchId: true,
+        minute: true,
+        type: true,          // schema field name
+        description: true,
       },
     });
 
-    const summary = matches.map((m) => ({
+    // Group events by match
+    const eventsByMatch = new Map<number, { minute: number; type: string; description: string }[]>();
+    for (const e of events) {
+      const bucket = eventsByMatch.get(e.saveGameMatchId) ?? [];
+      bucket.push({ minute: e.minute, type: e.type as unknown as string, description: e.description });
+      eventsByMatch.set(e.saveGameMatchId, bucket);
+    }
+
+    // 4) Build summary payload
+    const summary = matches.map(m => ({
       matchId: m.id,
       home: {
         id: m.homeTeamId,
-        name: m.homeTeam.name,
+        name: nameById.get(m.homeTeamId) ?? String(m.homeTeamId),
         score: m.homeGoals ?? 0,
       },
       away: {
         id: m.awayTeamId,
-        name: m.awayTeam.name,
+        name: nameById.get(m.awayTeamId) ?? String(m.awayTeamId),
         score: m.awayGoals ?? 0,
       },
-      events: m.MatchEvent.map((e: any) => ({
-        minute: e.minute,
-        type: e.eventType,
-        description: e.description,
+      events: (eventsByMatch.get(m.id) ?? []).map(ev => ({
+        minute: ev.minute,
+        type: ev.type,
+        description: ev.description,
       })),
-      // stats: m.matchStats?.map((s: any) => ({
-      //   playerId: s.playerId,
-      //   name: s.player.name,
-      //   position: s.player.position,
-      //   goals: s.goals,
-      //   assists: s.assists,
-      //   yellow: s.yellow,
-      //   red: s.red,
-      // })) ?? [],
+      // stats: [] // enable when/if match stats are added to schema
     }));
 
     res.status(200).json(summary);

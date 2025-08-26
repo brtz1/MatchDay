@@ -3,21 +3,42 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation, matchPath } from "react-router-dom";
 /* ── Services / store ─────────────────────────────────────────────── */
 import { getTeamById } from "@/services/teamService";
-import { setFormation } from "@/services/matchService";
 import { useTeamContext } from "@/store/TeamContext";
 import { useGameState } from "@/store/GameStateStore";
-import api from "../services/axios";
 /* ── UI ───────────────────────────────────────────────────────────── */
 import TopNavBar from "@/components/common/TopNavBar";
 import PlayerRoster from "@/components/TeamRoster/PlayerRoster";
 import TeamRosterTabs from "@/components/TeamRoster/TeamRosterTabs";
-import FormationTab from "@/components/TeamRoster/tabs/FormationTab";
+import FormationTab from "@/components/TeamRoster/tabs/FormationTab"; // ← default export (uses GameState store internally)
 import PlayerTab from "@/components/TeamRoster/tabs/PlayerTab";
 import { ProgressBar } from "@/components/common/ProgressBar";
+import GameTab from "@/components/TeamRoster/tabs/GameTab"; // ✅ canonical lowercase path
+import { isAxiosError } from "axios";
+/** Normalize division value to a friendly label ("1".."4", "Distrital", or "—") */
+function formatDivision(div) {
+    if (div === null || div === undefined)
+        return "—";
+    if (typeof div === "number")
+        return String(div);
+    const s = String(div).trim().toUpperCase();
+    // Handle Distrital explicitly
+    if (s.includes("DIST"))
+        return "Distrital";
+    // Try to extract a digit (covers "D1", "DIV_1", "DIVISION_4", etc.)
+    const m = s.match(/(\d+)/);
+    if (m)
+        return m[1];
+    // Fallback to raw string if nothing matched
+    return s || "—";
+}
 export default function TeamRosterPage() {
     const { teamId: teamIdParam } = useParams();
     const { currentTeamId } = useTeamContext();
-    const { coachTeamId, saveGameId, currentMatchday, bootstrapping, } = useGameState();
+    const { coachTeamId, saveGameId, bootstrapping, 
+    // grace/timer flags from GameState store
+    cameFromResults, clearCameFromResults, refreshGameState, 
+    // selection store
+    lineupIds, reserveIds, } = useGameState();
     const navigate = useNavigate();
     const location = useLocation();
     const urlTeamId = teamIdParam ? Number(teamIdParam) : null;
@@ -25,11 +46,26 @@ export default function TeamRosterPage() {
     const teamId = urlTeamId && urlTeamId > 0 ? urlTeamId : coachedId;
     const [team, setTeam] = useState(null);
     const [selectedPlayer, setSelectedPlayer] = useState(null);
-    const [lineupIds, setLineupIds] = useState([]);
-    const [benchIds, setBenchIds] = useState([]);
     const [loading, setLoading] = useState(true);
     const isCoachTeam = teamId === coachedId;
     const isTeamRosterPage = !!matchPath("/team/:id", location.pathname) || !!matchPath("/teams/:id", location.pathname);
+    /* ---------------------------------------------------------------------------
+       After RESULTS → STANDINGS → back here, refresh GameState so currentMatchday
+       is advanced (backend increments during finalize flow).
+    --------------------------------------------------------------------------- */
+    useEffect(() => {
+        if (!cameFromResults)
+            return;
+        (async () => {
+            try {
+                await refreshGameState();
+            }
+            finally {
+                // Reset the one-shot flag so toolbar visits to Standings won't auto-refresh here.
+                clearCameFromResults();
+            }
+        })();
+    }, [cameFromResults, clearCameFromResults, refreshGameState]);
     useEffect(() => {
         if (!teamId || teamId <= 0) {
             console.warn("Invalid or missing team ID — redirecting to home");
@@ -37,7 +73,7 @@ export default function TeamRosterPage() {
             return;
         }
         if (bootstrapping || !saveGameId || !coachedId) {
-            console.warn("GameState not ready — skipping load");
+            // GameState not ready yet
             return;
         }
         const loadTeam = async (retries = 3) => {
@@ -56,7 +92,7 @@ export default function TeamRosterPage() {
                     break;
                 }
                 catch (err) {
-                    if (err?.response?.status === 403) {
+                    if (isAxiosError(err) && err.response?.status === 403) {
                         console.warn(`403 error loading team ${teamId}`);
                         break;
                     }
@@ -67,47 +103,6 @@ export default function TeamRosterPage() {
         };
         loadTeam();
     }, [teamId, navigate, saveGameId, coachedId, bootstrapping]);
-    const handleFormationSet = async (formation) => {
-        try {
-            if (!teamId || !saveGameId || currentMatchday == null) {
-                throw new Error("Missing required context data");
-            }
-            const response = await api.get("/matchday/team-match-info", {
-                params: {
-                    saveGameId,
-                    matchday: currentMatchday,
-                    teamId,
-                },
-            });
-            console.log("📦 team-match-info response:", response.data);
-            const { matchId, isHomeTeam } = response.data;
-            if (!matchId) {
-                throw new Error("❌ Could not retrieve valid matchId for team formation");
-            }
-            console.log("✅ Setting formation for", { matchId, teamId, formation, isHomeTeam });
-            const result = await setFormation(matchId, teamId, formation, isHomeTeam);
-            setLineupIds(result.lineup);
-            setBenchIds(result.bench);
-        }
-        catch (err) {
-            console.error("Failed to set formation:", err);
-        }
-    };
-    const handleRenewContract = (player) => {
-        alert(`Renew contract for ${player.name} (not implemented)`);
-    };
-    const handleSell = (player) => {
-        alert(`Sell player ${player.name} (not implemented)`);
-    };
-    const handleBuyPlayer = (player) => {
-        alert(`Buy player ${player.name} (API integration pending)`);
-    };
-    const handleScoutPlayer = (player) => {
-        alert(`Scout player ${player.name} (not implemented yet)`);
-    };
-    const handleLoanPlayer = (player) => {
-        alert(`Loan player ${player.name} (not implemented yet)`);
-    };
     const tabs = isCoachTeam
         ? [
             { value: "overview", label: "Game" },
@@ -127,6 +122,8 @@ export default function TeamRosterPage() {
     }
     const primary = team.colors?.primary ?? "#facc15";
     const secondary = team.colors?.secondary ?? "#000000";
-    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", typeof team.division === "number" ? team.division : "—", "\u00A0| Coach ", team.coachName ?? (isCoachTeam ? "You" : "—"), "\u00A0|\u00A0Morale", ' ', typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsx("div", { className: "w-[65%]", children: _jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer, lineupIds: lineupIds, benchIds: benchIds }) }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsxs("div", { className: "space-y-2 text-sm", children: [_jsxs("p", { children: ["Stadium: ", _jsx("span", { className: "font-semibold", children: team.stadiumCapacity ?? "—" })] }), _jsx("p", { children: "Next-fixture & morale widgets coming soon\u2026" })] }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: handleRenewContract, onSell: handleSell })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: (player) => (_jsxs("div", { className: "flex gap-2", children: [_jsx("button", { className: "rounded bg-blue-600 px-2 py-1 text-xs hover:bg-blue-800", onClick: () => handleBuyPlayer(player), children: "Buy" }), _jsx("button", { className: "rounded bg-yellow-600 px-2 py-1 text-xs hover:bg-yellow-700", onClick: () => handleScoutPlayer(player), disabled: true, children: "Scout" }), _jsx("button", { className: "rounded bg-gray-600 px-2 py-1 text-xs hover:bg-gray-700", onClick: () => handleLoanPlayer(player), disabled: true, children: "Loan" })] })) })), isCoachTeam && (_jsx(FormationTab, { onSetFormation: handleFormationSet, saveGameId: saveGameId })), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
+    const divisionLabel = formatDivision(team.division);
+    const coachLabel = (team.coachName?.trim() ?? "") || "—";
+    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", divisionLabel, "\u00A0|\u00A0 Coach ", coachLabel, " | Morale", " ", typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsxs("div", { className: "w-[65%]", children: [_jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer, lineupIds: lineupIds, benchIds: reserveIds }), _jsxs("div", { className: "mt-1 text-[11px] text-white/80", children: [_jsxs("span", { className: "mr-4", children: ["Legend: ", _jsx("span", { className: "font-bold text-white", children: "\u25EF" }), " Lineup \u00A0\u00A0 ", _jsx("span", { className: "font-bold text-white", children: "\u2013" }), " Reserve"] }), _jsxs("span", { children: ["Selected starters: ", _jsx("span", { className: "font-semibold", children: lineupIds.length }), " / 11"] })] })] }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsx("div", { className: "space-y-2 text-sm", children: _jsx(GameTab, { teamId: team.id, teamName: team.name, morale: typeof team.morale === "number" ? team.morale : null }) }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: () => { }, onSell: () => { } })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: () => null })), isCoachTeam && _jsx(FormationTab, { players: team.players }), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
 }
 //# sourceMappingURL=TeamRosterPage.js.map

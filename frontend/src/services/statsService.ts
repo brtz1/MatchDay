@@ -1,6 +1,6 @@
 /**
- * statsService.ts
- * ---------------
+ * frontend/src/services/statsService.ts
+ * ------------------------------------
  * Endpoints for player–match statistics and league-wide leaderboards.
  */
 
@@ -16,43 +16,46 @@ export interface PlayerStat {
   yellow: number;
   red: number;
   injuries: number;
+  /** season when the match was played (comes from Matchday.season) */
+  season: number;
 }
 
-export interface RecordStatRequest
-  extends Omit<PlayerStat, "id"> {
-  playerId: number;
+export interface PlayerStatsSummary {
+  gamesPlayed: number;
+  goals: number;
+  goalsThisSeason: number;
+  redCards: number;
   injuries: number;
+  /** current season used to compute goalsThisSeason */
+  season: number;
 }
 
 export interface TopPlayerRow {
-  id: number;
+  playerId: number;
   name: string;
-  position: "GK" | "DF" | "MF" | "AT";
-  nationality: string;
+  teamName: string;
   goals: number;
-  assists: number;
-  yellow: number;
-  red: number;
 }
 
-/* ------------------------------------------------------------------ API */
+const BASE = "/api/stats";
 
-const BASE = "/stats";
+/* ------------------------------------------------------- Player endpoints */
 
-/** GET `/stats/{playerId}` – all match stats for a player */
-async function getPlayerStats(
-  playerId: number
-): Promise<PlayerStat[]> {
-  const { data } = await axios.get<PlayerStat[]>(
-    `${BASE}/${playerId}`
-  );
+/** GET `/stats/player/:playerId` – per-match stat rows including season */
+async function getPlayerStats(playerId: number): Promise<PlayerStat[]> {
+  const { data } = await axios.get<PlayerStat[]>(`${BASE}/player/${playerId}`);
   return data;
 }
 
-/** POST `/stats` – record stats for a player in a match */
-async function recordPlayerStats(payload: RecordStatRequest) {
-  const { data } = await axios.post<PlayerStat>(BASE, payload);
+/** GET `/stats/player/:playerId/summary` – pre-aggregated totals */
+async function getPlayerStatsSummary(playerId: number): Promise<PlayerStatsSummary> {
+  const { data } = await axios.get<PlayerStatsSummary>(`${BASE}/player/${playerId}/summary`);
   return data;
+}
+
+/** POST `/stats/player/:playerId` – record a new per-match stat row */
+async function recordPlayerStats(playerId: number, payload: Partial<PlayerStat>) {
+  await axios.post(`${BASE}/player/${playerId}`, payload);
 }
 
 /** GET `/stats/top` – league leaders used by TopPlayersPage */
@@ -64,6 +67,7 @@ async function getTopPlayers(): Promise<TopPlayerRow[]> {
 /* ------------------------------------------------------------------ Export */
 export default {
   getPlayerStats,
+  getPlayerStatsSummary,
   recordPlayerStats,
   getTopPlayers,
 };

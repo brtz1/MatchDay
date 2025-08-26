@@ -1,10 +1,15 @@
-// src/services/substitutionService.ts
+// backend/src/services/substitutionService.ts
 
 import prisma from '../utils/prisma';
 import {
-  Player,
+  SaveGamePlayer,
   MatchEvent as PrismaMatchEvent,
+  GameStage,
 } from '@prisma/client';
+import { applySubstitution } from './matchService';
+import { applyAISubstitutions } from './halftimeService';
+import { ensureAppearanceRows } from './appearanceService';
+import { getGameState } from './gameState';
 
 export interface MatchLineup {
   matchId: number;
@@ -14,37 +19,60 @@ export interface MatchLineup {
   awayReserves: number[];
   homeSubsMade: number;
   awaySubsMade: number;
+  // The UI can infer pause from GameStage === HALFTIME
   isPaused: boolean;
-  homePlayers: Player[];
-  awayPlayers: Player[];
+  homePlayers: SaveGamePlayer[];
+  awayPlayers: SaveGamePlayer[];
   events: {
     id: number;
     minute: number;
-    eventType: string;
+    type: string;          // <- schema uses `type` (enum), not `eventType`
     description: string;
-    playerId?: number;
+    saveGamePlayerId?: number;
   }[];
 }
 
 /**
- * Fetches the current match state plus available players and events.
+ * Fetches the current match state plus available players and events (save-game aware).
  */
 export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
-  const state = await prisma.matchState.findUnique({ where: { matchId } });
+  const state = await prisma.matchState.findUnique({
+    where: { saveGameMatchId: matchId },
+  });
   if (!state) throw new Error(`MatchState not found for match ${matchId}`);
 
-  const match = await prisma.match.findUnique({
+  const match = await prisma.saveGameMatch.findUnique({
     where: { id: matchId },
-    include: {
-      homeTeam: { include: { players: true } },
-      awayTeam: { include: { players: true } },
+    select: {
+      id: true,
+      saveGameId: true,
+      homeTeamId: true,
+      awayTeamId: true,
     },
   });
-  if (!match) throw new Error(`Match ${matchId} not found`);
+  if (!match) throw new Error(`SaveGameMatch ${matchId} not found`);
+
+  // All selectable players for each team (save-game players)
+  const [homePlayers, awayPlayers] = await Promise.all([
+    prisma.saveGamePlayer.findMany({
+      where: { teamId: match.homeTeamId },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.saveGamePlayer.findMany({
+      where: { teamId: match.awayTeamId },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
 
   const events = await prisma.matchEvent.findMany({
-    where: { matchId },
-    orderBy: { minute: 'asc' },
+    where: { saveGameMatchId: matchId },
+    orderBy: [{ minute: 'asc' }, { id: 'asc' }],
+  });
+
+  // "Paused" is effectively whether we are in HALFTIME for this save
+  const gs = await prisma.gameState.findFirst({
+    where: { currentSaveGameId: match.saveGameId },
+    select: { gameStage: true },
   });
 
   return {
@@ -55,13 +83,13 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
     awayReserves: state.awayReserves,
     homeSubsMade: state.homeSubsMade,
     awaySubsMade: state.awaySubsMade,
-    isPaused: state.isPaused,
-    homePlayers: match.homeTeam.players,
-    awayPlayers: match.awayTeam.players,
+    isPaused: gs?.gameStage === GameStage.HALFTIME,
+    homePlayers,
+    awayPlayers,
     events: events.map((e: PrismaMatchEvent) => ({
       id: e.id,
       minute: e.minute,
-      eventType: e.eventType,
+      type: String(e.type),
       description: e.description,
       saveGamePlayerId: e.saveGamePlayerId ?? undefined,
     })),
@@ -70,6 +98,11 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
 
 /**
  * Substitutes one player for another on the specified side.
+ * - Delegates to applySubstitution, which enforces:
+ *   * max 3 subs,
+ *   * GK-only replaces GK,
+ *   * no re-entry (out player is NOT returned to bench).
+ * - Also ensures the incoming sub is counted as having "played" for stats.
  */
 export async function submitSubstitution(
   matchId: number,
@@ -77,95 +110,61 @@ export async function submitSubstitution(
   outPlayerId: number,
   inPlayerId: number
 ): Promise<void> {
-  const state = await prisma.matchState.findUnique({ where: { matchId } });
-  if (!state) throw new Error(`MatchState not found for match ${matchId}`);
-
   const isHome = side === 'home';
-  const lineup = isHome ? [...state.homeLineup] : [...state.awayLineup];
-  const reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
-  const subsMade = isHome ? state.homeSubsMade : state.awaySubsMade;
+  await applySubstitution(matchId, outPlayerId, inPlayerId, isHome);
 
-  if (subsMade >= 3) throw new Error('Maximum 3 substitutions allowed');
-  if (!lineup.includes(outPlayerId)) throw new Error('Out player not in lineup');
-  if (!reserves.includes(inPlayerId)) throw new Error('In player not in reserves');
-
-  const updatedLineup = lineup.map((id) =>
-    id === outPlayerId ? inPlayerId : id
-  );
-  const updatedReserves = reserves.filter((id) => id !== inPlayerId).concat(outPlayerId);
-
-  await prisma.matchState.update({
-    where: { matchId },
-    data: isHome
-      ? {
-          homeLineup: updatedLineup,
-          homeReserves: updatedReserves,
-          homeSubsMade: subsMade + 1,
-        }
-      : {
-          awayLineup: updatedLineup,
-          awayReserves: updatedReserves,
-          awaySubsMade: subsMade + 1,
-        },
-  });
+  // Redundant-safe: mark the incoming sub as "played" immediately.
+  // (applySubstitution already does this in matchService; calling again is harmless due to skipDuplicates.)
+  await ensureAppearanceRows(matchId, [inPlayerId]);
 }
 
 /**
- * Resumes a paused match.
+ * Resumes a paused match for this match's save by flipping GameStage to MATCHDAY.
+ * (We use stage to pause at halftime; there is no separate isPaused flag in MatchState.)
  */
 export async function resumeMatch(matchId: number): Promise<void> {
-  await prisma.matchState.update({
-    where: { matchId },
-    data: { isPaused: false },
+  const m = await prisma.saveGameMatch.findUnique({
+    where: { id: matchId },
+    select: { saveGameId: true },
+  });
+  if (!m?.saveGameId) return;
+
+  await prisma.gameState.updateMany({
+    where: { currentSaveGameId: m.saveGameId },
+    data: { gameStage: GameStage.MATCHDAY },
   });
 }
 
 /**
- * Performs automatic substitutions for AI teams:
- * prioritizes injured players, then fills remaining slots randomly.
+ * Performs automatic substitutions for AI teams (injury-first).
+ * - Can be called at halftime OR immediately after an injury event.
+ * - Non-coached sides only; coached side is left for the user to handle.
  */
 export async function runAISubstitutions(matchId: number): Promise<void> {
-  const state = await prisma.matchState.findUnique({ where: { matchId } });
-  if (!state) throw new Error(`MatchState not found for match ${matchId}`);
+  // Centralized logic lives in halftimeService.applyAISubstitutions
+  await applyAISubstitutions(matchId);
+}
 
-  const injuryEvents = await prisma.matchEvent.findMany({
-    where: { matchId, eventType: 'INJURY' },
+/**
+ * Convenience helper to auto-substitute injured players right now (during play)
+ * for AI-controlled teams only. Call this when you register an INJURY event.
+ */
+export async function autoSubInjuriesNow(matchId: number): Promise<void> {
+  const match = await prisma.saveGameMatch.findUnique({
+    where: { id: matchId },
+    select: { saveGameId: true, homeTeamId: true, awayTeamId: true },
   });
+  if (!match) return;
 
-  for (const side of ['home', 'away'] as const) {
-    const isHome = side === 'home';
-    let lineup = isHome ? [...state.homeLineup] : [...state.awayLineup];
-    let reserves = isHome ? [...state.homeReserves] : [...state.awayReserves];
-    let subsMade = isHome ? state.homeSubsMade : state.awaySubsMade;
+  const gs = await getGameState().catch(() => null);
+  const coachTeamId = gs?.coachTeamId ?? null;
 
-    if (subsMade >= 3 || reserves.length === 0) continue;
+  const isHomeAI = coachTeamId ? match.homeTeamId !== coachTeamId : true;
+  const isAwayAI = coachTeamId ? match.awayTeamId !== coachTeamId : true;
 
-    // Sub injured players first
-    const injured = injuryEvents
-      .map((e) => e.saveGamePlayerId)
-      .filter((pid): pid is number => pid !== null)
-      .filter((pid) => lineup.includes(pid));
-
-    for (const out of injured) {
-      if (subsMade >= 3 || reserves.length === 0) break;
-      const inn = reserves.shift()!;
-      lineup = lineup.map((id) => (id === out ? inn : id));
-      subsMade++;
-    }
-
-    // Fill remaining subs randomly
-    while (subsMade < 3 && reserves.length > 0) {
-      const out = lineup[Math.floor(Math.random() * lineup.length)];
-      const inn = reserves.shift()!;
-      lineup = lineup.map((id) => (id === out ? inn : id));
-      subsMade++;
-    }
-
-    await prisma.matchState.update({
-      where: { matchId },
-      data: isHome
-        ? { homeLineup: lineup, homeReserves: reserves, homeSubsMade: subsMade }
-        : { awayLineup: lineup, awayReserves: reserves, awaySubsMade: subsMade },
-    });
+  // If at least one side is AI, reuse the same AI substitution logic
+  // which prioritizes injured players on the field.
+  if (isHomeAI || isAwayAI) {
+    await applyAISubstitutions(matchId);
   }
 }

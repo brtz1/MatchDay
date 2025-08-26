@@ -1,45 +1,37 @@
-import { jsxs as _jsxs, jsx as _jsx } from "react/jsx-runtime";
-import { forwardRef, Fragment, useMemo, } from "react";
-import clsx from "clsx";
-import { ChevronRight } from "lucide-react";
-import Clock from "@/components/MatchBroadcast/Clock";
-/**
- * ---------------------------------------------------------------------------
- * Component
- * ---------------------------------------------------------------------------
- */
-export const MatchTicker = forwardRef(({ games, coachTeamId, onGameClick, className, ...rest }, ref) => {
-    /** Group games by division for header sections. */
-    const grouped = useMemo(() => {
-        return games.reduce((acc, game) => {
-            const key = game.division;
-            if (!acc[key])
-                acc[key] = [];
-            acc[key].push(game);
-            return acc;
-        }, {});
-    }, [games]);
-    return (_jsx("div", { ref: ref, className: clsx("space-y-6", className), ...rest, children: Object.entries(grouped)
-            .sort(([a], [b]) => String(a).localeCompare(String(b), undefined, {
-            numeric: true,
-        }))
-            .map(([division, list]) => (_jsxs(Fragment, { children: [_jsxs("h3", { className: "border-l-4 border-blue-600 pl-2 text-sm font-semibold uppercase text-gray-700 dark:text-gray-300", children: ["Division ", division] }), _jsx("div", { className: "space-y-1", children: list.map((g) => {
-                        const isCoach = g.home.id === coachTeamId ||
-                            g.away.id === coachTeamId;
-                        return (_jsxs("button", { onClick: () => onGameClick?.(g.id), className: clsx("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors", "hover:bg-gray-100 dark:hover:bg-gray-800", isCoach &&
-                                "ring-1 ring-inset ring-blue-500/50"), children: [_jsxs("div", { className: "flex flex-1 items-center gap-2", children: [_jsx(TeamBox, { name: g.home.name, highlight: g.home.id === coachTeamId }), _jsx("span", { className: "text-sm font-semibold tabular-nums", children: g.home.score }), _jsx(ChevronRight, { className: "h-4 w-4 text-gray-400" }), _jsx("span", { className: "text-sm font-semibold tabular-nums", children: g.away.score }), _jsx(TeamBox, { name: g.away.name, highlight: g.away.id === coachTeamId })] }), _jsx(Clock, { minute: g.minute, showProgress: false, className: "w-16" })] }, g.id));
-                    }) })] }, division))) }));
-});
-MatchTicker.displayName = "MatchTicker";
-/**
- * ---------------------------------------------------------------------------
- * Helper – TeamBox
- * ---------------------------------------------------------------------------
- */
-function TeamBox({ name, highlight, }) {
-    return (_jsx("span", { className: clsx("truncate rounded-md px-2 py-0.5 text-xs font-medium", highlight
-            ? "bg-blue-600 text-white dark:bg-blue-500"
-            : "bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100"), style: { maxWidth: "7rem" }, title: name, children: name }));
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import React from "react";
+const divisionOrder = ["D1", "D2", "D3", "D4", "DIST"];
+export default function MatchTicker({ games, onGameClick, onTeamClick, showMinute = false, groupByDivision = false, }) {
+    const grouped = React.useMemo(() => {
+        if (!groupByDivision)
+            return { order: ["ALL"], groups: { ALL: games } };
+        const groups = {};
+        for (const d of divisionOrder)
+            groups[d] = [];
+        for (const g of games)
+            (groups[g.division] ?? (groups[g.division] = [])).push(g);
+        const order = divisionOrder.filter((d) => (groups[d] ?? []).length > 0);
+        return { order, groups };
+    }, [games, groupByDivision]);
+    return (_jsx("div", { className: "flex flex-col gap-4", children: grouped.order.map((key) => (_jsxs("div", { className: "rounded-xl border border-white/10", children: [groupByDivision && (_jsx("div", { className: "px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80", children: label(key) })), _jsx("ul", { className: "divide-y divide-white/10", children: (grouped.groups[key] ?? []).map((g) => {
+                        const latest = (g.events ?? []).slice(-1)[0];
+                        return (_jsxs("li", { className: "flex items-center justify-between px-3 py-2 hover:bg-white/5 cursor-pointer", onClick: () => onGameClick?.(g.id), children: [_jsxs("div", { className: "flex items-center gap-2", children: [showMinute && _jsxs("span", { className: "w-10 text-right tabular-nums", children: [g.minute, "'"] }), _jsx("span", { className: "font-semibold hover:underline", onClick: (e) => {
+                                                e.stopPropagation();
+                                                onTeamClick?.({ matchId: g.id, teamId: g.home.id, isHome: true });
+                                            }, children: g.home.name }), _jsxs("span", { className: "tabular-nums font-semibold", children: [" ", g.home.score, " ", "x", " ", g.away.score, " "] }), _jsx("span", { className: "font-semibold hover:underline", onClick: (e) => {
+                                                e.stopPropagation();
+                                                onTeamClick?.({ matchId: g.id, teamId: g.away.id, isHome: false });
+                                            }, children: g.away.name })] }), _jsx("div", { className: "flex items-center gap-2 text-xs opacity-90", children: latest && (_jsxs("span", { className: "rounded bg-white/10 px-2 py-0.5 tabular-nums", children: [latest.minute, "' ", latest.text] })) })] }, g.id));
+                    }) })] }, key))) }));
 }
-export default MatchTicker;
+function label(code) {
+    switch (code) {
+        case "D1": return "Division 1";
+        case "D2": return "Division 2";
+        case "D3": return "Division 3";
+        case "D4": return "Division 4";
+        case "DIST": return "Distrital";
+        default: return code;
+    }
+}
 //# sourceMappingURL=MatchTicker.js.map

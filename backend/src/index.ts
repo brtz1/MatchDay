@@ -1,15 +1,12 @@
 // backend/src/index.ts
-import 'module-alias/register';
-import dotenv from 'dotenv';
+import "module-alias/register";
+import dotenv from "dotenv";
 dotenv.config();
 
-import http from 'http';
-import { Server } from 'socket.io';
-
-import app from './app';
-import { ensureGameState } from './services/gameState';
-
-export let io: Server;
+import http from "http";
+import app from "./app";
+import { ensureGameState } from "./services/gameState";
+import { initSocket } from "./sockets/io"; // ✅ singleton initializer
 
 async function main() {
   try {
@@ -22,39 +19,17 @@ async function main() {
   const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
   const httpServer = http.createServer(app);
 
-  io = new Server(httpServer, {
-    cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:5173',
-      methods: ['GET', 'POST'],
-      credentials: true,
-    },
-  });
-
-  io.on('connection', (socket) => {
-    console.log(`✅ Socket connected: ${socket.id}`);
-
-    socket.on('disconnect', () => {
-      console.log(`❌ Socket disconnected: ${socket.id}`);
-    });
-
-    socket.on('join-matchday', ({ matchdayId }) => {
-      socket.join(`matchday:${matchdayId}`);
-    });
-
-    socket.on('leave-matchday', ({ matchdayId }) => {
-      socket.leave(`matchday:${matchdayId}`);
-    });
-  });
+  // ✅ initialize socket.io at /socket (matches frontend)
+  initSocket(httpServer);
 
   httpServer.listen(PORT, () => {
     console.log(`✅ MatchDay! backend running at http://localhost:${PORT}`);
   });
 }
 
-// 🛡️ Only run the server if NOT in a test environment
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== "test") {
   main().catch((err) => {
-    console.error('❌ Fatal startup error:', err);
+    console.error("❌ Fatal startup error:", err);
     process.exit(1);
   });
 }

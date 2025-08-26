@@ -1,133 +1,442 @@
-import express, { Request, Response, NextFunction } from 'express';
+// backend/src/routes/matchdayRoute.ts
+import { Router, type Request, type Response, type NextFunction } from "express";
+import prisma from "../utils/prisma";
+import { getGameState } from "../services/gameState";
 import {
-  startMatchday,
-  completeMatchday,
-  advanceMatchdayType,
-  getMatchdayFixtures,
-  getTeamMatchInfo,
-} from '../services/matchdayService';
-import {
-  ensureGameState,
-  setCurrentSaveGame,
-  getGameState,
-} from '../services/gameState';
-import prisma from '../utils/prisma';
-import { GameStage } from '@prisma/client';
+  startOrResumeMatchday,
+  pauseMatchday,
+  stopMatchday,
+} from "../services/matchdayEngine";
+import { broadcastStageChanged } from "../sockets/broadcast";
+import { finalizeStandingsAndAdvance } from "../services/matchdayService";
 
-const router = express.Router();
+const router = Router();
+
+type GameStage = "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+
+/**
+ * GET /api/matchday/team-match-info
+ * Query: saveGameId, matchday, teamId
+ * Returns:
+ * {
+ *   saveGameId,
+ *   matchdayId,
+ *   matchId,
+ *   isHomeTeam,
+ *   homeTeamId,
+ *   awayTeamId,
+ *   opponentTeamId
+ * }
+ *
+ * Notes:
+ * - Validates that the team belongs to the given saveGameId to avoid cross-save confusion.
+ */
+router.get(
+  "/team-match-info",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const saveGameId = Number(req.query.saveGameId);
+      const matchdayNumber = Number(req.query.matchday);
+      const teamId = Number(req.query.teamId);
+
+      if (
+        !Number.isFinite(saveGameId) ||
+        !Number.isFinite(matchdayNumber) ||
+        !Number.isFinite(teamId)
+      ) {
+        return res
+          .status(400)
+          .json({ error: "saveGameId, matchday, and teamId are required numeric values" });
+      }
+
+      // Ensure the team exists AND belongs to this save
+      const team = await prisma.saveGameTeam.findUnique({
+        where: { id: teamId },
+        select: { id: true, saveGameId: true },
+      });
+      if (!team) {
+        return res.status(404).json({ error: "Team not found" });
+      }
+      if (team.saveGameId !== saveGameId) {
+        return res.status(400).json({
+          error:
+            "Team does not belong to the provided saveGameId. Check your GameState vs selected save.",
+        });
+      }
+
+      // Find the requested matchday under this save
+      const md = await prisma.matchday.findFirst({
+        where: { saveGameId, number: matchdayNumber },
+        select: {
+          id: true,
+          number: true,
+          saveGameMatches: {
+            select: {
+              id: true,
+              homeTeamId: true,
+              awayTeamId: true,
+            },
+          },
+        },
+      });
+
+      if (!md) return res.status(404).json({ error: "Matchday not found" });
+
+      const found = md.saveGameMatches.find(
+        (m) => m.homeTeamId === teamId || m.awayTeamId === teamId
+      );
+      if (!found) {
+        return res.status(404).json({ error: "Team not found in this matchday" });
+      }
+
+      const isHomeTeam = found.homeTeamId === teamId;
+      const opponentTeamId = isHomeTeam ? found.awayTeamId : found.homeTeamId;
+
+      return res.status(200).json({
+        saveGameId,
+        matchdayId: md.id,
+        matchId: found.id,
+        isHomeTeam,
+        homeTeamId: found.homeTeamId,
+        awayTeamId: found.awayTeamId,
+        opponentTeamId,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * POST /api/matchday/set-stage
- * Body: { saveGameId: number, stage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS" }
- * Robustly flips the *active* save game's stage.
+ * Body: { saveGameId: number, stage: GameStage }
+ * Sets stage and controls the live engine accordingly.
  */
 router.post(
-  '/set-stage',
+  "/set-stage",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { saveGameId, stage } = req.body ?? {};
-      if (typeof saveGameId !== 'number' || Number.isNaN(saveGameId)) {
-        return res.status(400).json({ error: 'saveGameId (number) is required' });
+      const { saveGameId, stage } = req.body as {
+        saveGameId?: number;
+        stage?: GameStage;
+      };
+
+      if (!saveGameId || typeof saveGameId !== "number") {
+        return res.status(400).json({ error: "saveGameId is required" });
       }
-      if (!Object.values(GameStage).includes(stage)) {
-        return res.status(400).json({ error: 'Invalid stage value' });
+      const allowed: GameStage[] = ["ACTION", "MATCHDAY", "HALFTIME", "RESULTS", "STANDINGS"];
+      if (!stage || !allowed.includes(stage)) {
+        return res.status(400).json({ error: "Invalid or missing stage" });
       }
 
-      await ensureGameState({ saveGameId });
-      await setCurrentSaveGame(saveGameId);
-
-      // 🔧 Target the row by currentSaveGameId to avoid id mismatches
+      // Update GameState row(s) tied to this save
       const updated = await prisma.gameState.updateMany({
         where: { currentSaveGameId: saveGameId },
         data: { gameStage: stage },
       });
 
+      // Fallback for single-row GameState schemas
       if (updated.count === 0) {
-        return res.status(404).json({ error: 'Active GameState not found for saveGameId' });
+        await prisma.gameState.update({
+          where: { id: 1 },
+          data: { currentSaveGameId: saveGameId, gameStage: stage },
+        });
       }
 
-      const gs = await getGameState();
-      return res.status(200).json({ gameStage: gs?.gameStage });
-    } catch (error) {
-      console.error('❌ Failed to set stage:', error);
-      next(error);
+      // Emit stage (room + optional global) for clients
+      broadcastStageChanged({ gameStage: stage }, saveGameId, { alsoGlobal: true });
+
+      // Control the live engine
+      if (stage === "MATCHDAY") {
+        await startOrResumeMatchday(saveGameId);
+      } else if (stage === "HALFTIME") {
+        pauseMatchday(saveGameId);
+      } else {
+        // ACTION / RESULTS / STANDINGS — stop any running loop
+        stopMatchday(saveGameId);
+      }
+
+      return res.status(200).json({ gameStage: stage });
+    } catch (err) {
+      console.error("❌ set-stage error:", err);
+      next(err);
     }
   }
 );
 
 /**
  * POST /api/matchday/advance
- * Flip into MATCHDAY & start the async simulation that will pause at 45'.
+ * Body:
+ * {
+ *   saveGameId: number,
+ *   formation?: string,
+ *   lineupIds?: number[],
+ *   reserveIds?: number[] // optional; 0..8 allowed
+ * }
+ *
+ * If selection is provided, validates (11 starters + exactly 1 GK) and persists into MatchState
+ * for the coach team in the upcoming match. Then flips stage to MATCHDAY and starts engine.
  */
-router.post('/advance', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { saveGameId } = req.body ?? {};
-    if (typeof saveGameId !== 'number' || Number.isNaN(saveGameId)) {
-      return res.status(400).json({ error: 'Missing or invalid saveGameId' });
+router.post(
+  "/advance",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { saveGameId, formation, lineupIds, reserveIds } = req.body as {
+        saveGameId?: number;
+        formation?: string;
+        lineupIds?: number[];
+        reserveIds?: number[];
+      };
+
+      if (!saveGameId || typeof saveGameId !== "number") {
+        return res.status(400).json({ error: "saveGameId is required" });
+      }
+
+      const gs = await getGameState();
+      if (!gs || gs.currentSaveGameId !== saveGameId) {
+        return res.status(400).json({ error: "No active save or mismatched saveGameId" });
+      }
+      if (!gs.coachTeamId) {
+        return res.status(400).json({ error: "Coach team is not set in GameState" });
+      }
+
+      // Locate the current matchday (and matches for team lookup)
+      const md = await prisma.matchday.findFirst({
+        where: {
+          saveGameId,
+          number: gs.currentMatchday,
+          type: gs.matchdayType,
+        },
+        select: {
+          id: true,
+          number: true,
+          type: true,
+          saveGameMatches: {
+            select: { id: true, homeTeamId: true, awayTeamId: true },
+          },
+        },
+      });
+      if (!md) {
+        return res.status(404).json({ error: "Matchday not found" });
+      }
+
+      // Find the coach's match in this round
+      const coachMatch = md.saveGameMatches.find(
+        (m) => m.homeTeamId === gs.coachTeamId || m.awayTeamId === gs.coachTeamId
+      );
+      if (!coachMatch) {
+        return res.status(404).json({ error: "Coach team has no match in this round" });
+      }
+      const isHomeTeam = coachMatch.homeTeamId === gs.coachTeamId;
+      const teamId = isHomeTeam ? coachMatch.homeTeamId : coachMatch.awayTeamId;
+
+      // If FE sent a selection, validate & persist into MatchState
+      if (formation && Array.isArray(lineupIds)) {
+        // Must be exactly 11 starters
+        if (lineupIds.length !== 11) {
+          return res.status(400).json({ error: "Lineup must have exactly 11 players" });
+        }
+
+        // Ensure all starters belong to the coach team and count GK
+        const starters = await prisma.saveGamePlayer.findMany({
+          where: { id: { in: lineupIds } },
+          select: { id: true, teamId: true, position: true },
+        });
+        if (starters.length !== lineupIds.length) {
+          return res.status(400).json({ error: "Some selected starters do not exist" });
+        }
+        const wrongTeam = starters.find((p) => p.teamId !== teamId);
+        if (wrongTeam) {
+          return res.status(400).json({ error: "Starter selection contains players from another team" });
+        }
+        const gkCount = starters.filter((p) => p.position === "GK").length;
+        if (gkCount !== 1) {
+          return res.status(400).json({ error: "Lineup must include exactly 1 GK" });
+        }
+
+        // Validate reserves (optional). If provided, ensure same team and no duplicates with lineup.
+        const bench = Array.isArray(reserveIds) ? reserveIds : [];
+        if (bench.length > 0) {
+          const reserves = await prisma.saveGamePlayer.findMany({
+            where: { id: { in: bench } },
+            select: { id: true, teamId: true },
+          });
+          if (reserves.length !== bench.length) {
+            return res.status(400).json({ error: "Some selected reserves do not exist" });
+          }
+          const badBench = reserves.find((p) => p.teamId !== teamId);
+          if (badBench) {
+            return res.status(400).json({ error: "Reserve selection contains players from another team" });
+          }
+          for (const id of bench) {
+            if (lineupIds.includes(id)) {
+              return res.status(400).json({ error: "A player cannot be both in lineup and reserves" });
+            }
+          }
+        }
+
+        // Upsert MatchState for this SaveGameMatch and side
+        const existing = await prisma.matchState.findUnique({
+          where: { saveGameMatchId: coachMatch.id },
+        });
+
+        if (!existing) {
+          await prisma.matchState.create({
+            data: isHomeTeam
+              ? {
+                  saveGameMatchId: coachMatch.id,
+                  homeFormation: formation,
+                  homeLineup: lineupIds,
+                  homeReserves: Array.isArray(reserveIds) ? reserveIds : [],
+                  awayFormation: '4-4-2',
+                  awayLineup: [],
+                  awayReserves: [],
+                  subsRemainingHome: 3,
+                  subsRemainingAway: 3,
+                }
+              : {
+                  saveGameMatchId: coachMatch.id,
+                  awayFormation: formation,
+                  awayLineup: lineupIds,
+                  awayReserves: Array.isArray(reserveIds) ? reserveIds : [],
+                  homeFormation: '4-4-2',
+                  homeLineup: [],
+                  homeReserves: [],
+                  subsRemainingHome: 3,
+                  subsRemainingAway: 3,
+                },
+          });
+        } else {
+          await prisma.matchState.update({
+            where: { saveGameMatchId: coachMatch.id },
+            data: isHomeTeam
+              ? {
+                  homeFormation: formation,
+                  homeLineup: lineupIds,
+                  homeReserves: Array.isArray(reserveIds) ? reserveIds : [],
+                }
+              : {
+                  awayFormation: formation,
+                  awayLineup: lineupIds,
+                  awayReserves: Array.isArray(reserveIds) ? reserveIds : [],
+                },
+          });
+        }
+      }
+
+      // Flip stage → MATCHDAY
+      await prisma.gameState.update({
+        where: { id: gs.id },
+        data: { gameStage: "MATCHDAY" },
+      });
+
+      broadcastStageChanged({ gameStage: "MATCHDAY" }, saveGameId, { alsoGlobal: true });
+
+      // Start the live engine loop (emits 'match-tick' / 'match-event')
+      await startOrResumeMatchday(saveGameId);
+
+      return res.status(200).json({
+        saveGameId,
+        matchdayId: md.id,
+        message: "Matchday advanced; live engine started.",
+      });
+    } catch (err) {
+      console.error("❌ advance error:", err);
+      next(err);
     }
+  }
+);
 
-    const midState = await startMatchday(saveGameId);
-    res.status(200).json(midState);
+/**
+ * POST /api/matchday/advance-after-results
+ * Body: { saveGameId?: number }
+ * Helper to move RESULTS → STANDINGS (and notify clients).
+ * Frontend: call this when matches end and you want to show tables.
+ */
+router.post(
+  "/advance-after-results",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { saveGameId } = (req.body || {}) as { saveGameId?: number };
+      const gs = await getGameState();
 
-    completeMatchday(saveGameId).catch(err =>
-      console.error('Error completing matchday:', err)
-    );
-  } catch (error) {
-    console.error('❌ Failed to advance matchday:', error);
-    next(error);
+      const activeSaveId = saveGameId ?? gs?.currentSaveGameId;
+      if (!activeSaveId) {
+        return res.status(400).json({ error: "No active save found" });
+      }
+
+      if (gs) {
+        await prisma.gameState.update({
+          where: { id: gs.id },
+          data: { gameStage: "STANDINGS" },
+        });
+      } else {
+        await prisma.gameState.updateMany({
+          where: { currentSaveGameId: activeSaveId },
+          data: { gameStage: "STANDINGS" },
+        });
+      }
+
+      broadcastStageChanged({ gameStage: "STANDINGS" }, activeSaveId, { alsoGlobal: true });
+
+      return res.status(200).json({
+        ok: true,
+      });
+    } catch (err) {
+      console.error("❌ advance-after-results error:", err);
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/matchday/finalize-standings
+ * Body: { saveGameId?: number }
+ * STANDINGS → (increment currentMatchday) → ACTION
+ * Call this after the Standings grace period so the Team Roster page lands on the next round.
+ */
+router.post("/finalize-standings", async (req, res, next) => {
+  try {
+    const { saveGameId } = (req.body || {}) as { saveGameId?: number };
+    if (!saveGameId) return res.status(400).json({ error: "saveGameId is required" });
+
+    const gs = await finalizeStandingsAndAdvance(saveGameId);
+    broadcastStageChanged({ gameStage: gs.gameStage }, saveGameId, { alsoGlobal: true });
+    return res.status(200).json({ ok: true, gameState: gs });
+  } catch (err) {
+    next(err);
   }
 });
 
 /**
- * POST /api/matchday/advance-type
+ * GET /api/matchday/debug/:saveGameId
+ * Quick inspection of current stage, matchday, and match ids in the round.
  */
-router.post('/advance-type', async (_req, res, next) => {
+router.get("/debug/:saveGameId", async (req, res, next) => {
   try {
-    const updated = await advanceMatchdayType();
-    res.status(200).json(updated);
-  } catch (error) {
-    console.error('❌ Failed to advance matchday type:', error);
-    next(error);
-  }
-});
-
-/**
- * GET /api/matchday
- */
-router.get('/', async (req, res, next) => {
-  try {
-    const num = req.query.number ? parseInt(String(req.query.number), 10) : undefined;
-    const typeParam = req.query.type ? String(req.query.type).toUpperCase() : undefined;
-    if (typeParam && typeParam !== 'LEAGUE' && typeParam !== 'CUP') {
-      return res.status(400).json({ error: 'Invalid matchday type. Use LEAGUE or CUP.' });
+    const saveGameId = Number(req.params.saveGameId);
+    if (!Number.isFinite(saveGameId)) {
+      return res.status(400).json({ error: "bad saveGameId" });
     }
 
-    const fixtures = await getMatchdayFixtures(num, typeParam as any);
-    res.status(200).json(fixtures);
-  } catch (error) {
-    console.error('❌ Error fetching matchday fixtures:', error);
-    next(error);
-  }
-});
+    const gs = await prisma.gameState.findFirst({
+      where: { currentSaveGameId: saveGameId },
+      select: { currentMatchday: true, gameStage: true },
+    });
 
-/**
- * GET /api/matchday/team-match-info
- */
-router.get('/team-match-info', async (req, res, next) => {
-  try {
-    const saveGameId = parseInt(String(req.query.saveGameId), 10);
-    const matchday = parseInt(String(req.query.matchday), 10);
-    const teamId = parseInt(String(req.query.teamId), 10);
+    const md = await prisma.matchday.findFirst({
+      where: { saveGameId, number: gs?.currentMatchday ?? 1 },
+      include: { saveGameMatches: { select: { id: true } } },
+    });
 
-    if (Number.isNaN(saveGameId) || Number.isNaN(matchday) || Number.isNaN(teamId)) {
-      return res.status(400).json({ error: 'Missing or invalid query parameters' });
-    }
-
-    const info = await getTeamMatchInfo(saveGameId, matchday, teamId);
-    res.status(200).json(info);
-  } catch (error) {
-    console.error('❌ Error fetching team match info:', error);
-    next(error);
+    return res.json({
+      stage: gs?.gameStage,
+      currentMatchday: gs?.currentMatchday,
+      matches: md?.saveGameMatches.map((m) => m.id) ?? [],
+      count: md?.saveGameMatches.length ?? 0,
+    });
+  } catch (e) {
+    next(e);
   }
 });
 

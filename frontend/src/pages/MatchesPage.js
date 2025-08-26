@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useMemo, useState } from "react";
 /* ── Services ─────────────────────────────────────────────────────── */
-import matchService from "@/services/matchService";
+import api from "@/services/axios"; // ← use axios instance directly
 import { getTeams } from "@/services/teamService";
 /* ── UI components ────────────────────────────────────────────────── */
 import { AppCard } from "@/components/common/AppCard";
@@ -11,6 +11,18 @@ import { ProgressBar } from "@/components/common/ProgressBar";
 /* ── Routing ───────────────────────────────────────────────────────── */
 import { useNavigate } from "react-router-dom";
 import { teamUrl, matchUrl } from "@/utils/paths";
+/* ── Endpoints (keep in sync with backend routes) ──────────────────── */
+const MATCHES_ENDPOINT = "/matches";
+const SIMULATE_ENDPOINT = (id) => `/matches/${id}/simulate`;
+/* ── Local helpers ─────────────────────────────────────────────────── */
+async function getMatchesHttp() {
+    const { data } = await api.get(MATCHES_ENDPOINT);
+    // Accept either raw array or { matches: [...] }
+    return Array.isArray(data) ? data : (data?.matches ?? []);
+}
+async function simulateMatchHttp(id) {
+    await api.post(SIMULATE_ENDPOINT(id));
+}
 export default function MatchesPage() {
     const [matches, setMatches] = useState([]);
     const [teams, setTeams] = useState([]);
@@ -25,7 +37,7 @@ export default function MatchesPage() {
     useEffect(() => {
         (async () => {
             try {
-                const [m, t] = await Promise.all([matchService.getMatches(), getTeams()]);
+                const [m, t] = await Promise.all([getMatchesHttp(), getTeams()]);
                 setMatches(m);
                 setTeams(t);
             }
@@ -54,8 +66,8 @@ export default function MatchesPage() {
         }
         setSubmitting(true);
         try {
-            await matchService.simulateMatch(target.id);
-            const updated = await matchService.getMatches();
+            await simulateMatchHttp(target.id);
+            const updated = await getMatchesHttp();
             setMatches(updated);
             setForm({ homeTeamId: 0, awayTeamId: 0 });
             setError(null);

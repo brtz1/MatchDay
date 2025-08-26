@@ -19,8 +19,7 @@ services:
 
   backend:
     build: ./backend
-    entrypoint: ["sh", "/usr/src/app/entrypoint.sh"]
-    # ◀— remove any `volumes:` here so node_modules & dist stay intact
+    # entrypoint: ["sh", "/usr/src/app/entrypoint.sh"]   <- remove this line
     ports:
       - "4000:4000"
     environment:
@@ -32,10 +31,6 @@ services:
     restart: unless-stopped
     healthcheck:
       disable: true
-      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   frontend:
     build: ./frontend

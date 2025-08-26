@@ -1,67 +1,59 @@
+// frontend/src/services/matchService.ts
+
 import api from "@/services/axios";
 
-/* ------------------------------------------------------------------------- */
-/* Types                                                                     */
-/* ------------------------------------------------------------------------- */
-
-export interface Match {
-  id: number;
-  homeTeamId: number;
-  awayTeamId: number;
-  matchdayId?: number;
-  matchdayType: "LEAGUE" | "CUP";
-  homeGoals: number | null;
-  awayGoals: number | null;
-  played: boolean;
-  matchDate?: string;
-
-  // Enriched data from backend
-  homeTeam?: { id: number; name: string };
-  awayTeam?: { id: number; name: string };
-  matchday?: { number: number; type: string };
+/** Optional helper if you expose this in your axios service */
+async function fetchTeamMatchInfo(saveGameId: number, matchday: number, teamId: number) {
+  const { data } = await api.get<{
+    saveGameId: number;
+    matchdayId: number;
+    matchId: number;
+    isHomeTeam: boolean;
+    homeTeamId: number;
+    awayTeamId: number;
+    opponentTeamId: number;
+  }>("/matchday/team-match-info", { params: { saveGameId, matchday, teamId } });
+  return data;
 }
 
-export interface MatchForm {
-  homeTeamId: number;
-  awayTeamId: number;
-  matchDate: string;
-  matchdayType?: "LEAGUE" | "CUP";
-}
+/**
+ * Persist the user's selection. Tries the new coach endpoint first, then falls back to the legacy per-match route.
+ */
+export async function saveCoachSelection(params: {
+  saveGameId: number;
+  matchday: number;
+  coachTeamId: number;
+  formation: string;
+  lineupIds: number[];
+  reserveIds: number[];
+}) {
+  const { saveGameId, matchday, coachTeamId, formation, lineupIds, reserveIds } = params;
 
-/* ------------------------------------------------------------------------- */
-/* API Calls                                                                 */
-/* ------------------------------------------------------------------------- */
+  // 1) Preferred (new) route: save by saveGameId (no need for matchId/isHomeTeam)
+  try {
+    await api.post("/formation/coach", {
+      saveGameId,
+      formation,
+      lineupIds,
+      reserveIds,
+    });
+    return;
+  } catch (e) {
+    // fall back below
+    console.warn("[FE-matchService] /formation/coach not available; falling back to per-match route", e);
+  }
 
-export async function setFormation(
-  matchId: number,
-  teamId: number,
-  formation: string,
-  isHomeTeam: boolean
-): Promise<{ lineup: number[]; bench: number[] }> {
-  const response = await api.post(`/matches/${matchId}/formation`, {
-    teamId,
+  // 2) Legacy route requires matchId + isHomeTeam
+  const info = await fetchTeamMatchInfo(saveGameId, matchday, coachTeamId);
+  await api.post(`/matches/${info.matchId}/formation`, {
     formation,
-    isHomeTeam,
+    isHomeTeam: info.isHomeTeam,
+    lineupIds,
+    reserveIds,
   });
-  return response.data;
 }
 
-export async function getMatches(): Promise<Match[]> {
-  const response = await api.get<Match[]>("/matches");
-  return response.data;
+/** Advance into MATCHDAY (engine will be started on backend) */
+export async function advanceToMatchday(saveGameId: number) {
+  await api.post("/matchday/advance", { saveGameId });
 }
-
-export async function simulateMatch(matchId: number): Promise<Match> {
-  const response = await api.post<Match>(`/matches/${matchId}/simulate`);
-  return response.data;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Export                                                                    */
-/* ------------------------------------------------------------------------- */
-
-export default {
-  setFormation,
-  getMatches,
-  simulateMatch,
-};

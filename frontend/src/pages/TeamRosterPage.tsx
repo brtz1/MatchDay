@@ -6,21 +6,21 @@ import { useNavigate, useParams, useLocation, matchPath } from "react-router-dom
 
 /* ── Services / store ─────────────────────────────────────────────── */
 import { getTeamById } from "@/services/teamService";
-import { setFormation } from "@/services/matchService";
 import { useTeamContext } from "@/store/TeamContext";
 import { useGameState } from "@/store/GameStateStore";
-import api from "../services/axios";
 
 /* ── UI ───────────────────────────────────────────────────────────── */
 import TopNavBar from "@/components/common/TopNavBar";
 import PlayerRoster from "@/components/TeamRoster/PlayerRoster";
 import TeamRosterTabs, { TabDefinition } from "@/components/TeamRoster/TeamRosterTabs";
-import FormationTab from "@/components/TeamRoster/tabs/FormationTab";
+import FormationTab from "@/components/TeamRoster/tabs/FormationTab"; // ← default export (uses GameState store internally)
 import PlayerTab from "@/components/TeamRoster/tabs/PlayerTab";
 import { ProgressBar } from "@/components/common/ProgressBar";
+import GameTab from "@/components/TeamRoster/tabs/GameTab"; // ✅ canonical lowercase path
 
 /* ── Types ────────────────────────────────────────────────────────── */
 import type { Backend } from "@/types/backend";
+import { isAxiosError } from "axios";
 type Player = Backend.Player;
 
 type Team = {
@@ -28,11 +28,30 @@ type Team = {
   name: string;
   colors?: { primary: string; secondary: string };
   stadiumCapacity?: number;
-  division?: number;
+  /** Division can arrive as number or enum/string (e.g. "D1", "DIV_1", "DISTRITAL") */
+  division?: number | string | null;
   morale?: number;
   coachName?: string;
   players: Player[];
 };
+
+/** Normalize division value to a friendly label ("1".."4", "Distrital", or "—") */
+function formatDivision(div?: number | string | null): string {
+  if (div === null || div === undefined) return "—";
+  if (typeof div === "number") return String(div);
+
+  const s = String(div).trim().toUpperCase();
+
+  // Handle Distrital explicitly
+  if (s.includes("DIST")) return "Distrital";
+
+  // Try to extract a digit (covers "D1", "DIV_1", "DIVISION_4", etc.)
+  const m = s.match(/(\d+)/);
+  if (m) return m[1];
+
+  // Fallback to raw string if nothing matched
+  return s || "—";
+}
 
 export default function TeamRosterPage() {
   const { teamId: teamIdParam } = useParams<{ teamId?: string }>();
@@ -40,8 +59,16 @@ export default function TeamRosterPage() {
   const {
     coachTeamId,
     saveGameId,
-    currentMatchday,
     bootstrapping,
+
+    // grace/timer flags from GameState store
+    cameFromResults,
+    clearCameFromResults,
+    refreshGameState,
+
+    // selection store
+    lineupIds,
+    reserveIds,
   } = useGameState();
 
   const navigate = useNavigate();
@@ -53,13 +80,28 @@ export default function TeamRosterPage() {
 
   const [team, setTeam] = useState<Team | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [lineupIds, setLineupIds] = useState<number[]>([]);
-  const [benchIds, setBenchIds] = useState<number[]>([]);
+
   const [loading, setLoading] = useState(true);
 
   const isCoachTeam = teamId === coachedId;
   const isTeamRosterPage =
     !!matchPath("/team/:id", location.pathname) || !!matchPath("/teams/:id", location.pathname);
+
+  /* ---------------------------------------------------------------------------
+     After RESULTS → STANDINGS → back here, refresh GameState so currentMatchday
+     is advanced (backend increments during finalize flow).
+  --------------------------------------------------------------------------- */
+  useEffect(() => {
+    if (!cameFromResults) return;
+    (async () => {
+      try {
+        await refreshGameState();
+      } finally {
+        // Reset the one-shot flag so toolbar visits to Standings won't auto-refresh here.
+        clearCameFromResults();
+      }
+    })();
+  }, [cameFromResults, clearCameFromResults, refreshGameState]);
 
   useEffect(() => {
     if (!teamId || teamId <= 0) {
@@ -69,7 +111,7 @@ export default function TeamRosterPage() {
     }
 
     if (bootstrapping || !saveGameId || !coachedId) {
-      console.warn("GameState not ready — skipping load");
+      // GameState not ready yet
       return;
     }
 
@@ -87,8 +129,8 @@ export default function TeamRosterPage() {
             morale: data.morale ?? 50,
           });
           break;
-        } catch (err: any) {
-          if (err?.response?.status === 403) {
+        } catch (err: unknown) {
+          if (isAxiosError(err) && err.response?.status === 403) {
             console.warn(`403 error loading team ${teamId}`);
             break;
           }
@@ -100,52 +142,6 @@ export default function TeamRosterPage() {
 
     loadTeam();
   }, [teamId, navigate, saveGameId, coachedId, bootstrapping]);
-
-  const handleFormationSet = async (formation: string) => {
-    try {
-      if (!teamId || !saveGameId || currentMatchday == null) {
-        throw new Error("Missing required context data");
-      }
-
-      const response = await api.get("/matchday/team-match-info", {
-        params: {
-          saveGameId,
-          matchday: currentMatchday,
-          teamId,
-        },
-      });
-
-      console.log("📦 team-match-info response:", response.data);
-
-      const { matchId, isHomeTeam } = response.data;
-      if (!matchId) {
-        throw new Error("❌ Could not retrieve valid matchId for team formation");
-      }
-
-      console.log("✅ Setting formation for", { matchId, teamId, formation, isHomeTeam });
-      const result = await setFormation(matchId, teamId, formation, isHomeTeam);
-      setLineupIds(result.lineup);
-      setBenchIds(result.bench);
-    } catch (err) {
-      console.error("Failed to set formation:", err);
-    }
-  };
-
-  const handleRenewContract = (player: Player) => {
-    alert(`Renew contract for ${player.name} (not implemented)`);
-  };
-  const handleSell = (player: Player) => {
-    alert(`Sell player ${player.name} (not implemented)`);
-  };
-  const handleBuyPlayer = (player: Player) => {
-    alert(`Buy player ${player.name} (API integration pending)`);
-  };
-  const handleScoutPlayer = (player: Player) => {
-    alert(`Scout player ${player.name} (not implemented yet)`);
-  };
-  const handleLoanPlayer = (player: Player) => {
-    alert(`Loan player ${player.name} (not implemented yet)`);
-  };
 
   const tabs: TabDefinition[] = isCoachTeam
     ? [
@@ -177,6 +173,8 @@ export default function TeamRosterPage() {
 
   const primary = team.colors?.primary ?? "#facc15";
   const secondary = team.colors?.secondary ?? "#000000";
+  const divisionLabel = formatDivision(team.division);
+  const coachLabel = (team.coachName?.trim() ?? "") || "—";
 
   return (
     <>
@@ -189,8 +187,8 @@ export default function TeamRosterPage() {
         >
           <h1 className="flex items-center gap-2 text-2xl font-bold">{team.name}</h1>
           <p className="text-xs">
-            Division {typeof team.division === "number" ? team.division : "—"} | 
-            Coach {team.coachName ?? (isCoachTeam ? "You" : "—")} | Morale{' '}
+            Division {divisionLabel}&nbsp;|&nbsp;
+            Coach {coachLabel} | Morale{" "}
             {typeof team.morale === "number" ? team.morale : "—"}
           </p>
         </div>
@@ -202,62 +200,47 @@ export default function TeamRosterPage() {
               selectedPlayer={selectedPlayer}
               onSelectPlayer={setSelectedPlayer}
               lineupIds={lineupIds}
-              benchIds={benchIds}
+              benchIds={reserveIds}
             />
+
+            {/* Tiny legend */}
+            <div className="mt-1 text-[11px] text-white/80">
+              <span className="mr-4">Legend: <span className="font-bold text-white">◯</span> Lineup &nbsp;&nbsp; <span className="font-bold text-white">–</span> Reserve</span>
+              <span>
+                Selected starters: <span className="font-semibold">{lineupIds.length}</span> / 11
+              </span>
+            </div>
           </div>
 
           <div className="w-[35%]">
             <TeamRosterTabs tabs={tabs}>
+              {/* Game tab */}
               <div className="space-y-2 text-sm">
-                <p>
-                  Stadium: <span className="font-semibold">{team.stadiumCapacity ?? "—"}</span>
-                </p>
-                <p>Next-fixture & morale widgets coming soon…</p>
+                <GameTab
+                  teamId={team.id}
+                  teamName={team.name}
+                  morale={typeof team.morale === "number" ? team.morale : null}
+                />
               </div>
 
+              {/* Player tab */}
               {isCoachTeam ? (
                 <PlayerTab
                   selectedPlayer={selectedPlayer}
-                  onRenewContract={handleRenewContract}
-                  onSell={handleSell}
+                  onRenewContract={() => {}}
+                  onSell={() => {}}
                 />
               ) : (
                 <PlayerTab
                   selectedPlayer={selectedPlayer}
-                  renderActions={(player: Player) => (
-                    <div className="flex gap-2">
-                      <button
-                        className="rounded bg-blue-600 px-2 py-1 text-xs hover:bg-blue-800"
-                        onClick={() => handleBuyPlayer(player)}
-                      >
-                        Buy
-                      </button>
-                      <button
-                        className="rounded bg-yellow-600 px-2 py-1 text-xs hover:bg-yellow-700"
-                        onClick={() => handleScoutPlayer(player)}
-                        disabled
-                      >
-                        Scout
-                      </button>
-                      <button
-                        className="rounded bg-gray-600 px-2 py-1 text-xs hover:bg-gray-700"
-                        onClick={() => handleLoanPlayer(player)}
-                        disabled
-                      >
-                        Loan
-                      </button>
-                    </div>
-                  )}
+                  renderActions={() => null}
                 />
               )}
 
-              {isCoachTeam && (
-                <FormationTab
-                  onSetFormation={handleFormationSet}
-                  saveGameId={saveGameId}
-                />
-              )}
+              {/* Formation tab (coach only) */}
+              {isCoachTeam && <FormationTab players={team.players} />}
 
+              {/* Finances tab (coach only) */}
               {isCoachTeam && <div className="text-sm">Financial breakdown coming soon…</div>}
             </TeamRosterTabs>
           </div>

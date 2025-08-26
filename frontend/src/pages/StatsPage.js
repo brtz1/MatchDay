@@ -2,12 +2,21 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import playersService from "@/services/playersService";
-import matchService from "@/services/matchService";
+import api from "@/services/axios"; // ← use axios directly for matches
 import statsService from "@/services/statsService";
 import { AppCard } from "@/components/common/AppCard";
 import { AppButton } from "@/components/common/AppButton";
 import DataTable from "@/components/common/DataTable";
 import { ProgressBar } from "@/components/common/ProgressBar";
+/* ── Endpoints (align with backend) ────────────────────────────────── */
+const MATCHES_ENDPOINT = "/matches";
+/** Minimal fetch to populate the match selector */
+async function getMatchesHttp() {
+    const { data } = await api.get(MATCHES_ENDPOINT);
+    const arr = Array.isArray(data) ? data : data?.matches ?? [];
+    // We only need ids here
+    return arr.map((m) => ({ id: Number(m.id) }));
+}
 export default function StatsPage() {
     const [players, setPlayers] = useState([]);
     const [matches, setMatches] = useState([]);
@@ -29,7 +38,7 @@ export default function StatsPage() {
             try {
                 const [p, m] = await Promise.all([
                     playersService.getPlayers(),
-                    matchService.getMatches(),
+                    getMatchesHttp(),
                 ]);
                 setPlayers(p);
                 setMatches(m);
@@ -49,6 +58,7 @@ export default function StatsPage() {
         try {
             const s = await statsService.getPlayerStats(id);
             setStats(s);
+            setError(null);
         }
         catch {
             setError("Failed to fetch player stats");
@@ -63,12 +73,18 @@ export default function StatsPage() {
             return;
         setSubmitting(true);
         try {
-            await statsService.recordPlayerStats({
-                playerId: selectedPlayer,
-                ...form,
+            // statsService now expects (playerId, payload)
+            await statsService.recordPlayerStats(selectedPlayer, {
+                matchId: form.matchId,
+                goals: form.goals,
+                assists: form.assists,
+                yellow: form.yellow,
+                red: form.red,
+                injuries: form.injuries,
             });
-            handleSelectPlayer(selectedPlayer);
+            await handleSelectPlayer(selectedPlayer);
             setForm({ matchId: 0, goals: 0, assists: 0, yellow: 0, red: 0, injuries: 0 });
+            setError(null);
         }
         catch {
             setError("Failed to record stats");

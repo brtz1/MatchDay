@@ -24,34 +24,46 @@ router.get(
         return res.status(400).json({ error: 'No active save game found' });
       }
 
-      // Fetch all matches for this save & matchday, with events
+      // 1) Fetch matches with team names
       const matches = await prisma.saveGameMatch.findMany({
         where: { saveGameId, matchdayId },
         include: {
           homeTeam: { select: { name: true } },
           awayTeam: { select: { name: true } },
-          MatchEvent: {
-            orderBy: { minute: 'asc' },
-            select: {
-              minute: true,
-              eventType: true,
-              description: true,
-            },
-          },
         },
       });
 
-      // Map to the shape PostMatchSummary expects
+      // 2) Fetch events separately (schema uses saveGameMatchId and 'type')
+      const matchIds = matches.map((m) => m.id);
+      const events = await prisma.matchEvent.findMany({
+        where: { saveGameMatchId: { in: matchIds } },
+        orderBy: { minute: 'asc' },
+        select: {
+          saveGameMatchId: true,
+          minute: true,
+          type: true,
+          description: true,
+        },
+      });
+
+      // Group events by match id
+      const eventsByMatch = new Map<number, typeof events>();
+      for (const ev of events) {
+        const list = eventsByMatch.get(ev.saveGameMatchId) ?? [];
+        list.push(ev);
+        eventsByMatch.set(ev.saveGameMatchId, list);
+      }
+
+      // 3) Map to summary shape
       const summary = matches.map((m) => ({
         matchId: m.id,
-        home: m.homeTeam.name,
-        away: m.awayTeam.name,
-        // Use an en-dash or hyphen as you prefer:
+        home: m.homeTeam?.name ?? String(m.homeTeamId),
+        away: m.awayTeam?.name ?? String(m.awayTeamId),
         score: `${m.homeGoals ?? 0} – ${m.awayGoals ?? 0}`,
-        events: m.MatchEvent.map((e) => ({
+        events: (eventsByMatch.get(m.id) ?? []).map((e) => ({
           minute: e.minute,
-          type: e.eventType,
-          desc: e.description,    // <-- renamed from `description` to `desc`
+          type: e.type,
+          desc: e.description,
         })),
       }));
 

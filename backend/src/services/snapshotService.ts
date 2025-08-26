@@ -1,3 +1,5 @@
+// backend/src/services/snapshotService.ts
+
 import prisma from '../utils/prisma';
 
 /**
@@ -59,7 +61,7 @@ export async function snapshotCurrentGame(): Promise<number> {
       salary: p.salary,
       behavior: p.behavior,
       contractUntil: p.contractUntil,
-      teamId: oldTeamIdToNew[p.teamId!],
+      teamId: p.teamId ? oldTeamIdToNew[p.teamId] : null,
       localIndex: p.localIndex,
     })),
   });
@@ -67,6 +69,13 @@ export async function snapshotCurrentGame(): Promise<number> {
   // 4. Copy SaveGameMatches
   const oldMatches = await prisma.saveGameMatch.findMany({
     where: { saveGameId: currentSaveId },
+    select: {
+      homeTeamId: true,
+      awayTeamId: true,
+      homeGoals: true,
+      awayGoals: true,
+      matchdayId: true,
+    },
   });
 
   for (const match of oldMatches) {
@@ -75,12 +84,9 @@ export async function snapshotCurrentGame(): Promise<number> {
         saveGameId: newSave.id,
         homeTeamId: oldTeamIdToNew[match.homeTeamId],
         awayTeamId: oldTeamIdToNew[match.awayTeamId],
-        played: match.played,
         homeGoals: match.homeGoals,
         awayGoals: match.awayGoals,
-        matchdayId: match.matchdayId,
-        matchdayType: match.matchdayType,
-        matchDate: match.matchDate, // ✅ FIXED: Required by schema
+        matchdayId: match.matchdayId, // assumes same matchday ids are valid; adjust if you also clone matchdays
       },
     });
   }

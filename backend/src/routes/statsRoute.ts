@@ -6,83 +6,128 @@ import prisma from '../utils/prisma';
 const router = Router();
 
 /**
- * GET /api/stats
- * Returns aggregated goals, assists, yellow/red cards, and injuries per player across all matches.
+ * GET /api/stats/player/:playerId
+ * Per-match rows for a SaveGamePlayer (kept for detailed views / tables).
+ * Includes season via the matchday relation.
  */
 router.get(
-  '/',
-  async (_req: Request, res: Response, next: NextFunction) => {
+  '/player/:playerId',
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const stats = await prisma.playerMatchStats.findMany({
-        include: { player: true },
-      });
-
-      const totals = new Map<
-        number,
-        {
-          id: number;
-          name: string;
-          nationality: string;
-          position: string;
-          goals: number;
-          assists: number;
-          yellow: number;
-          red: number;
-          injuries: number;
-        }
-      >();
-
-      for (const stat of stats) {
-        const current =
-          totals.get(stat.playerId) ?? {
-            id: stat.playerId,
-            name: stat.player.name,
-            nationality: stat.player.nationality,
-            position: stat.player.position,
-            goals: 0,
-            assists: 0,
-            yellow: 0,
-            red: 0,
-            injuries: 0,
-          };
-
-        current.goals += stat.goals;
-        current.assists += stat.assists;
-        current.yellow += stat.yellow;
-        current.red += stat.red;
-        current.injuries += stat.injuries ?? 0;
-
-        totals.set(stat.playerId, current);
+      const playerId = Number(req.params.playerId);
+      if (!Number.isFinite(playerId)) {
+        return res.status(400).json({ error: 'Invalid player id' });
       }
 
-      const list = Array.from(totals.values());
-      list.sort((a, b) => (b.goals !== a.goals ? b.goals - a.goals : b.assists - a.assists));
+      const rows = await prisma.saveGamePlayerMatchStats.findMany({
+        where: { saveGamePlayerId: playerId },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          saveGameMatchId: true,
+          goals: true,
+          assists: true,
+          yellow: true,
+          red: true,
+          injuries: true,
+          saveGameMatch: {
+            select: { matchday: { select: { season: true } } },
+          },
+        },
+      });
 
-      res.status(200).json(list);
+      const result = rows.map(r => ({
+        id: r.id,
+        matchId: r.saveGameMatchId,
+        goals: r.goals ?? 0,
+        assists: r.assists ?? 0,
+        yellow: r.yellow ?? 0,
+        red: r.red ?? 0,
+        injuries: r.injuries ?? 0,
+        season: r.saveGameMatch?.matchday?.season ?? 1,
+      }));
+
+      res.status(200).json(result);
     } catch (error) {
-      console.error('❌ Error loading player stats:', error);
+      console.error('❌ Error loading per-match stats for player:', error);
       next(error);
     }
   }
 );
 
 /**
- * GET /api/stats/:playerId
- * Returns all match stats for a single player (array of match stats, including injuries).
+ * GET /api/stats/player/:playerId/summary
+ * Career totals + "goals this season" using MatchEvent (GOAL / RED / INJURY).
+ * Games played still comes from SaveGamePlayerMatchStats (appearance rows).
  */
 router.get(
-  '/:playerId',
+  '/player/:playerId/summary',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const playerId = Number(req.params.playerId);
-      if (!playerId) return res.status(400).json({ error: "Invalid playerId" });
+      if (!Number.isFinite(playerId)) {
+        return res.status(400).json({ error: 'Invalid player id' });
+      }
 
-      const stats = await prisma.playerMatchStats.findMany({
-        where: { playerId },
-        orderBy: { matchId: "asc" },
+      // Current season from GameState
+      const gs = await prisma.gameState.findUnique({
+        where: { id: 1 },
+        select: { season: true },
+      });
+      const currentSeason = gs?.season ?? 1;
+
+      // Games played = number of appearance rows
+      const gamesPlayed = await prisma.saveGamePlayerMatchStats.count({
+        where: { saveGamePlayerId: playerId },
+      });
+
+      // Tally events
+      const [goals, redCards, injuries, goalsThisSeason] = await Promise.all([
+        prisma.matchEvent.count({
+          where: { saveGamePlayerId: playerId, type: 'GOAL' },
+        }),
+        prisma.matchEvent.count({
+          where: { saveGamePlayerId: playerId, type: 'RED' },
+        }),
+        prisma.matchEvent.count({
+          where: { saveGamePlayerId: playerId, type: 'INJURY' },
+        }),
+        prisma.matchEvent.count({
+          where: {
+            saveGamePlayerId: playerId,
+            type: 'GOAL',
+            // Filter by the match's matchday.season
+            saveGameMatch: { matchday: { season: currentSeason } },
+          },
+        }),
+      ]);
+
+      res.status(200).json({
+        gamesPlayed,
+        goals,
+        goalsThisSeason,
+        redCards,
+        injuries,
+        season: currentSeason,
+      });
+    } catch (error) {
+      console.error('❌ Error loading stats summary for player:', error);
+      next(error);
+    }
+  }
+);
+
+/**
+ * Optional: keep a lightweight aggregate endpoint if something else uses it.
+ * (Now targets *save-game* stats, not base tables.)
+ */
+router.get(
+  '/',
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const stats = await prisma.saveGamePlayerMatchStats.findMany({
         select: {
-          id: true,
-          matchId: true,
+          saveGamePlayerId: true,
           goals: true,
           assists: true,
           yellow: true,
@@ -90,10 +135,9 @@ router.get(
           injuries: true,
         },
       });
-
       res.status(200).json(stats);
     } catch (error) {
-      console.error('❌ Error loading stats for player:', error);
+      console.error('❌ Error loading global stats:', error);
       next(error);
     }
   }

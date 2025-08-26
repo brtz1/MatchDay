@@ -1,17 +1,28 @@
-import { SaveGameMatch, MatchState } from "@prisma/client";
+// backend/src/engine/simulateMatch.ts
+
+import { SaveGameMatch, MatchState, MatchEventType } from "@prisma/client";
 import prisma from "../utils/prisma";
 
-// Types for returned events
-interface SimulatedMatchEvent {
-  matchdayId: number;
+/**
+ * Socket/DTO-aligned event shape (no yellow cards in enum).
+ */
+export interface SimulatedMatchEvent {
+  matchdayId: number;       // for grouping; caller may ignore
   minute: number;
-  eventType: "GOAL" | "YELLOW" | "RED" | "INJURY";
-  description: string;
-  saveGamePlayerId: number;
+  type: MatchEventType;     // GOAL | RED | INJURY
+  description: string;      // e.g., "72' Pedro scores!"
+  saveGamePlayerId: number; // SaveGamePlayer.id
 }
 
 /**
  * Simulates a single minute of a match and returns any events that occurred.
+ * - ~8% chance an event happens in a given minute.
+ * - On GOAL: increments SaveGameMatch.homeGoals/awayGoals atomically.
+ * - Returns at most ONE event for simplicity (extend as needed).
+ *
+ * IMPORTANT: This function DOES NOT:
+ *  - persist MatchEvent rows,
+ *  - modify lineups or subs (pure sim; broadcaster handles those).
  */
 export async function simulateMatch(
   match: SaveGameMatch,
@@ -20,63 +31,96 @@ export async function simulateMatch(
 ): Promise<SimulatedMatchEvent[]> {
   const events: SimulatedMatchEvent[] = [];
 
-  // Fetch home/away players (lineup only)
-  const homePlayerIds = state.homeLineup;
-  const awayPlayerIds = state.awayLineup;
+  // On-pitch player ids (SaveGamePlayer ids)
+  const homePlayerIds = state.homeLineup ?? [];
+  const awayPlayerIds = state.awayLineup ?? [];
   const allPlayerIds = [...homePlayerIds, ...awayPlayerIds];
 
+  if (allPlayerIds.length === 0) return events;
+
+  // Minimal player info (position needed to exclude GK from goals)
   const players = await prisma.saveGamePlayer.findMany({
     where: { id: { in: allPlayerIds } },
-    select: { id: true, name: true, behavior: true, teamId: true },
+    select: {
+      id: true,
+      name: true,
+      behavior: true,
+      position: true,
+      // NEW: we read the current injured flag so we can avoid redundant writes
+      lockedUntilNextMatchday: true,
+    },
   });
+  if (players.length === 0) return events;
 
-  const playerMap = new Map(players.map(p => [p.id, p]));
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const isGK = (pos?: string | null) => (pos ?? "").toUpperCase() === "GK";
 
-  // Roll a dice: 1 in 12 chance something happens this minute
-  const eventChance = Math.random();
-  if (eventChance > 0.08) return []; // ~92% of minutes = no event
+  // ── Event occurrence probability: ~8% per minute ───────────────────────────
+  const EVENT_CHANCE = 0.08;
+  if (Math.random() >= EVENT_CHANCE) return events;
 
-  // Pick random player on the field
-  const allLineup = allPlayerIds.filter(id => playerMap.has(id));
-  const randomPlayerId = allLineup[Math.floor(Math.random() * allLineup.length)];
-  const player = playerMap.get(randomPlayerId);
-  if (!player) return [];
+  // ── Choose event type FIRST (GK must never score) ──────────────────────────
+  const avgBehavior =
+    players.reduce((acc, p) => acc + (p.behavior ?? 3), 0) / players.length;
+  const clampedAvg = Math.min(Math.max(avgBehavior, 1), 5);
 
-  const behavior = player.behavior ?? 3; // default neutral
+  const redWeight = 0.15 * (clampedAvg / 5); // up to 15% of events at behavior=5
+  const injWeight = 0.20;                    // 20% injuries
+  // Goal weight is the remainder.
 
-  // Decide event type using weight based on behavior
   const roll = Math.random();
-  let eventType: SimulatedMatchEvent["eventType"] = "GOAL";
-
-  if (roll < 0.02 * behavior) eventType = "RED";
-  else if (roll < 0.05 * behavior) eventType = "YELLOW";
-  else if (roll < 0.04) eventType = "INJURY";
-  else eventType = "GOAL";
-
-  let description = "";
-
-  switch (eventType) {
-    case "GOAL":
-      description = `${player.name} scores!`;
-      break;
-    case "YELLOW":
-      description = `${player.name} gets a yellow card.`;
-      break;
-    case "RED":
-      description = `${player.name} is sent off!`;
-      break;
-    case "INJURY":
-      description = `${player.name} is injured and limps off.`;
-      break;
+  let type: MatchEventType;
+  if (roll < redWeight) {
+    type = MatchEventType.RED;
+  } else if (roll < redWeight + injWeight) {
+    type = MatchEventType.INJURY;
+  } else {
+    type = MatchEventType.GOAL;
   }
 
-  const event: SimulatedMatchEvent = {
-    matchdayId: match.matchdayId!, // ✅ required by schema
-    minute,
-    eventType,                    // ✅ match Prisma field name
-    description,
-    saveGamePlayerId: player.id,
-  };
+  // ── Pick a player based on the event type ──────────────────────────────────
+  const onFieldIds = allPlayerIds.filter((id) => byId.has(id));
+  const goalEligibleIds = onFieldIds.filter((id) => !isGK(byId.get(id)?.position));
+  const pool = type === MatchEventType.GOAL ? goalEligibleIds : onFieldIds;
 
-  return [event];
+  if (pool.length === 0) {
+    return events;
+  }
+
+  const chosenId = pool[Math.floor(Math.random() * pool.length)];
+  const chosen = byId.get(chosenId)!;
+  const isHome = homePlayerIds.includes(chosenId);
+
+  // ── Apply side effects & build description (player-named) ──────────────────
+  let description = "";
+
+  if (type === MatchEventType.GOAL) {
+    await prisma.saveGameMatch.update({
+      where: { id: match.id },
+      data: isHome ? { homeGoals: { increment: 1 } } : { awayGoals: { increment: 1 } },
+    });
+    description = `${chosen.name} scores!`;
+  } else if (type === MatchEventType.RED) {
+    description = `${chosen.name} receives a Red card`;
+    // NOTE: We do NOT remove the player from lineup here. Playing a man down is a UI/engine concern.
+  } else {
+    // INJURY — flag the player for next match, but DO NOT alter current lineup.
+    if (!chosen.lockedUntilNextMatchday) {
+      await prisma.saveGamePlayer.update({
+        where: { id: chosen.id },
+        data: { lockedUntilNextMatchday: true },
+      });
+    }
+    description = `${chosen.name} is injured`;
+  }
+
+  events.push({
+    matchdayId: match.matchdayId,
+    minute,
+    type,
+    description,
+    saveGamePlayerId: chosen.id,
+  });
+
+  return events;
 }

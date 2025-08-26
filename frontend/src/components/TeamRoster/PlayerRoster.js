@@ -1,8 +1,10 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// frontend/src/components/TeamRoster/PlayerRoster.tsx
 import * as React from "react";
 import clsx from "clsx";
 import { Position } from "@/types/enums";
 import { getFlagUrl } from "@/utils/getFlagUrl";
+import { useGameState } from "@/store/GameStateStore";
 /**
  * Sorted position groups (5 rows each → 20 total).
  */
@@ -19,10 +21,20 @@ const SLOTS_PER_POSITION = 5;
  * ---------------------------------------------------------------------------
  */
 export default function PlayerRoster({ players, selectedPlayer, onSelectPlayer, lineupIds = [], benchIds = [], }) {
+    const { cycleSelection } = useGameState();
     const grouped = React.useMemo(() => {
         return POSITION_ORDER.map((pos) => {
+            // Filter to this position
             const list = players.filter((p) => p.position === pos);
-            const blanks = Array.from({ length: SLOTS_PER_POSITION - list.length }, (_, i) => ({
+            // Sort strictly by rating DESC within this position (tie-break by name ASC)
+            const sortedList = [...list].sort((a, b) => {
+                if (b.rating !== a.rating)
+                    return b.rating - a.rating;
+                return a.name.localeCompare(b.name);
+            });
+            // Fill up to 5 rows per position with blanks (never negative)
+            const missing = Math.max(0, SLOTS_PER_POSITION - sortedList.length);
+            const blanks = Array.from({ length: missing }, (_, i) => ({
                 id: `blank-${pos}-${i}`,
                 name: "",
                 position: pos,
@@ -31,19 +43,31 @@ export default function PlayerRoster({ players, selectedPlayer, onSelectPlayer, 
                 nationality: "",
                 underContract: false,
             }));
-            return [...list, ...blanks];
+            return [...sortedList, ...blanks];
         });
     }, [players]);
-    return (_jsxs("div", { className: "flex h-full flex-col gap-3 overflow-hidden rounded-lg bg-white p-3 text-xs shadow dark:bg-gray-900", children: [_jsxs("div", { className: "flex border-b border-gray-200 pb-2 font-semibold dark:border-gray-800", children: [_jsx("span", { className: "w-[35%]", children: "Name" }), _jsx("span", { className: "w-[20%] text-right", children: "Salary" }), _jsx("span", { className: "w-[10%] text-right", children: "Rat" }), _jsx("span", { className: "w-[10%] text-right", children: "\uD83C\uDF10" }), _jsx("span", { className: "w-[10%] text-right", children: "C" })] }), _jsx("div", { className: "flex flex-1 flex-col gap-2 overflow-y-auto pr-1", children: grouped.map((bucket, idx) => {
+    const renderPickCell = (p) => {
+        const isBlank = p.name === "";
+        if (isBlank)
+            return _jsx("span", { className: "w-[10%] text-right" });
+        const inLineup = lineupIds.includes(p.id);
+        const inBench = benchIds.includes(p.id);
+        const symbol = inLineup ? "◯" : inBench ? "–" : "";
+        return (_jsx("button", { type: "button", title: "Click to cycle: Lineup \u2192 Reserve \u2192 Clear", onClick: (e) => {
+                e.stopPropagation();
+                cycleSelection(p.id);
+            }, className: clsx("w-[10%] text-right font-semibold", inLineup && "text-green-700 dark:text-green-300", inBench && "text-blue-700 dark:text-blue-300"), children: symbol }));
+    };
+    return (_jsxs("div", { className: "flex h-full flex-col gap-3 overflow-hidden rounded-lg bg-white p-3 text-xs shadow dark:bg-gray-900", children: [_jsxs("div", { className: "flex border-b border-gray-200 pb-2 font-semibold dark:border-gray-800", children: [_jsx("span", { className: "w-[35%]", children: "Name" }), _jsx("span", { className: "w-[20%] text-right", children: "Salary" }), _jsx("span", { className: "w-[10%] text-right", children: "Rat" }), _jsx("span", { className: "w-[10%] text-right", children: "\uD83C\uDF10" }), _jsx("span", { className: "w-[10%] text-right", children: "C" }), _jsx("span", { className: "w-[10%] text-right", children: "Sel" })] }), _jsx("div", { className: "flex flex-1 flex-col gap-2 overflow-y-auto pr-1", children: grouped.map((bucket, idx) => {
                     const pos = POSITION_ORDER[idx];
                     return (_jsxs("div", { children: [_jsx("div", { className: "mb-1 text-xs font-bold uppercase tracking-wide text-blue-700 dark:text-blue-400", children: pos }), _jsx("div", { className: "overflow-hidden rounded border border-gray-200 dark:border-gray-700", children: bucket.map((p, rowIdx) => {
                                     const isSelected = selectedPlayer?.id === p.id;
                                     const isBlank = p.name === "";
-                                    const isLineup = lineupIds.includes(p.id);
-                                    const isBench = benchIds.includes(p.id);
+                                    const isLineup = !isBlank && lineupIds.includes(p.id);
+                                    const isBench = !isBlank && benchIds.includes(p.id);
                                     return (_jsxs("div", { role: "button", className: clsx("flex items-center px-2 py-[3px] transition-colors", rowIdx % 2 === 0
                                             ? "bg-gray-50 dark:bg-gray-800/20"
-                                            : "bg-white dark:bg-gray-800", isSelected && "bg-yellow-200 dark:bg-yellow-600/40", isLineup && "bg-green-200 dark:bg-green-700/40", isBench && "bg-blue-200 dark:bg-blue-700/40", !isBlank && "hover:bg-gray-100 dark:hover:bg-gray-700"), style: { minHeight: "24px" }, onClick: () => !isBlank && onSelectPlayer(p), children: [_jsx("span", { className: "w-[35%] truncate", children: p.name }), _jsx("span", { className: "w-[20%] text-right", children: isBlank ? "" : `€${p.salary.toLocaleString()}` }), _jsx("span", { className: "w-[10%] text-right", children: isBlank ? "" : p.rating }), _jsx("span", { className: "w-[10%] text-right", children: p.nationality && (_jsx("img", { src: getFlagUrl(p.nationality), alt: p.nationality, className: "inline h-4 w-5" })) }), _jsx("span", { className: "w-[10%] text-right", children: isBlank ? "" : p.underContract ? "🔒" : "🆓" })] }, p.id));
+                                            : "bg-white dark:bg-gray-800", isSelected && "bg-yellow-200 dark:bg-yellow-600/40", isLineup && "bg-green-200 dark:bg-green-700/40", isBench && "bg-blue-200 dark:bg-blue-700/40", !isBlank && "hover:bg-gray-100 dark:hover:bg-gray-700"), style: { minHeight: "24px" }, onClick: () => !isBlank && onSelectPlayer(p), children: [_jsx("span", { className: "w-[35%] truncate", children: p.name }), _jsx("span", { className: "w-[20%] text-right", children: isBlank ? "" : `€${p.salary.toLocaleString()}` }), _jsx("span", { className: "w-[10%] text-right", children: isBlank ? "" : p.rating }), _jsx("span", { className: "w-[10%] text-right", children: p.nationality && (_jsx("img", { src: getFlagUrl(p.nationality), alt: p.nationality, className: "inline h-4 w-5" })) }), _jsx("span", { className: "w-[10%] text-right", children: isBlank ? "" : p.underContract ? "🔒" : "🆓" }), renderPickCell(p)] }, p.id));
                                 }) })] }, pos));
                 }) })] }));
 }

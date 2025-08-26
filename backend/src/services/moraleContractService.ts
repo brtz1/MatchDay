@@ -14,12 +14,12 @@ export async function updateMoraleAndContracts(
   saveGameId: number,
   matchdayId: number
 ): Promise<void> {
-  // 1. Load matchday matches for this save game
+  // 1. Load completed matches for this save game & matchday
   const matches = await prisma.saveGameMatch.findMany({
     where: {
       matchdayId,
       saveGameId,
-      played: true,
+      AND: [{ homeGoals: { gte: 0 } }, { awayGoals: { gte: 0 } }],
     },
   });
 
@@ -43,7 +43,7 @@ export async function updateMoraleAndContracts(
   for (const [teamIdStr, result] of Object.entries(resultsByTeam)) {
     const teamId = Number(teamIdStr);
 
-    // 3a. Update coach morale
+    // 3a. Update coach/team morale
     const saveTeam = await prisma.saveGameTeam.findFirst({
       where: { id: teamId, saveGameId },
       select: { morale: true, id: true },
@@ -91,7 +91,7 @@ export async function updateMoraleAndContracts(
             salary: player.salary,
           },
           candidates
-);
+        );
 
         if (winnerTeamId) {
           await prisma.saveGamePlayer.update({

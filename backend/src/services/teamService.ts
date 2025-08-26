@@ -8,10 +8,67 @@ import { SaveGameTeam, DivisionTier } from '@prisma/client';
  * @param saveGameId - ID of the SaveGame
  */
 export async function getAllTeams(saveGameId: number): Promise<SaveGameTeam[]> {
-  return prisma.saveGameTeam.findMany({
-    where: { saveGameId },
+  const [teams, gs] = await Promise.all([
+    prisma.saveGameTeam.findMany({
+      where: { saveGameId },
+      include: { players: true },
+    }),
+    prisma.gameState.findFirst({
+      where: { currentSaveGameId: saveGameId },
+      select: { coachTeamId: true },
+    }),
+  ]);
+
+  // Try to fetch the coach name the user picked when drawing the team
+  let chosenCoachName: string | null = null;
+  if (gs?.coachTeamId) {
+    const sg = await prisma.saveGame.findUnique({ where: { id: saveGameId } });
+    chosenCoachName = (sg as any)?.coachName ?? null;
+  }
+
+  const enriched = teams.map((t) => {
+    // Prefer any direct field on the team (if you added one), otherwise use SaveGame.coachName when it's the coached team
+    const directCoachName = (t as any)?.coachName ?? null;
+    const effectiveCoachName =
+      directCoachName ?? (gs?.coachTeamId === t.id ? chosenCoachName : null);
+
+    return {
+      ...t,
+      coachName: effectiveCoachName, // <-- appended for frontend convenience
+    };
+  });
+
+  // keep the existing return type to avoid ripple changes
+  return enriched as unknown as SaveGameTeam[];
+}
+
+// REPLACE getTeamById with:
+export async function getTeamById(
+  saveGameId: number,
+  teamId: number
+): Promise<SaveGameTeam | null> {
+  const team = await prisma.saveGameTeam.findFirst({
+    where: { id: teamId, saveGameId },
     include: { players: true },
   });
+
+  if (!team) return null;
+
+  const gs = await prisma.gameState.findFirst({
+    where: { currentSaveGameId: saveGameId },
+    select: { coachTeamId: true },
+  });
+
+  let effectiveCoachName: string | null = (team as any)?.coachName ?? null;
+
+  if (!effectiveCoachName && gs?.coachTeamId === teamId) {
+    // Only fetch if it's the coached team
+    const sg = await prisma.saveGame.findUnique({ where: { id: saveGameId } });
+    effectiveCoachName = (sg as any)?.coachName ?? null;
+  }
+
+  const enriched = { ...team, coachName: effectiveCoachName };
+  return enriched as unknown as SaveGameTeam;
 }
 
 /**
@@ -19,15 +76,6 @@ export async function getAllTeams(saveGameId: number): Promise<SaveGameTeam[]> {
  * @param saveGameId - ID of the SaveGame
  * @param teamId - ID of the SaveGameTeam
  */
-export async function getTeamById(
-  saveGameId: number,
-  teamId: number
-): Promise<SaveGameTeam | null> {
-  return prisma.saveGameTeam.findFirst({
-    where: { id: teamId, saveGameId },
-    include: { players: true },
-  });
-}
 
 /**
  * Data required to create a SaveGameTeam.

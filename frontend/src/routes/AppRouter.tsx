@@ -86,6 +86,7 @@ function AppRouterInner() {
             <Route path={transferMarketUrl} element={<TransferMarketPage />} />
             <Route path={cupUrl} element={<CupLogPage />} />
             <Route path={resultsUrl(":matchdayId")} element={<PostMatchSummary />} />
+            <Route path="/results" element={<Navigate to={standingsUrl} replace />} />
 
             {/* Admin / utilities */}
             <Route path={adminMatchesUrl} element={<MatchesPage />} />

@@ -19,7 +19,9 @@ import countryRoute from './routes/countryRoute';
 import importRoute from './routes/importRoute';
 import standingsRoute from './routes/standingsRoute';
 import matchdayRoute from './routes/matchdayRoute';
-import matchEventRoute from './routes/matchEventRoute'; // ⬅️ NEW
+import matchEventRoute from './routes/matchEventRoute';
+import nextMatchRoute from './routes/nextMatchRoute';
+import h2hRoute from './routes/h2hRoute';
 
 dotenv.config();
 
@@ -56,6 +58,8 @@ app.use('/api/import', importRoute);
 app.use('/api/standings', standingsRoute);
 app.use('/api/cup', cupRoute);
 app.use('/api/matchday', matchdayRoute);
+app.use('/api/matches', nextMatchRoute);
+app.use('/api/matches', h2hRoute);
 
 // ⬇️ Mount match-events (needed for /api/match-events/by-matchday/:matchdayId)
 app.use('/api/match-events', matchEventRoute);

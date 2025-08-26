@@ -1,20 +1,24 @@
 /**
- * statsService.ts
- * ---------------
+ * frontend/src/services/statsService.ts
+ * ------------------------------------
  * Endpoints for player–match statistics and league-wide leaderboards.
  */
 import axios from "@/services/axios";
-/* ------------------------------------------------------------------ API */
-const BASE = "/stats";
-/** GET `/stats/{playerId}` – all match stats for a player */
+const BASE = "/api/stats";
+/* ------------------------------------------------------- Player endpoints */
+/** GET `/stats/player/:playerId` – per-match stat rows including season */
 async function getPlayerStats(playerId) {
-    const { data } = await axios.get(`${BASE}/${playerId}`);
+    const { data } = await axios.get(`${BASE}/player/${playerId}`);
     return data;
 }
-/** POST `/stats` – record stats for a player in a match */
-async function recordPlayerStats(payload) {
-    const { data } = await axios.post(BASE, payload);
+/** GET `/stats/player/:playerId/summary` – pre-aggregated totals */
+async function getPlayerStatsSummary(playerId) {
+    const { data } = await axios.get(`${BASE}/player/${playerId}/summary`);
     return data;
+}
+/** POST `/stats/player/:playerId` – record a new per-match stat row */
+async function recordPlayerStats(playerId, payload) {
+    await axios.post(`${BASE}/player/${playerId}`, payload);
 }
 /** GET `/stats/top` – league leaders used by TopPlayersPage */
 async function getTopPlayers() {
@@ -24,6 +28,7 @@ async function getTopPlayers() {
 /* ------------------------------------------------------------------ Export */
 export default {
     getPlayerStats,
+    getPlayerStatsSummary,
     recordPlayerStats,
     getTopPlayers,
 };

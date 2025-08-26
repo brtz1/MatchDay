@@ -1,3 +1,5 @@
+// backend/src/services/cupService.ts
+
 import prisma from '../utils/prisma';
 import { MatchdayType } from '@prisma/client';
 
@@ -8,12 +10,8 @@ import { MatchdayType } from '@prisma/client';
 export async function getCupLog(saveGameId: number) {
   const matchday = await prisma.matchday.findMany({
     where: {
+      saveGameId,
       type: MatchdayType.CUP,
-      saveGameMatches: {
-        some: {
-          saveGameId,
-        },
-      },
     },
     orderBy: { number: 'asc' },
     include: {
@@ -38,13 +36,14 @@ export async function getCupLog(saveGameId: number) {
       awayTeamId: m.awayTeam.id,
       homeGoals: m.homeGoals,
       awayGoals: m.awayGoals,
-      isPlayed: m.played,
+      // Some schemas no longer have a 'played' flag — infer from goals
+      isPlayed: m.homeGoals !== null && m.awayGoals !== null,
     })),
   }));
 }
 
 /**
- * Maps actual matchday numbers (3, 6, 8...) to their cup stage name.
+ * Maps actual matchday numbers to their cup stage name.
  */
 function mapCupStage(number: number): string {
   const stageMap: Record<number, string> = {
@@ -58,4 +57,3 @@ function mapCupStage(number: number): string {
   };
   return stageMap[number] ?? `Matchday ${number}`;
 }
-

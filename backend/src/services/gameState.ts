@@ -6,8 +6,9 @@ import {
   MatchdayType,
   GameState as GameStateModel,
 } from "@prisma/client";
-// ── Replace the old advanceMatchday import with our new start/complete APIs:
-import { startMatchday, completeMatchday } from "./matchdayService";
+
+// Use the new finalize helper after the Standings grace:
+import { finalizeStandingsAndAdvance } from "./matchdayService";
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -43,12 +44,10 @@ export async function getGameState(): Promise<GameStateModel | null> {
 }
 
 /**
- * Ensures a GameState row exists.  If `update.saveGameId` is given,
+ * Ensures a GameState row exists. If `update.saveGameId` is given,
  * sets that on first create or on update.
  */
-export async function ensureGameState(update?: {
-  saveGameId?: number;
-}) {
+export async function ensureGameState(update?: { saveGameId?: number }) {
   let state = await prisma.gameState.findFirst();
   if (!state) {
     state = await prisma.gameState.create({
@@ -83,8 +82,7 @@ export async function setGameStage(stage: GameStage | string) {
   const current = await ensureGameState();
   const next =
     typeof stage === "string"
-      ? (GameStage[stage as keyof typeof GameStage] ??
-          GameStage.ACTION)
+      ? (GameStage[stage as keyof typeof GameStage] ?? GameStage.ACTION)
       : stage;
   return prisma.gameState.update({
     where: { id: current.id },
@@ -96,10 +94,10 @@ export async function setGameStage(stage: GameStage | string) {
 export async function advanceStage() {
   const current = await ensureGameState();
   const flow: Record<GameStage, GameStage> = {
-    ACTION:   GameStage.MATCHDAY,
-    MATCHDAY: GameStage.HALFTIME,
-    HALFTIME: GameStage.RESULTS,
-    RESULTS:  GameStage.STANDINGS,
+    ACTION:    GameStage.MATCHDAY,
+    MATCHDAY:  GameStage.HALFTIME,
+    HALFTIME:  GameStage.RESULTS,
+    RESULTS:   GameStage.STANDINGS,
     STANDINGS: GameStage.ACTION,
   };
   return prisma.gameState.update({
@@ -116,8 +114,7 @@ export async function setMatchday(
   const current = await ensureGameState();
   const next =
     typeof type === "string"
-      ? (MatchdayType[type as keyof typeof MatchdayType] ??
-          MatchdayType.LEAGUE)
+      ? (MatchdayType[type as keyof typeof MatchdayType] ?? MatchdayType.LEAGUE)
       : type;
   return prisma.gameState.update({
     where: { id: current.id },
@@ -139,9 +136,7 @@ export async function setCurrentSaveGame(saveGameId: number) {
 export async function setCoachTeam(coachTeamId: number) {
   const current = await ensureGameState();
   if (current.coachTeamId !== null) {
-    console.warn(
-      "🛑 Coach team already set — skipping overwrite."
-    );
+    console.warn("🛑 Coach team already set — skipping overwrite.");
     return current;
   }
   return prisma.gameState.update({
@@ -170,24 +165,39 @@ export async function advanceToNextMatchday() {
 }
 
 /**
- * After RESULTS, show STANDINGS for 30s, then kick off the next matchday
- * (MATCHDAY → simulate → bump to ACTION) using our two-step service.
+ * RESULTS → STANDINGS.
+ * We no longer block with a server-side timer or auto-start the next matchday here.
+ * Frontend shows the Standings Page with its own grace timer.
+ * After grace, FE should call POST /matchday/finalize-standings,
+ * which invokes finalizeStandingsAndAdvance(saveGameId) to:
+ *   - increment currentMatchday (or reset season), and
+ *   - set gameStage back to ACTION.
  */
-export async function advanceAfterResults(
-  saveGameId: number
-): Promise<void> {
-  const state = await ensureGameState();
-  // 1) show standings
-  await prisma.gameState.update({
-    where: { id: state.id },
+export async function advanceAfterResults(saveGameId: number): Promise<void> {
+  // Prefer updating the row that matches this saveGameId (multi-save safe)
+  const updated = await prisma.gameState.updateMany({
+    where: { currentSaveGameId: saveGameId },
     data: { gameStage: GameStage.STANDINGS },
   });
-  // 2) wait 30 seconds
-  await new Promise((r) => setTimeout(r, 30_000));
-  // 3) flip to MATCHDAY
-  await startMatchday(saveGameId);
-  // 4) simulate & bump back to ACTION
-  await completeMatchday(saveGameId);
+
+  // Fallback for schemas with a single GameState row
+  if (updated.count === 0) {
+    const state = await ensureGameState();
+    await prisma.gameState.update({
+      where: { id: state.id },
+      data: { gameStage: GameStage.STANDINGS },
+    });
+  }
+}
+
+
+/**
+ * Helper the backend (or a route) can call after the Standings grace:
+ * runs finalizeStandingsAndAdvance(saveGameId) to move to next day (or new season)
+ * and return the updated GameState.
+ */
+export async function finalizeStandings(saveGameId: number): Promise<GameStateModel> {
+  return finalizeStandingsAndAdvance(saveGameId);
 }
 
 /* ---------------------------------------------------------------- alias */
