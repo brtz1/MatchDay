@@ -5,7 +5,7 @@ import api, { getTeamMatchInfo } from "@/services/axios";
 import { useSocketEvent } from "@/hooks/useSocket";
 import { useRequiredStage } from "@/hooks/useRequiredStage";
 import { useGameState } from "@/store/GameStateStore";
-
+import { connectSocket, joinSaveRoom, leaveSaveRoom } from "@/socket";
 import { AppCard } from "@/components/common/AppCard";
 import MatchTicker, { type TickerGame } from "@/components/MatchBroadcast/MatchTicker";
 import HalfTimePopup from "@/pages/HalfTimePopup";
@@ -91,7 +91,7 @@ export default function MatchDayLivePage() {
   useRequiredStage(["MATCHDAY", "HALFTIME", "RESULTS"], { redirectTo: "/", graceMs: 4000 });
 
   const navigate = useNavigate();
-  const { currentMatchday, matchdayType, coachTeamId, gameStage, bootstrapping } = useGameState();
+  const { currentMatchday, matchdayType, coachTeamId, gameStage, bootstrapping, saveGameId } = useGameState();
 
   // Mirror server stage from socket so UI reacts instantly (store may lag)
   const [liveStage, setLiveStage] = useState<GameStage>(gameStage);
@@ -112,6 +112,20 @@ export default function MatchDayLivePage() {
 
   // Server-authoritative clock
   const [serverMinute, setServerMinute] = useState<number>(0);
+
+  /* ---------------------------------------------------------------- */
+  /* Join the save-specific socket room so we receive live updates    */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    // ensure socket is connected (App.tsx already connects, but this is safe)
+    connectSocket();
+    if (typeof saveGameId === "number" && !Number.isNaN(saveGameId)) {
+      joinSaveRoom(saveGameId);
+      return () => {
+        leaveSaveRoom(saveGameId);
+      };
+    }
+  }, [saveGameId]);
 
   /* ---------------------------------------------------------------- */
   /* Sync local liveStage from socket                                  */
