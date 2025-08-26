@@ -1,21 +1,93 @@
-import express from 'express';
-import prisma from '../utils/prisma';
-import { setCoachFormation } from '../services/matchService'; // 4-arg: (saveGameId, formation, lineupIds, reserveIds)
+import express from "express";
+import prisma from "../utils/prisma";
 
 const router = express.Router();
 
+/* ------------------------------------------------------------- helpers */
+
+function toNum(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function uniq<T>(arr: T[]): T[] {
+  return Array.from(new Set(arr));
+}
+
+async function validateStartersExactly11AndOneGK(playerIds: number[]) {
+  const starters = await prisma.saveGamePlayer.findMany({
+    where: { id: { in: playerIds } },
+    select: { id: true, position: true },
+  });
+
+  if (starters.length !== 11) {
+    return { ok: false, error: "lineupIds must resolve to exactly 11 valid players" };
+  }
+
+  const gkCount = starters.filter((p) => String(p.position).toUpperCase() === "GK").length;
+  if (gkCount !== 1) {
+    return { ok: false, error: "Lineup must include exactly 1 GK" };
+  }
+
+  return { ok: true as const };
+}
+
+async function upsertMatchStateSelection(
+  matchId: number,
+  isHomeTeam: boolean,
+  formation: string,
+  lineupIds: number[],
+  reserveIds: number[]
+) {
+  const sideFormation = isHomeTeam ? "homeFormation" : "awayFormation";
+  const sideLineup = isHomeTeam ? "homeLineup" : "awayLineup";
+  const sideReserves = isHomeTeam ? "homeReserves" : "awayReserves";
+
+  const existing = await prisma.matchState.findUnique({
+    where: { saveGameMatchId: matchId },
+  });
+
+  if (existing) {
+    return prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        [sideFormation]: formation,
+        [sideLineup]: lineupIds,
+        [sideReserves]: reserveIds,
+      },
+    });
+  }
+
+  // Create with sane defaults for the opposite side
+  return prisma.matchState.create({
+    data: {
+      saveGameMatchId: matchId,
+      homeFormation: isHomeTeam ? formation : "4-4-2",
+      awayFormation: isHomeTeam ? "4-4-2" : formation,
+      homeLineup: isHomeTeam ? lineupIds : [],
+      awayLineup: isHomeTeam ? [] : lineupIds,
+      homeReserves: isHomeTeam ? reserveIds : [],
+      awayReserves: isHomeTeam ? [] : reserveIds,
+      homeSubsMade: 0,
+      awaySubsMade: 0,
+      subsRemainingHome: 3,
+      subsRemainingAway: 3,
+      isPaused: false,
+    },
+  });
+}
+
+/* ------------------------------------------------------------- routes */
+
 /**
- * POST /api/matches/:matchId/formation
+ * Preferred endpoint
+ * POST /api/formation/coach
  * Body: { saveGameId: number, formation: string, lineupIds: number[], reserveIds?: number[] }
  *
- * Notes:
- * - This route now follows the "FE selects players" flow.
- * - `:matchId` is kept for URL stability; we don't rely on it to choose the coach match.
- * - Validation: exactly 11 starters and exactly 1 GK in lineupIds.
+ * Persists the coach team’s selection for the CURRENT matchday of the given save.
  */
-router.post('/:matchId/formation', async (req, res, next) => {
+router.post("/coach", async (req, res, next) => {
   try {
-    const matchId = Number(req.params.matchId); // not used to persist; kept for reference
     const { saveGameId, formation, lineupIds, reserveIds } = req.body as {
       saveGameId?: number;
       formation?: string;
@@ -23,40 +95,107 @@ router.post('/:matchId/formation', async (req, res, next) => {
       reserveIds?: number[];
     };
 
-    if (!Number.isFinite(saveGameId ?? NaN)) {
-      return res.status(400).json({ error: 'saveGameId (number) is required' });
+    const sgId = toNum(saveGameId);
+    if (sgId == null) return res.status(400).json({ error: "saveGameId (number) is required" });
+    if (typeof formation !== "string" || !formation.trim()) {
+      return res.status(400).json({ error: "formation (string) is required" });
     }
-    if (typeof formation !== 'string' || !formation.trim()) {
-      return res.status(400).json({ error: 'formation (string) is required' });
+    if (!Array.isArray(lineupIds)) {
+      return res.status(400).json({ error: "lineupIds must be an array" });
     }
-    if (!Array.isArray(lineupIds) || lineupIds.length !== 11) {
-      return res.status(400).json({ error: 'lineupIds must be an array of exactly 11 player IDs' });
-    }
-    const bench = Array.isArray(reserveIds) ? reserveIds : [];
 
-    // Ensure exactly 1 GK in starters
-    const starters = await prisma.saveGamePlayer.findMany({
-      where: { id: { in: lineupIds } },
-      select: { id: true, position: true },
+    const starters = uniq(lineupIds);
+    const bench = uniq(Array.isArray(reserveIds) ? reserveIds : []).filter((id) => !starters.includes(id));
+
+    const val = await validateStartersExactly11AndOneGK(starters);
+    if (!val.ok) return res.status(400).json({ error: val.error });
+
+    // Resolve current matchday + coached team for this save
+    const gs = await prisma.gameState.findFirst({
+      where: { currentSaveGameId: sgId },
+      select: { currentMatchday: true, coachTeamId: true },
     });
-    if (starters.length !== 11) {
-      return res.status(400).json({ error: 'Some starter IDs are invalid' });
-    }
-    const gkCount = starters.filter((p) => String(p.position).toUpperCase() === 'GK').length;
-    if (gkCount !== 1) {
-      return res.status(400).json({ error: 'Lineup must include exactly 1 GK' });
+    if (!gs?.currentMatchday || !gs.coachTeamId) {
+      return res.status(404).json({ error: "Active save must have currentMatchday and coachTeamId set" });
     }
 
-    // Persist selection for the coach team’s upcoming match in this save
-    await setCoachFormation(saveGameId!, formation, lineupIds, bench);
+    // Find the coach team’s match in this matchday
+    const md = await prisma.matchday.findFirst({
+      where: { saveGameId: sgId, number: gs.currentMatchday },
+      include: {
+        saveGameMatches: {
+          select: { id: true, homeTeamId: true, awayTeamId: true },
+        },
+      },
+    });
+    if (!md) return res.status(404).json({ error: "Matchday not found for save" });
 
-    return res.status(200).json({
+    const coachMatch = md.saveGameMatches.find(
+      (m) => m.homeTeamId === gs.coachTeamId || m.awayTeamId === gs.coachTeamId
+    );
+    if (!coachMatch) return res.status(404).json({ error: "Coach team has no match in current matchday" });
+
+    const isHomeTeam = coachMatch.homeTeamId === gs.coachTeamId;
+
+    await upsertMatchStateSelection(coachMatch.id, isHomeTeam, formation.trim(), starters, bench);
+
+    return res.json({
       ok: true,
-      message: 'Formation and selections recorded for upcoming match',
-      meta: { matchIdHint: Number.isFinite(matchId) ? matchId : null },
+      matchId: coachMatch.id,
+      isHomeTeam,
+      message: "Coach formation and selection saved",
     });
   } catch (error) {
-    console.error('❌ Error setting formation:', error);
+    console.error("❌ Error in POST /formation/coach:", error);
+    next(error);
+  }
+});
+
+/**
+ * Legacy endpoint
+ * POST /api/matches/:matchId/formation
+ * Body: { formation: string, isHomeTeam: boolean, lineupIds: number[], reserveIds?: number[] }
+ *
+ * NOTE: This version no longer accepts saveGameId; FE should provide isHomeTeam.
+ */
+router.post("/matches/:matchId/formation", async (req, res, next) => {
+  try {
+    const matchId = toNum(req.params.matchId);
+    if (matchId == null) return res.status(400).json({ error: "Invalid matchId" });
+
+    const { formation, isHomeTeam, lineupIds, reserveIds } = req.body as {
+      formation?: string;
+      isHomeTeam?: boolean;
+      lineupIds?: number[];
+      reserveIds?: number[];
+    };
+
+    if (typeof formation !== "string" || !formation.trim()) {
+      return res.status(400).json({ error: "formation (string) is required" });
+    }
+    if (typeof isHomeTeam !== "boolean") {
+      return res.status(400).json({ error: "isHomeTeam (boolean) is required" });
+    }
+    if (!Array.isArray(lineupIds)) {
+      return res.status(400).json({ error: "lineupIds must be an array" });
+    }
+
+    const starters = uniq(lineupIds);
+    const bench = uniq(Array.isArray(reserveIds) ? reserveIds : []).filter((id) => !starters.includes(id));
+
+    const val = await validateStartersExactly11AndOneGK(starters);
+    if (!val.ok) return res.status(400).json({ error: val.error });
+
+    await upsertMatchStateSelection(matchId, isHomeTeam, formation.trim(), starters, bench);
+
+    return res.json({
+      ok: true,
+      matchId,
+      isHomeTeam,
+      message: "Formation and selections recorded for match",
+    });
+  } catch (error) {
+    console.error("❌ Error in POST /matches/:matchId/formation:", error);
     next(error);
   }
 });

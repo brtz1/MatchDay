@@ -1,7 +1,7 @@
 // scripts/testSim.ts
 import prisma from "../utils/prisma";
 import { simulateMatch } from "../engine/simulateMatch";
-import { getMatchStateById } from "../services/matchService";
+import { ensureInitialMatchState } from "../services/matchService";
 
 async function main() {
   const match = await prisma.saveGameMatch.findFirst({
@@ -9,11 +9,15 @@ async function main() {
   });
   if (!match) throw new Error("No match found!");
 
-  const state = await getMatchStateById(match.id);
-  if (!state) throw new Error("No matchState!");
+  // Ensure a MatchState exists (new flow) and use it directly
+  const state = await ensureInitialMatchState(match.id);
 
   const events = await simulateMatch(match, state, 1);
-  console.log("Engine emitted IDs:", events.map((e) => e.saveGamePlayerId));
+  console.log("[testSim] minute=1 events:", events);
+  console.log("[testSim] player IDs:", events.map((e) => e.saveGamePlayerId));
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

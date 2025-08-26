@@ -1,15 +1,111 @@
 // backend/src/services/substitutionService.ts
 
-import prisma from '../utils/prisma';
+import prisma from "../utils/prisma";
 import {
   SaveGamePlayer,
   MatchEvent as PrismaMatchEvent,
   GameStage,
-} from '@prisma/client';
-import { applySubstitution } from './matchService';
-import { applyAISubstitutions } from './halftimeService';
-import { ensureAppearanceRows } from './appearanceService';
-import { getGameState } from './gameState';
+} from "@prisma/client";
+// ❌ removed: import { applySubstitution } from './matchService';
+import { applyAISubstitutions } from "./halftimeService";
+import { ensureAppearanceRows } from "./appearanceService";
+import { getGameState } from "./gameState";
+
+/* -------------------------------------------------------------------------- */
+/* helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function normalizePos(p?: string | null): "GK" | "DF" | "MF" | "AT" {
+  const s = (p ?? "").toUpperCase();
+  if (s === "GK" || s === "G" || s === "GOALKEEPER") return "GK";
+  if (s === "DF" || s === "D" || s === "DEF" || s === "DEFENDER") return "DF";
+  if (s === "MF" || s === "M" || s === "MID" || s === "MIDFIELDER") return "MF";
+  if (s === "AT" || s === "F" || s === "FW" || s === "ATT" || s === "ATTACKER" || s === "ST")
+    return "AT";
+  return "MF";
+}
+function uniq<T>(arr: T[]): T[] {
+  return Array.from(new Set(arr));
+}
+
+/**
+ * Local substitution impl (kept in-sync with matchStateRoute + halftimeService):
+ * - max 3 subs
+ * - out must be on the field; in must be on the bench
+ * - GK can only be replaced by GK
+ * - Prevent 2 GKs on the field
+ * - Returns the outgoing player to the bench
+ */
+async function applySubstitutionInternal(
+  matchId: number,
+  outId: number,
+  inId: number,
+  isHomeTeam: boolean
+): Promise<void> {
+  const ms = await prisma.matchState.findUnique({ where: { saveGameMatchId: matchId } });
+  if (!ms) throw new Error(`MatchState not found for match ${matchId}`);
+
+  const lineup: number[] = uniq(isHomeTeam ? ms.homeLineup ?? [] : ms.awayLineup ?? []);
+  const bench: number[] = uniq(isHomeTeam ? ms.homeReserves ?? [] : ms.awayReserves ?? []);
+  const subsMade: number = isHomeTeam ? (ms.homeSubsMade ?? 0) : (ms.awaySubsMade ?? 0);
+
+  if (subsMade >= 3) throw new Error("No substitutions remaining");
+  if (!lineup.includes(outId)) throw new Error("Selected outgoing player is not on the field");
+  if (!bench.includes(inId)) throw new Error("Selected incoming player is not on the bench");
+
+  // Positions (for GK rules)
+  const idsToLoad = uniq([...lineup, outId, inId]);
+  const players = await prisma.saveGamePlayer.findMany({
+    where: { id: { in: idsToLoad } },
+    select: { id: true, position: true },
+  });
+  const posById = new Map<number, ReturnType<typeof normalizePos>>(
+    players.map((p) => [p.id, normalizePos(p.position)])
+  );
+
+  const outPos = posById.get(outId) ?? "MF";
+  const inPos = posById.get(inId) ?? "MF";
+
+  const gkOnField = lineup
+    .map((id) => posById.get(id) ?? "MF")
+    .filter((pos) => pos === "GK").length;
+
+  if (outPos === "GK" && inPos !== "GK") {
+    throw new Error("Goalkeeper can only be substituted by another goalkeeper");
+  }
+  if (outPos !== "GK" && inPos === "GK") {
+    if (gkOnField >= 1) throw new Error("Cannot have two goalkeepers on the field");
+  }
+
+  const newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
+  const newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+
+  if (isHomeTeam) {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        homeLineup: newLineup,
+        homeReserves: newBench,
+        homeSubsMade: subsMade + 1,
+        subsRemainingHome: Math.max(0, 3 - (subsMade + 1)),
+      },
+    });
+  } else {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        awayLineup: newLineup,
+        awayReserves: newBench,
+        awaySubsMade: subsMade + 1,
+        subsRemainingAway: Math.max(0, 3 - (subsMade + 1)),
+      },
+    });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public types & fns                                                         */
+/* -------------------------------------------------------------------------- */
 
 export interface MatchLineup {
   matchId: number;
@@ -26,7 +122,7 @@ export interface MatchLineup {
   events: {
     id: number;
     minute: number;
-    type: string;          // <- schema uses `type` (enum), not `eventType`
+    type: string; // enum as string
     description: string;
     saveGamePlayerId?: number;
   }[];
@@ -52,28 +148,24 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
   });
   if (!match) throw new Error(`SaveGameMatch ${matchId} not found`);
 
-  // All selectable players for each team (save-game players)
-  const [homePlayers, awayPlayers] = await Promise.all([
+  const [homePlayers, awayPlayers, events, gs] = await Promise.all([
     prisma.saveGamePlayer.findMany({
       where: { teamId: match.homeTeamId },
-      orderBy: { id: 'asc' },
+      orderBy: { id: "asc" },
     }),
     prisma.saveGamePlayer.findMany({
       where: { teamId: match.awayTeamId },
-      orderBy: { id: 'asc' },
+      orderBy: { id: "asc" },
+    }),
+    prisma.matchEvent.findMany({
+      where: { saveGameMatchId: matchId },
+      orderBy: [{ minute: "asc" }, { id: "asc" }],
+    }),
+    prisma.gameState.findFirst({
+      where: { currentSaveGameId: match.saveGameId },
+      select: { gameStage: true },
     }),
   ]);
-
-  const events = await prisma.matchEvent.findMany({
-    where: { saveGameMatchId: matchId },
-    orderBy: [{ minute: 'asc' }, { id: 'asc' }],
-  });
-
-  // "Paused" is effectively whether we are in HALFTIME for this save
-  const gs = await prisma.gameState.findFirst({
-    where: { currentSaveGameId: match.saveGameId },
-    select: { gameStage: true },
-  });
 
   return {
     matchId,
@@ -98,23 +190,19 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
 
 /**
  * Substitutes one player for another on the specified side.
- * - Delegates to applySubstitution, which enforces:
- *   * max 3 subs,
- *   * GK-only replaces GK,
- *   * no re-entry (out player is NOT returned to bench).
+ * - Uses local implementation (kept consistent with routes/services).
  * - Also ensures the incoming sub is counted as having "played" for stats.
  */
 export async function submitSubstitution(
   matchId: number,
-  side: 'home' | 'away',
+  side: "home" | "away",
   outPlayerId: number,
   inPlayerId: number
 ): Promise<void> {
-  const isHome = side === 'home';
-  await applySubstitution(matchId, outPlayerId, inPlayerId, isHome);
+  const isHome = side === "home";
+  await applySubstitutionInternal(matchId, outPlayerId, inPlayerId, isHome);
 
-  // Redundant-safe: mark the incoming sub as "played" immediately.
-  // (applySubstitution already does this in matchService; calling again is harmless due to skipDuplicates.)
+  // Mark the incoming sub as "played" immediately (idempotent).
   await ensureAppearanceRows(matchId, [inPlayerId]);
 }
 
@@ -141,7 +229,6 @@ export async function resumeMatch(matchId: number): Promise<void> {
  * - Non-coached sides only; coached side is left for the user to handle.
  */
 export async function runAISubstitutions(matchId: number): Promise<void> {
-  // Centralized logic lives in halftimeService.applyAISubstitutions
   await applyAISubstitutions(matchId);
 }
 
@@ -162,8 +249,6 @@ export async function autoSubInjuriesNow(matchId: number): Promise<void> {
   const isHomeAI = coachTeamId ? match.homeTeamId !== coachTeamId : true;
   const isAwayAI = coachTeamId ? match.awayTeamId !== coachTeamId : true;
 
-  // If at least one side is AI, reuse the same AI substitution logic
-  // which prioritizes injured players on the field.
   if (isHomeAI || isAwayAI) {
     await applyAISubstitutions(matchId);
   }

@@ -1,3 +1,4 @@
+// frontend/src/pages/MatchDayLivePage.tsx
 import * as React from "react";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -65,8 +66,9 @@ type GameStage = GameStateDTO["gameStage"];
 interface MatchTickPayload {
   matchId: number;
   minute: number;
-  homeGoals: number;
-  awayGoals: number;
+  homeGoals?: number; // optional for resilience with socket payloads
+  awayGoals?: number; // optional for resilience with socket payloads
+  id?: number;        // legacy
 }
 interface StageChangedPayload {
   gameStage: GameStage;
@@ -117,12 +119,21 @@ export default function MatchDayLivePage() {
   /* Join the save-specific socket room so we receive live updates    */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    // ensure socket is connected (App.tsx already connects, but this is safe)
-    connectSocket();
+    connectSocket(); // safe to call repeatedly
     if (typeof saveGameId === "number" && !Number.isNaN(saveGameId)) {
-      joinSaveRoom(saveGameId);
+      let disposed = false;
+      (async () => {
+        try {
+          // Await join ack so we don't miss early ticks/events
+          await joinSaveRoom(saveGameId, { waitAck: true, timeoutMs: 3000 });
+        } catch {
+          // non-fatal: we’ll still receive if the backend doesn’t ack
+        }
+        if (disposed) return;
+      })();
       return () => {
-        leaveSaveRoom(saveGameId);
+        // best-effort leave on unmount or save change
+        void leaveSaveRoom(saveGameId);
       };
     }
   }, [saveGameId]);
@@ -201,7 +212,6 @@ export default function MatchDayLivePage() {
         if (!saveGameId) return;
 
         // 2) Ask BE which match this team is in (scoped by save & matchday)
-        //    Correct endpoint: /api/matchday/team-match-info?saveGameId=...&matchday=...&teamId=...
         let matchId: number | null = null;
         let isHomeTeam = true;
 
@@ -337,8 +347,8 @@ export default function MatchDayLivePage() {
           ? {
               ...m,
               minute: live.minute,
-              homeGoals: live.homeGoals,
-              awayGoals: live.awayGoals,
+              homeGoals: typeof live.homeGoals === "number" ? live.homeGoals : m.homeGoals,
+              awayGoals: typeof live.awayGoals === "number" ? live.awayGoals : m.awayGoals,
             }
           : m
       )

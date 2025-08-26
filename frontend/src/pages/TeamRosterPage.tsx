@@ -61,6 +61,9 @@ export default function TeamRosterPage() {
     saveGameId,
     bootstrapping,
 
+    // NEW: react to MATCHDAY to jump to Live immediately
+    gameStage,
+
     // grace/timer flags from GameState store
     cameFromResults,
     clearCameFromResults,
@@ -102,6 +105,18 @@ export default function TeamRosterPage() {
       }
     })();
   }, [cameFromResults, clearCameFromResults, refreshGameState]);
+
+  /* ---------------------------------------------------------------------------
+     NEW: If the backend/socket flips stage to MATCHDAY, jump to Live instantly.
+     (Prevents missing early minute ticks if user stayed on Formation/Game tabs.)
+  --------------------------------------------------------------------------- */
+  useEffect(() => {
+    if (bootstrapping) return;
+    if (gameStage === "MATCHDAY") {
+      // If your route differs, change "/live" accordingly.
+      navigate("/live");
+    }
+  }, [gameStage, bootstrapping, navigate]);
 
   useEffect(() => {
     if (!teamId || teamId <= 0) {

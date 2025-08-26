@@ -1,5 +1,5 @@
 // backend/src/sockets/broadcast.ts
-import { getIO } from "./io";
+import { getIO, roomForSave } from "./io";
 import type { MatchEventType } from "@prisma/client";
 
 /* ----------------------------------------------------------------------------
@@ -7,22 +7,31 @@ import type { MatchEventType } from "@prisma/client";
  * ---------------------------------------------------------------------------- */
 export type StageChangedPayload = {
   gameStage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+  matchdayNumber?: number; // optional, useful for clients to sync UI
 };
 
 export type MatchEventPayload = {
   matchId: number;
   minute: number;
-  type: MatchEventType; // GOAL | RED | INJURY
+  type: MatchEventType; // e.g., GOAL | RED | INJURY
   description: string;
-  player: { id: number; name: string } | null;
+
+  // Canonical field expected by FE:
+  saveGamePlayerId?: number;
+
+  // Legacy compatibility: some screens still render from player object
+  player?: { id: number; name: string } | null;
 };
 
 export type MatchTickPayload = {
-  id: number;      // legacy key some FE screens still use
-  matchId: number; // canonical
+  // FE canonical keys:
+  matchId: number;
   minute: number;
   homeGoals?: number;
   awayGoals?: number;
+
+  // Legacy key kept to avoid breaking older views (safe to remove later)
+  id?: number;
 };
 
 /** Reasons we pause the match and ask the coach to act */
@@ -48,7 +57,7 @@ function emit(event: string, payload: any, saveGameId?: number, opts?: Options) 
   const alsoGlobal = !!opts?.alsoGlobal;
 
   if (typeof saveGameId === "number") {
-    io.to(`save-${saveGameId}`).emit(event, payload);
+    io.to(roomForSave(saveGameId)).emit(event, payload);
     if (alsoGlobal) io.emit(event, payload);
   } else {
     io.emit(event, payload);
@@ -84,13 +93,14 @@ export function broadcastEvent(
   saveGameId?: number,
   opts?: Options
 ) {
-  broadcastEventPayload({ matchId, minute, type, description, player }, saveGameId, opts);
+  // Prefer broadcastMatchEvent for new code; this remains for legacy call sites.
+  broadcastMatchEvent(matchId, minute, type, description, player, saveGameId, opts);
 }
 
 /* ----------------------------------------------------------------------------
  * NEW: Unified helpers that match both old & new call sites
- *  - broadcastMatchEvent(saveGameId, { matchId, minute, type, description, player? })
- *  - broadcastMatchEvent(matchId, minute, type, description, player?, saveGameId?, opts?)
+ *  - broadcastMatchEvent(saveGameId, { matchId, minute, type, description, saveGamePlayerId?, player? })
+ *  - broadcastMatchEvent(matchId, minute, type, description, playerOrSaveGamePlayerId?, saveGameId?, opts?)
  *  - broadcastMatchTick(saveGameId, { matchId, minute, homeGoals?, awayGoals? })
  *  - broadcastMatchTick(matchId, minute, homeGoals?, awayGoals?, saveGameId?, opts?)
  * ---------------------------------------------------------------------------- */
@@ -106,7 +116,7 @@ export function broadcastMatchEvent(
   minute: number,
   type: MatchEventType,
   description: string,
-  player?: { id: number; name: string } | null,
+  playerOrSaveGamePlayerId?: { id: number; name: string } | number | null,
   saveGameId?: number,
   opts?: Options
 ): void;
@@ -128,16 +138,40 @@ export function broadcastMatchEvent(
     emit("match-event", payload, saveGameId, opts);
     return;
   }
-  // Old style: (matchId, minute, type, description, player?, saveGameId?, opts?)
+
+  // Old style:
+  // (matchId, minute, type, description, playerOrSaveGamePlayerId?, saveGameId?, opts?)
   const matchId = a as number;
   const minute = b as number;
   const type = c as MatchEventType;
   const description = d as string;
-  const player = (e as { id: number; name: string } | null | undefined) ?? null;
-  const saveGameId = (f as number | undefined) ?? undefined;
-  const opts = (g as Options | undefined) ?? undefined;
 
-  const payload: MatchEventPayload = { matchId, minute, type, description, player };
+  let player: { id: number; name: string } | null = null;
+  let saveGamePlayerId: number | undefined;
+  let saveGameId: number | undefined;
+  let opts: Options | undefined;
+
+  if (typeof e === "number") {
+    // e is saveGamePlayerId
+    saveGamePlayerId = e;
+    saveGameId = (f as number | undefined) ?? undefined;
+    opts = (g as Options | undefined) ?? undefined;
+  } else {
+    // e is player object (or null/undefined)
+    player = (e as { id: number; name: string } | null | undefined) ?? null;
+    saveGameId = (f as number | undefined) ?? undefined;
+    opts = (g as Options | undefined) ?? undefined;
+  }
+
+  const payload: MatchEventPayload = {
+    matchId,
+    minute,
+    type,
+    description,
+    ...(typeof saveGamePlayerId === "number" ? { saveGamePlayerId } : {}),
+    ...(player ? { player } : {}),
+  };
+
   emit("match-event", payload, saveGameId, opts);
 }
 
@@ -181,11 +215,11 @@ export function broadcastMatchTick(
   const opts = (f as Options | undefined) ?? undefined;
 
   const payload: MatchTickPayload = {
-    id: matchId, // legacy key
     matchId,
     minute,
     ...(typeof homeGoals === "number" ? { homeGoals } : {}),
     ...(typeof awayGoals === "number" ? { awayGoals } : {}),
+    id: matchId, // legacy key
   };
   emit("match-tick", payload, saveGameId, opts);
 }

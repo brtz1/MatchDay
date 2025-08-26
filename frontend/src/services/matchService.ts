@@ -1,6 +1,9 @@
 // frontend/src/services/matchService.ts
-
 import api from "@/services/axios";
+import type { MatchEventDTO } from "@/types";
+
+/** Shape returned by GET /api/match-events/by-matchday/:number */
+export type GroupedEventsByMatch = Record<number, MatchEventDTO[]>;
 
 /** Optional helper if you expose this in your axios service */
 async function fetchTeamMatchInfo(saveGameId: number, matchday: number, teamId: number) {
@@ -40,7 +43,10 @@ export async function saveCoachSelection(params: {
     return;
   } catch (e) {
     // fall back below
-    console.warn("[FE-matchService] /formation/coach not available; falling back to per-match route", e);
+    console.warn(
+      "[FE-matchService] /formation/coach not available; falling back to per-match route",
+      e
+    );
   }
 
   // 2) Legacy route requires matchId + isHomeTeam
@@ -54,6 +60,26 @@ export async function saveCoachSelection(params: {
 }
 
 /** Advance into MATCHDAY (engine will be started on backend) */
-export async function advanceToMatchday(saveGameId: number) {
-  await api.post("/matchday/advance", { saveGameId });
+export async function advanceToMatchday(saveGameId: number): Promise<{ saveGameId: number; matchdayNumber: number }> {
+  const { data } = await api.post<{ saveGameId: number; matchdayNumber: number }>(
+    "/matchday/advance",
+    { saveGameId }
+  );
+  return data;
+}
+
+/** Get all events for a given matchday, grouped by matchId. */
+export async function getMatchEventsByMatchday(
+  matchdayNumber: number
+): Promise<GroupedEventsByMatch> {
+  const { data } = await api.get<GroupedEventsByMatch>(
+    `/match-events/by-matchday/${matchdayNumber}`
+  );
+  return data ?? {};
+}
+
+/** Get events for a single match (SaveGameMatch.id). */
+export async function getMatchEventsByMatchId(matchId: number): Promise<MatchEventDTO[]> {
+  const { data } = await api.get<MatchEventDTO[]>(`/match-events/${matchId}`);
+  return data ?? [];
 }

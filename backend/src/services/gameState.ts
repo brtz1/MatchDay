@@ -9,6 +9,7 @@ import {
 
 // Use the new finalize helper after the Standings grace:
 import { finalizeStandingsAndAdvance } from "./matchdayService";
+import { broadcastStageChanged } from "../sockets/broadcast";
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -29,6 +30,29 @@ function getMatchdayTypeForNumber(matchday: number): MatchdayType {
   return cupDays.includes(matchday)
     ? MatchdayType.CUP
     : MatchdayType.LEAGUE;
+}
+
+function normalizeStage(stage: GameStage | string): GameStage {
+  return typeof stage === "string"
+    ? (GameStage[stage as keyof typeof GameStage] ?? GameStage.ACTION)
+    : stage;
+}
+
+/** Resolve current matchday number for a given save (best-effort). */
+async function getMatchdayNumberForSave(saveGameId: number): Promise<number | null> {
+  const gs = await prisma.gameState.findFirst({
+    where: { currentSaveGameId: saveGameId },
+    select: { currentMatchday: true },
+  });
+  if (gs?.currentMatchday) return gs.currentMatchday;
+
+  // Fallback: highest known matchday for this save
+  const md = await prisma.matchday.findFirst({
+    where: { saveGameId },
+    orderBy: { number: "desc" },
+    select: { number: true },
+  });
+  return md?.number ?? null;
 }
 
 /* ---------------------------------------------------------------- public API */
@@ -77,20 +101,41 @@ export async function getCoachTeamId(): Promise<number | null> {
 
 /* ---------------------------------------------------------------- mutators */
 
-/** Set gameStage explicitly (e.g. from front-end) */
+/**
+ * Legacy/global setter (no broadcast).
+ * Prefer `setStage(saveGameId, stage)` when you know the save.
+ */
 export async function setGameStage(stage: GameStage | string) {
   const current = await ensureGameState();
-  const next =
-    typeof stage === "string"
-      ? (GameStage[stage as keyof typeof GameStage] ?? GameStage.ACTION)
-      : stage;
+  const next = normalizeStage(stage);
   return prisma.gameState.update({
     where: { id: current.id },
     data: { gameStage: next },
   });
 }
 
-/** Cycle through stages in pre-defined order */
+/**
+ * New: Save-scoped setter that also broadcasts `stage-changed` to the correct socket room.
+ * Use this when you know which save is active (most matchday flows do).
+ */
+export async function setStage(saveGameId: number, stage: GameStage | string): Promise<void> {
+  const next = normalizeStage(stage);
+
+  // Update the row(s) for this save (multi-save safe)
+  await prisma.gameState.updateMany({
+    where: { currentSaveGameId: saveGameId },
+    data: { gameStage: next },
+  });
+
+  // Resolve current matchday number (best-effort) and notify clients
+  const matchdayNumber = await getMatchdayNumberForSave(saveGameId);
+  broadcastStageChanged(
+    { gameStage: next as unknown as "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS", matchdayNumber: matchdayNumber ?? undefined },
+    saveGameId
+  );
+}
+
+/** Cycle through stages in pre-defined order (no broadcast). */
 export async function advanceStage() {
   const current = await ensureGameState();
   const flow: Record<GameStage, GameStage> = {
@@ -150,6 +195,7 @@ export async function setCoachTeam(coachTeamId: number) {
 /**
  * Manually bump matchday (no simulation), resetting to ACTION.
  * Useful if you want to skip cup rounds or force-advance.
+ * (No broadcast here; routes may choose to broadcast after updating.)
  */
 export async function advanceToNextMatchday() {
   const state = await ensureGameState();
@@ -172,6 +218,8 @@ export async function advanceToNextMatchday() {
  * which invokes finalizeStandingsAndAdvance(saveGameId) to:
  *   - increment currentMatchday (or reset season), and
  *   - set gameStage back to ACTION.
+ *
+ * Now also broadcasts `stage-changed` so clients update immediately.
  */
 export async function advanceAfterResults(saveGameId: number): Promise<void> {
   // Prefer updating the row that matches this saveGameId (multi-save safe)
@@ -188,8 +236,14 @@ export async function advanceAfterResults(saveGameId: number): Promise<void> {
       data: { gameStage: GameStage.STANDINGS },
     });
   }
-}
 
+  // Notify clients for this save
+  const matchdayNumber = await getMatchdayNumberForSave(saveGameId);
+  broadcastStageChanged(
+    { gameStage: "STANDINGS", matchdayNumber: matchdayNumber ?? undefined },
+    saveGameId
+  );
+}
 
 /**
  * Helper the backend (or a route) can call after the Standings grace:

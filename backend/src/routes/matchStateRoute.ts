@@ -3,12 +3,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import { MatchEventType } from "@prisma/client";
 import prisma from "../utils/prisma";
-// If your functions live in matchService.ts, change the path accordingly.
-import {
-  ensureInitialMatchState,
-  getMatchStateById,
-  applySubstitution,
-} from "../services/matchService";
+import { ensureInitialMatchState } from "../services/matchService";
 
 const router = express.Router();
 
@@ -52,6 +47,15 @@ function sortPlayersForUI<T extends { position: Position; rating: number }>(arr:
   });
 }
 
+async function getGameStateSafe() {
+  try {
+    const mod = await import("../services/gameState");
+    return mod.getGameState();
+  } catch {
+    return null;
+  }
+}
+
 async function resolveSide(req: Request, matchHomeId: number, matchAwayId: number): Promise<Side> {
   const sideParam = String(req.query.side ?? "").toLowerCase();
   const teamIdParam =
@@ -74,13 +78,11 @@ async function resolveSide(req: Request, matchHomeId: number, matchAwayId: numbe
   return "home";
 }
 
-async function getGameStateSafe() {
-  try {
-    const mod = await import("../services/gameState");
-    return mod.getGameState();
-  } catch {
-    return null;
-  }
+/** Load the raw MatchState (throws if not found). */
+async function getMatchStateOrThrow(matchId: number) {
+  const ms = await prisma.matchState.findUnique({ where: { saveGameMatchId: matchId } });
+  if (!ms) throw new Error(`MatchState for match ${matchId} not found`);
+  return ms;
 }
 
 /**
@@ -89,8 +91,7 @@ async function getGameStateSafe() {
  * - Sorts players GK → DF → MF → AT, then by rating desc.
  */
 async function buildPublicSideState(matchId: number, side: Side): Promise<PublicSideState> {
-  const ms = await getMatchStateById(matchId);
-  if (!ms) throw new Error(`MatchState for match ${matchId} not found`);
+  const ms = await getMatchStateOrThrow(matchId);
 
   const lineupIds: number[] = (side === "home" ? ms.homeLineup : ms.awayLineup) ?? [];
   const benchIds: number[] = (side === "home" ? ms.homeReserves : ms.awayReserves) ?? [];
@@ -151,6 +152,91 @@ async function buildPublicSideState(matchId: number, side: Side): Promise<Public
     lineup: sortPlayersForUI(lineup),
     bench: sortPlayersForUI(bench),
   };
+}
+
+/* ----------------------------- substitutions ----------------------------- */
+
+function uniq<T>(arr: T[]): T[] {
+  return Array.from(new Set(arr));
+}
+
+async function applySubstitutionLocal(
+  matchId: number,
+  outId: number,
+  inId: number,
+  isHomeTeam: boolean
+): Promise<void> {
+  const ms = await getMatchStateOrThrow(matchId);
+
+  const lineup: number[] = uniq(isHomeTeam ? ms.homeLineup ?? [] : ms.awayLineup ?? []);
+  const bench: number[] = uniq(isHomeTeam ? ms.homeReserves ?? [] : ms.awayReserves ?? []);
+  const subsMade: number = isHomeTeam ? (ms.homeSubsMade ?? 0) : (ms.awaySubsMade ?? 0);
+
+  if (subsMade >= 3) {
+    throw new Error("No substitutions remaining");
+  }
+  if (!lineup.includes(outId)) {
+    throw new Error("Selected outgoing player is not on the field");
+  }
+  if (!bench.includes(inId)) {
+    throw new Error("Selected incoming player is not on the bench");
+  }
+
+  // Positions used for GK rules
+  const idsToLoad = uniq([...lineup, outId, inId]);
+  const players = await prisma.saveGamePlayer.findMany({
+    where: { id: { in: idsToLoad } },
+    select: { id: true, position: true },
+  });
+  const posById = new Map<number, Position>(
+    players.map((p) => [p.id, normalizePos(p.position)])
+  );
+
+  const outPos = posById.get(outId) ?? "MF";
+  const inPos = posById.get(inId) ?? "MF";
+
+  // Count current GKs on field
+  const gkOnField = lineup
+    .map((id) => posById.get(id) ?? "MF")
+    .filter((pos) => pos === "GK").length;
+
+  // GK rules
+  if (outPos === "GK" && inPos !== "GK") {
+    throw new Error("Goalkeeper can only be substituted by another goalkeeper");
+  }
+  if (outPos !== "GK" && inPos === "GK") {
+    // Would make two GKs?
+    if (gkOnField >= 1) {
+      throw new Error("Cannot have two goalkeepers on the field");
+    }
+  }
+
+  // Apply swap: out -> bench, in -> lineup
+  const newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
+  const newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+
+  // Persist counters + arrays
+  if (isHomeTeam) {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        homeLineup: newLineup,
+        homeReserves: newBench,
+        homeSubsMade: subsMade + 1,
+        subsRemainingHome: Math.max(0, 3 - (subsMade + 1)),
+      },
+    });
+  } else {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        awayLineup: newLineup,
+        awayReserves: newBench,
+        awaySubsMade: subsMade + 1,
+        subsRemainingAway: Math.max(0, 3 - (subsMade + 1)),
+      },
+    });
+  }
 }
 
 /* ----------------------------------- GET ----------------------------------- */
@@ -220,23 +306,23 @@ router.post(
         return res.status(400).json({ error: "Invalid parameters" });
       }
 
-      await applySubstitution(matchId, Number(out), Number(incoming), Boolean(isHomeTeam));
+      await applySubstitutionLocal(matchId, Number(out), Number(incoming), Boolean(isHomeTeam));
 
       const side: Side = isHomeTeam ? "home" : "away";
       const updated = await buildPublicSideState(matchId, side);
 
       return res.json(updated);
     } catch (err: any) {
-      // Map well-known errors from matchService.applySubstitution to HTTP statuses/messages
+      // Map well-known errors to HTTP statuses/messages (keeps FE logic unchanged)
       const msg = String(err?.message ?? "");
 
       if (/No substitutions remaining/i.test(msg)) {
         return res.status(400).json({ error: "No substitutions remaining." });
       }
-      if (/not in lineup/i.test(msg)) {
+      if (/not on the field/i.test(msg)) {
         return res.status(400).json({ error: "Selected outgoing player is not on the field." });
       }
-      if (/not on bench/i.test(msg)) {
+      if (/not on the bench/i.test(msg)) {
         return res.status(400).json({ error: "Selected incoming player is not on the bench." });
       }
       if (/Goalkeeper can only be substituted by another goalkeeper/i.test(msg)) {
@@ -244,7 +330,7 @@ router.post(
           error: "Goalkeeper can only be substituted by another goalkeeper.",
         });
       }
-      if (/Cannot field two goalkeepers/i.test(msg)) {
+      if (/Cannot have two goalkeepers/i.test(msg)) {
         return res.status(409).json({ error: "Cannot have two goalkeepers on the field." });
       }
 

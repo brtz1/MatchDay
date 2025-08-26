@@ -86,6 +86,9 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
   // Ensure states exist before loop
   await Promise.all(matchIds.map((mId) => ensureMatchState(mId)));
 
+  // NEW (defensive): ensure clients see MATCHDAY before ticks start
+  await setStage(saveGameId, GameStage.MATCHDAY);
+
   // Minute loop: 1..90
   for (let minute = 1; minute <= 90; minute++) {
     // Halftime gate at 45' completed (enter 46)
@@ -140,9 +143,7 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
                 select: { id: true, name: true },
               });
               if (p) player = { id: p.id, name: p.name };
-            } catch {
-              /* ignore name lookup failure, keep null */
-            }
+            } catch { /* ignore name lookup failure */ }
           }
 
           broadcastMatchEvent(saveGameId, {
@@ -162,7 +163,7 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
       });
 
       broadcastMatchTick(saveGameId, {
-        id: mId, // ← legacy key required by payload overload
+        id: mId, // legacy key
         matchId: mId,
         minute,
         homeGoals: latest?.homeGoals ?? 0,
@@ -183,6 +184,7 @@ export async function simulateMatchday(matchdayId: number): Promise<void> {
   // Full-time: flip to RESULTS
   await setStage(saveGameId, GameStage.RESULTS);
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                  */

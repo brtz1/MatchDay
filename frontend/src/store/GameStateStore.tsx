@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import gameStateService from "@/services/gameStateService";
+import { onStageChanged, offStageChanged } from "@/socket";
 
 /* ------------------------------------------------------------------------- */
 /* Types                                                                     */
@@ -32,7 +33,7 @@ export interface GameStateContextType {
   saveGameId: number | null;
   setSaveGameId: (id: number | null) => void;
 
-  /** Explicit mirror of backend field to avoid TS mismatches elsewhere */
+  /** Mirror of backend field to avoid TS mismatches elsewhere */
   currentSaveGameId: number | null;
 
   coachTeamId: number | null;
@@ -118,6 +119,8 @@ interface GameStateProviderProps {
   autoLoad?: boolean; // Allow skipping auto-refresh
 }
 
+type StageChangedPayload = { gameStage: GameStage; matchdayNumber?: number };
+
 export function GameStateProvider({ children, autoLoad = true }: GameStateProviderProps) {
   const [saveGameId, setSaveGameId] = useState<number | null>(null);
   const [coachTeamId, setCoachTeamId] = useState<number | null>(null);
@@ -156,7 +159,7 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
   const refreshGameState = async () => {
     try {
       const state = await gameStateService.getGameState();
-      console.log("[GameState] Loaded:", state);
+      // console.log("[GameState] Loaded:", state);
 
       // If there is no active save, hard reset the store.
       if (!state || state.currentSaveGameId == null) {
@@ -195,7 +198,7 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
       prevStageRef.current = nextStage;
     } catch (err) {
       // Network / server hiccup: keep existing store values so we don't bounce routes.
-      console.error("[GameState] failed to refresh (keeping previous state):", err);
+      // console.error("[GameState] failed to refresh (keeping previous state):", err);
     }
   };
 
@@ -215,6 +218,40 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
     setCameFromResults(false);
     setStandingsEnteredAt(null);
   };
+
+  /* ----------------------------------------------------------------------- */
+  /* Socket: keep gameStage (and matchdayNumber) in sync in real time        */
+  /* ----------------------------------------------------------------------- */
+  useEffect(() => {
+    const handler = (p: StageChangedPayload) => {
+      const prev = prevStageRef.current;
+      const nextStage = isGameStage(p.gameStage) ? p.gameStage : prev;
+
+      // Update store synchronously with socket
+      setGameStage(nextStage);
+
+      if (typeof p.matchdayNumber === "number") {
+        setCurrentMatchday(p.matchdayNumber);
+      }
+
+      // Maintain cameFromResults flag based on transitions
+      if (prev === "RESULTS" && nextStage === "STANDINGS") {
+        setCameFromResults(true);
+        setStandingsEnteredAt(Date.now());
+      }
+      if (prev === "STANDINGS" && nextStage !== "STANDINGS") {
+        setCameFromResults(false);
+        setStandingsEnteredAt(null);
+      }
+
+      prevStageRef.current = nextStage;
+    };
+
+    onStageChanged(handler);
+    return () => {
+      offStageChanged(handler);
+    };
+  }, []);
 
   // --------------------------- Selection helpers ----------------------------
 
