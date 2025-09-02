@@ -59,6 +59,65 @@ async function resolveCurrentMatchday(saveGameId: number): Promise<number> {
 }
 
 /**
+ * GET /api/matchday/status
+ * Returns current stage and list of match ids for the current matchday.
+ */
+router.get(
+  "/status",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const gs = await getGameState();
+      if (!gs?.currentSaveGameId) {
+        return res.status(404).json({ error: "No active save" });
+      }
+
+      const md = await prisma.matchday.findFirst({
+        where: { saveGameId: gs.currentSaveGameId, number: gs.currentMatchday ?? undefined },
+        include: { saveGameMatches: { select: { id: true } } },
+      });
+
+      return res.json({
+        saveGameId: gs.currentSaveGameId,
+        stage: gs.gameStage,
+        currentMatchday: gs.currentMatchday ?? null,
+        matches: md?.saveGameMatches.map((m) => m.id) ?? [],
+        count: md?.saveGameMatches.length ?? 0,
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+// GET /api/matchday/team-match-info?saveGameId=&matchday=&teamId=
+router.get('/team-match-info', async (req, res) => {
+  const saveGameId = Number(req.query.saveGameId);
+  const matchdayNumber = Number(req.query.matchday);
+  const teamId = Number(req.query.teamId);
+
+  if (!saveGameId || !matchdayNumber || !teamId) {
+    return res.status(400).json({ error: 'saveGameId, matchday, teamId are required' });
+  }
+
+  const md = await prisma.matchday.findFirst({
+    where: { saveGameId, number: matchdayNumber },
+    select: { id: true },
+  });
+  if (!md) return res.status(404).json({ error: 'Matchday not found' });
+
+  const match = await prisma.saveGameMatch.findFirst({
+    where: {
+      matchdayId: md.id,
+      OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+    },
+    select: { id: true, homeTeamId: true, awayTeamId: true },
+  });
+  if (!match) return res.status(404).json({ error: 'Match not found for that team' });
+
+  return res.json({ matchId: match.id, isHomeTeam: match.homeTeamId === teamId });
+});
+
+/**
  * POST /api/matchday/advance
  * - Set stage to MATCHDAY
  * - Emit stage-changed { gameStage, matchdayNumber }
@@ -173,37 +232,6 @@ router.post(
       return res.json({ saveGameId, stage: "ACTION", matchdayNumber });
     } catch (err) {
       next(err);
-    }
-  }
-);
-
-/**
- * GET /api/matchday/status
- * Returns current stage and list of match ids for the current matchday.
- */
-router.get(
-  "/status",
-  async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const gs = await getGameState();
-      if (!gs?.currentSaveGameId) {
-        return res.status(404).json({ error: "No active save" });
-      }
-
-      const md = await prisma.matchday.findFirst({
-        where: { saveGameId: gs.currentSaveGameId, number: gs.currentMatchday ?? undefined },
-        include: { saveGameMatches: { select: { id: true } } },
-      });
-
-      return res.json({
-        saveGameId: gs.currentSaveGameId,
-        stage: gs.gameStage,
-        currentMatchday: gs.currentMatchday ?? null,
-        matches: md?.saveGameMatches.map((m) => m.id) ?? [],
-        count: md?.saveGameMatches.length ?? 0,
-      });
-    } catch (e) {
-      next(e);
     }
   }
 );

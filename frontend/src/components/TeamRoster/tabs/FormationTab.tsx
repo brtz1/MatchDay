@@ -141,37 +141,44 @@ export default function FormationTab({ players }: Props) {
   }
 
   const handleAdvance = async () => {
-    setErrMsg(null);
-    if (typeof saveGameId !== "number" || Number.isNaN(saveGameId)) {
-      setErrMsg("Missing saveGameId. Try reloading.");
-      return;
-    }
-    if (lineupIds.length !== 11) {
-      setErrMsg("Your lineup must have exactly 11 players.");
-      return;
-    }
-    if (!hasExactlyOneGK(lineupIds)) {
-      setErrMsg("Your lineup must include exactly 1 Goalkeeper.");
+  setErrMsg(null);
+  if (typeof saveGameId !== "number" || Number.isNaN(saveGameId)) {
+    setErrMsg("Missing saveGameId. Try reloading.");
+    return;
+  }
+  if (lineupIds.length !== 11) {
+    setErrMsg("Your lineup must have exactly 11 players.");
+    return;
+  }
+  if (!hasExactlyOneGK(lineupIds)) {
+    setErrMsg("Your lineup must include exactly 1 Goalkeeper.");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const ok = await startMatchWithSelection(saveGameId);
+    if (!ok) {
+      setErrMsg("Failed to start matchday. Check backend logs.");
       return;
     }
 
-    setLoading(true);
-    try {
-      const ok = await startMatchWithSelection(saveGameId);
-      if (!ok) {
-        setErrMsg("Failed to start matchday. Check backend logs.");
-        return;
-      }
-      const confirmed = await confirmBackendStage("MATCHDAY", 10, 200);
-      if (!confirmed) {
-        setErrMsg("Stage didn’t change to MATCHDAY on the backend.");
-        return;
-      }
-      navigate("/matchday");
-    } finally {
-      setLoading(false);
+    // Wait a moment for the server to flip, then confirm.
+    const confirmed = await confirmBackendStage("MATCHDAY", 10, 200);
+    if (!confirmed) {
+      setErrMsg("Stage didn’t change to MATCHDAY on the backend.");
+      return;
     }
-  };
+
+    // Ensure the store is fresh BEFORE navigating.
+    // (import { useGameState } ... then get refreshGameState from it)
+    await refreshGameState?.();
+
+    navigate("/matchday", { state: { fromFormation: true } });
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="flex w-full max-w-xl flex-col gap-4">

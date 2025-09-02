@@ -1,13 +1,20 @@
 import React from "react";
 
 export type TickerEvent = { minute: number; type: string; text: string };
+
+/** Legacy team shape used across the app */
 export type TickerTeam = { id: number; name: string; score: number };
+
+/** Accept both legacy (home/away.score) and new (homeGoals/awayGoals) */
 export type TickerGame = {
   id: number;
   division: string;
   minute: number;
   home: TickerTeam;
   away: TickerTeam;
+  /** New, live-friendly fields (optional to keep BC) */
+  homeGoals?: number;
+  awayGoals?: number;
   events?: TickerEvent[]; // we will show only the latest one
 };
 
@@ -29,7 +36,9 @@ export default function MatchTicker({
   groupByDivision = false,
 }: Props) {
   const grouped = React.useMemo(() => {
-    if (!groupByDivision) return { order: ["ALL"], groups: { ALL: games } as Record<string, TickerGame[]> };
+    if (!groupByDivision) {
+      return { order: ["ALL"], groups: { ALL: games } as Record<string, TickerGame[]> };
+    }
     const groups: Record<string, TickerGame[]> = {};
     for (const d of divisionOrder) groups[d] = [];
     for (const g of games) (groups[g.division] ?? (groups[g.division] = [])).push(g);
@@ -49,6 +58,13 @@ export default function MatchTicker({
           <ul className="divide-y divide-white/10">
             {(grouped.groups[key] ?? []).map((g) => {
               const latest = (g.events ?? []).slice(-1)[0];
+
+              // Prefer live goals if present; fall back to legacy .score
+              const homeScore =
+                typeof g.homeGoals === "number" ? g.homeGoals : Number(g.home?.score ?? 0);
+              const awayScore =
+                typeof g.awayGoals === "number" ? g.awayGoals : Number(g.away?.score ?? 0);
+
               return (
                 <li
                   key={g.id}
@@ -56,7 +72,9 @@ export default function MatchTicker({
                   onClick={() => onGameClick?.(g.id)}
                 >
                   <div className="flex items-center gap-2">
-                    {showMinute && <span className="w-10 text-right tabular-nums">{g.minute}'</span>}
+                    {showMinute && (
+                      <span className="w-10 text-right tabular-nums">{Number(g.minute ?? 0)}'</span>
+                    )}
 
                     {/* Left team name (clickable) */}
                     <span
@@ -71,7 +89,7 @@ export default function MatchTicker({
 
                     {/* Scoreboard "x" style */}
                     <span className="tabular-nums font-semibold">
-                      {" "}{g.home.score}{" "}x{" "}{g.away.score}{" "}
+                      {" "}{homeScore}{" "}x{" "}{awayScore}{" "}
                     </span>
 
                     {/* Right team name (clickable) */}

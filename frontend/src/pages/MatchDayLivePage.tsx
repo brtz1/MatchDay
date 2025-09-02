@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { getTeamMatchInfo } from "@/services/axios";
 import { useSocketEvent } from "@/hooks/useSocket";
-import { useRequiredStage } from "@/hooks/useRequiredStage";
 import { useGameState } from "@/store/GameStateStore";
 import { connectSocket, joinSaveRoom, leaveSaveRoom } from "@/socket";
 import { AppCard } from "@/components/common/AppCard";
@@ -37,6 +36,8 @@ interface MatchEventDTO {
   type: string;
   description: string;
   player?: { id: number; name: string } | null;
+  /** NEW: provided by backend so FE can optimistically update the score */
+  isHomeTeam?: boolean;
 }
 
 export interface PlayerDTO {
@@ -66,9 +67,9 @@ type GameStage = GameStateDTO["gameStage"];
 interface MatchTickPayload {
   matchId: number;
   minute: number;
-  homeGoals?: number; // optional for resilience with socket payloads
-  awayGoals?: number; // optional for resilience with socket payloads
-  id?: number;        // legacy
+  homeGoals?: number;
+  awayGoals?: number;
+  id?: number; // legacy
 }
 interface StageChangedPayload {
   gameStage: GameStage;
@@ -76,7 +77,6 @@ interface StageChangedPayload {
 
 /** Reasons from the engine that trigger a pause */
 type EnginePauseReason = "INJURY" | "GK_INJURY" | "GK_RED_NEEDS_GK";
-/** Local UI reasons we may also show (not sent by engine) */
 type PauseReason = EnginePauseReason | "HALFTIME" | "COACH_PAUSE";
 
 interface PauseRequestPayload {
@@ -89,78 +89,139 @@ interface PauseRequestPayload {
 /* Component                                                          */
 /* ------------------------------------------------------------------ */
 export default function MatchDayLivePage() {
-  // Route guard: allow MATCHDAY / HALFTIME / RESULTS (freeze) to render
-  useRequiredStage(["MATCHDAY", "HALFTIME", "RESULTS"], { redirectTo: "/", graceMs: 4000 });
-
   const navigate = useNavigate();
-  const { currentMatchday, matchdayType, coachTeamId, gameStage, bootstrapping, saveGameId } = useGameState();
 
-  // Mirror server stage from socket so UI reacts instantly (store may lag)
+  // From GameState store (no 'loading' assumed)
+  const {
+    currentMatchday,
+    matchdayType,
+    coachTeamId,
+    gameStage,
+    saveGameId,          // some stores use this
+    currentSaveGameId,   // others use this
+  } = useGameState();
+
+  // Prefer store id if present; otherwise resolve via /gamestate
+  const storeSaveId =
+    (typeof saveGameId === "number" ? saveGameId : undefined) ??
+    (typeof currentSaveGameId === "number" ? currentSaveGameId : undefined);
+
+  // resolvedSaveId:
+  //   undefined => unknown yet (do NOT redirect)
+  //   number    => known active save id
+  //   null      => definitely no save (redirect to Title)
+  const [resolvedSaveId, setResolvedSaveId] = useState<number | null | undefined>(undefined);
+
+  // resolve save id once if store doesn't have it
+  useEffect(() => {
+    let cancelled = false;
+
+    if (typeof storeSaveId === "number") {
+      setResolvedSaveId(storeSaveId);
+      return;
+    }
+
+    (async () => {
+      try {
+        const { data } = await api.get<GameStateDTO>("/gamestate");
+        if (cancelled) return;
+        setResolvedSaveId(data.currentSaveGameId ?? null);
+      } catch {
+        if (cancelled) return;
+        // stay "unknown" to avoid false redirects
+        setResolvedSaveId(undefined);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [storeSaveId]);
+
+  // Immediate stage mirror (socket-first, store may lag)
   const [liveStage, setLiveStage] = useState<GameStage>(gameStage);
+  useSocketEvent<StageChangedPayload>("stage-changed", (p) => setLiveStage(p.gameStage));
+  useEffect(() => {
+    if (gameStage && gameStage !== liveStage) setLiveStage(gameStage);
+  }, [gameStage, liveStage]);
 
   const [matches, setMatches] = useState<MatchDTO[]>([]);
   const [eventsByMatch, setEventsByMatch] = useState<Record<number, MatchEventDTO[]>>({});
   const [popupMatchId, setPopupMatchId] = useState<number | null>(null);
   const [isHomeTeamForPopup, setIsHomeTeamForPopup] = useState<boolean>(true);
-
   const [lineup, setLineup] = useState<PlayerDTO[]>([]);
   const [bench, setBench] = useState<PlayerDTO[]>([]);
   const [subsRemaining, setSubsRemaining] = useState<number>(3);
-
   const [pauseReason, setPauseReason] = useState<PauseReason | null>(null);
-
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Server-authoritative clock
   const [serverMinute, setServerMinute] = useState<number>(0);
 
   /* ---------------------------------------------------------------- */
-  /* Join the save-specific socket room so we receive live updates    */
+  /* Inline guard with grace window                                   */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    connectSocket(); // safe to call repeatedly
-    if (typeof saveGameId === "number" && !Number.isNaN(saveGameId)) {
+    // 1) Unknown: do nothing yet.
+    if (resolvedSaveId === undefined) return;
+
+    // 2) Null on first read: recheck once before deciding.
+    if (resolvedSaveId === null) {
+      const t = setTimeout(async () => {
+        try {
+          const { data } = await api.get<GameStateDTO>("/gamestate");
+          setResolvedSaveId(data.currentSaveGameId ?? null);
+        } catch {
+          // keep as null; we'll handle below on next run
+        }
+      }, 500);
+      return () => clearTimeout(t);
+    }
+
+    // 3) Stage gate (allow MATCHDAY / HALFTIME / RESULTS).
+    const ALLOWED = new Set<GameStage>(["MATCHDAY", "HALFTIME", "RESULTS"]);
+    if (liveStage && !ALLOWED.has(liveStage)) {
+      // Wait briefly for stage to settle before sending the user away.
+      const t = setTimeout(() => {
+        navigate(`/team/${coachTeamId ?? ""}`, { replace: true });
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [resolvedSaveId, liveStage, coachTeamId, navigate]);
+
+  /* ---------------------------------------------------------------- */
+  /* Join the save-specific socket room                               */
+  /* ---------------------------------------------------------------- */
+  const effectiveSaveId =
+    (typeof storeSaveId === "number" ? storeSaveId : undefined) ??
+    (typeof resolvedSaveId === "number" ? resolvedSaveId : undefined);
+
+  useEffect(() => {
+    connectSocket(); // idempotent
+    if (typeof effectiveSaveId === "number" && !Number.isNaN(effectiveSaveId)) {
       let disposed = false;
       (async () => {
         try {
-          // Await join ack so we don't miss early ticks/events
-          await joinSaveRoom(saveGameId, { waitAck: true, timeoutMs: 3000 });
+          await joinSaveRoom(effectiveSaveId, { waitAck: true, timeoutMs: 3000 });
         } catch {
-          // non-fatal: we’ll still receive if the backend doesn’t ack
+          // non-fatal
         }
         if (disposed) return;
       })();
       return () => {
-        // best-effort leave on unmount or save change
-        void leaveSaveRoom(saveGameId);
+        void leaveSaveRoom(effectiveSaveId);
       };
     }
-  }, [saveGameId]);
-
-  /* ---------------------------------------------------------------- */
-  /* Sync local liveStage from socket                                  */
-  /* ---------------------------------------------------------------- */
-  useSocketEvent<StageChangedPayload>("stage-changed", (p) => {
-    setLiveStage(p.gameStage);
-  });
-
-  // Also keep it in sync if store updates out-of-band (poller, etc.)
-  useEffect(() => {
-    if (gameStage !== liveStage) setLiveStage(gameStage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameStage]);
+  }, [effectiveSaveId]);
 
   /* ---------------------------------------------------------------- */
   /* Initial data load (fixtures + existing events)                    */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    if (bootstrapping) return;
     if (!currentMatchday) return;
 
     let disposed = false;
     (async () => {
-      setLoading(true);
+      setPageLoading(true);
       setError(null);
       try {
         const [{ data: fetchedMatches }, { data: groupedEvents }] = await Promise.all([
@@ -168,59 +229,67 @@ export default function MatchDayLivePage() {
           api.get<Record<number, MatchEventDTO[]>>(`/match-events/by-matchday/${currentMatchday}`),
         ]);
         if (disposed) return;
-        setMatches(fetchedMatches);
+        setMatches(
+          fetchedMatches.map((m) => ({
+            ...m,
+            homeGoals: Number(m.homeGoals ?? (m as any).homeScore ?? 0),
+            awayGoals: Number(m.awayGoals ?? (m as any).awayScore ?? 0),
+            minute: Number((m as any).minute ?? 0),
+          }))
+        );
+
         setEventsByMatch(groupedEvents ?? {});
-        // minute comes from socket; do not infer from REST
       } catch (e) {
         console.error("[MatchDayLive] Failed to load matchday data:", e);
         if (!disposed) setError("Failed to load live matchday data.");
       } finally {
-        if (!disposed) setLoading(false);
+        if (!disposed) setPageLoading(false);
       }
     })();
     return () => { disposed = true; };
-  }, [bootstrapping, currentMatchday]);
+  }, [currentMatchday]);
 
   /* ---------------------------------------------------------------- */
-  /* Helper: set stage via API (HALFTIME/MATCHDAY toggles)             */
+  /* setStage helper                                                   */
   /* ---------------------------------------------------------------- */
   const setStage = useCallback(async (stage: GameStage) => {
     try {
-      const { data: gs } = await api.get<GameStateDTO>("/gamestate");
-      const saveGameId = gs.currentSaveGameId;
-      if (!saveGameId) return;
-      await api.post("/matchday/set-stage", { saveGameId, stage });
+      let sid = effectiveSaveId;
+      if (typeof sid !== "number") {
+        const { data } = await api.get<GameStateDTO>("/gamestate");
+        sid = data.currentSaveGameId ?? undefined;
+      }
+      if (typeof sid !== "number") return;
+      await api.post("/matchday/set-stage", { saveGameId: sid, stage });
     } catch (e) {
       console.warn("[MatchDayLive] setStage failed:", e);
     }
-  }, []);
+  }, [effectiveSaveId]);
 
   /* ---------------------------------------------------------------- */
-  /* Auto open halftime popup for the coached team (45')               */
+  /* Auto open halftime popup for the coached team (HALFTIME)          */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    const stage = liveStage; // prefer socket stage
+    const stage = liveStage;
     if (stage !== "HALFTIME") return;
     if (!coachTeamId || !currentMatchday) return;
-    if (popupMatchId != null) return; // already open
+    if (popupMatchId != null) return;
 
     (async () => {
       try {
-        // 1) Find active save
-        const { data: gs } = await api.get<GameStateDTO>("/gamestate");
-        const saveGameId = gs.currentSaveGameId;
-        if (!saveGameId) return;
-
-        // 2) Ask BE which match this team is in (scoped by save & matchday)
         let matchId: number | null = null;
         let isHomeTeam = true;
 
         try {
-          const info = await getTeamMatchInfo(saveGameId, currentMatchday, coachTeamId);
+          const sid =
+            (typeof effectiveSaveId === "number" ? effectiveSaveId : undefined) ??
+            (await api.get<GameStateDTO>("/gamestate")).data.currentSaveGameId ??
+            null;
+          if (!sid) return;
+          const info = await getTeamMatchInfo(sid, currentMatchday, coachTeamId);
           matchId = info.matchId;
           isHomeTeam = info.isHomeTeam;
         } catch (err) {
-          // Graceful 404: fall back to local fixtures list
           if (isAxiosError(err) && err.response?.status === 404) {
             const fallback = matches.find(
               (m) => m.homeTeam.id === coachTeamId || m.awayTeam.id === coachTeamId
@@ -228,66 +297,47 @@ export default function MatchDayLivePage() {
             if (fallback) {
               matchId = fallback.id;
               isHomeTeam = fallback.homeTeam.id === coachTeamId;
-              console.warn(
-                "[MatchDayLive] team-match-info 404; fell back to local match list:",
-                { matchId, isHomeTeam }
-              );
             } else {
-              console.warn(
-                "[MatchDayLive] team-match-info 404 and no fallback match found in local state."
-              );
-              return; // nothing to open
+              return;
             }
           } else {
-            console.warn("[MatchDayLive] Failed to auto-open halftime popup:", err);
             return;
           }
         }
 
-        // 3) Open popup
-        setPopupMatchId(matchId);
+        setPopupMatchId(matchId!);
         setIsHomeTeamForPopup(isHomeTeam);
-        setPauseReason((prev) => prev ?? "HALFTIME"); // default reason if none set
+        setPauseReason((prev) => prev ?? "HALFTIME");
 
-        // 4) Preload formation for the coached side
         try {
           const side = isHomeTeam ? "home" : "away";
           const { data } = await api.get<MatchStateDTO>(`/matchstate/${matchId}`, { params: { side } });
           setLineup(data.lineup);
           setBench(data.bench);
           setSubsRemaining(data.subsRemaining);
-        } catch (preErr) {
-          if (!isAxiosError(preErr) || preErr.response?.status !== 404) {
-            console.warn("[MatchDayLive] Unable to preload halftime state:", preErr);
-          }
+        } catch {
+          /* ignore */
         }
-      } catch (e) {
-        console.warn("[MatchDayLive] Failed halftime auto-open:", e);
+      } catch {
+        /* ignore */
       }
     })();
-    // include `matches` so fallback works if BE 404s
-  }, [liveStage, coachTeamId, currentMatchday, popupMatchId, matches]);
+  }, [liveStage, coachTeamId, currentMatchday, popupMatchId, matches, effectiveSaveId]);
 
   /* ---------------------------------------------------------------- */
-  /* Server-initiated pause (GK injury/red with bench GK, injuries)    */
-  /* Coach-only guard to avoid popping for other teams                 */
+  /* Server-initiated pause                                            */
   /* ---------------------------------------------------------------- */
   useSocketEvent<PauseRequestPayload>("pause-request", async (p) => {
-    // Guard: only open for the coached side
     const m = matches.find((x) => x.id === p.matchId);
     if (m && typeof coachTeamId === "number") {
       const teamId = p.isHomeTeam ? m.homeTeam.id : m.awayTeam.id;
-      if (teamId !== coachTeamId) {
-        return; // not the user's team; ignore
-      }
+      if (teamId !== coachTeamId) return;
     }
-    // Move UI into a paused state and open the correct match popup.
     setLiveStage("HALFTIME");
     setPopupMatchId(p.matchId);
     setIsHomeTeamForPopup(p.isHomeTeam);
     setPauseReason(p.reason);
 
-    // Preload state for that side
     try {
       const side = p.isHomeTeam ? "home" : "away";
       const { data } = await api.get<MatchStateDTO>(`/matchstate/${p.matchId}`, { params: { side } });
@@ -295,7 +345,7 @@ export default function MatchDayLivePage() {
       setBench(data.bench);
       setSubsRemaining(data.subsRemaining);
     } catch {
-      /* popup still opens; user can retry inside it */
+      /* ignore */
     }
   });
 
@@ -305,9 +355,8 @@ export default function MatchDayLivePage() {
   const handleSub = useCallback(
     async ({ out, in: inId }: { out: number; in: number }) => {
       if (popupMatchId == null) return;
-      if (subsRemaining <= 0) return; // enforce UI-side limit
+      if (subsRemaining <= 0) return;
       try {
-        // matches backend route
         await api.post(`/matchstate/${popupMatchId}/substitute`, {
           out,
           in: inId,
@@ -326,14 +375,30 @@ export default function MatchDayLivePage() {
   );
 
   /* ---------------------------------------------------------------- */
-  /* WebSocket live updates (server-authoritative)                     */
+  /* WebSocket live updates                                            */
   /* ---------------------------------------------------------------- */
   useSocketEvent<MatchEventDTO>("match-event", (ev) => {
     if (liveStage !== "MATCHDAY" && liveStage !== "HALFTIME") return;
+
+    // Append/dedupe event feed
     setEventsByMatch((prev) => ({
       ...prev,
       [ev.matchId]: dedupeEvents([...(prev[ev.matchId] ?? []), ev]),
     }));
+
+    // Optimistic scoreboard bump on GOAL using isHomeTeam flag
+    if (ev.type === "GOAL" && typeof ev.isHomeTeam === "boolean") {
+      setMatches((prev) =>
+        prev.map((m) => {
+          if (m.id !== ev.matchId) return m;
+          return {
+            ...m,
+            homeGoals: ev.isHomeTeam ? m.homeGoals + 1 : m.homeGoals,
+            awayGoals: !ev.isHomeTeam ? m.awayGoals + 1 : m.awayGoals,
+          };
+        })
+      );
+    }
   });
 
   useSocketEvent<MatchTickPayload>("match-tick", (live) => {
@@ -356,11 +421,10 @@ export default function MatchDayLivePage() {
   });
 
   /* ---------------------------------------------------------------- */
-  /* 90' freeze → Results: when stage becomes RESULTS, short grace, go */
+  /* 90' freeze → Results                                              */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (liveStage !== "RESULTS") return;
-
     const to = matchdayType === "LEAGUE" ? standingsUrl : cupUrl;
     const t = setTimeout(() => navigate(to, { state: { cameFromResults: true } }), 3000);
     return () => clearTimeout(t);
@@ -373,10 +437,9 @@ export default function MatchDayLivePage() {
     return matches.map((m) => ({
       id: m.id,
       division: m.division,
-      minute: m.minute ?? 0, // not shown by ticker when showMinute=false
+      minute: m.minute ?? 0,
       home: { id: m.homeTeam.id, name: m.homeTeam.name, score: m.homeGoals },
       away: { id: m.awayTeam.id, name: m.awayTeam.name, score: m.awayGoals },
-      // latest event only → map to { text }
       events: (eventsByMatch[m.id] ?? [])
         .slice(-1)
         .map((ev) => ({
@@ -407,7 +470,7 @@ export default function MatchDayLivePage() {
   /* ---------------------------------------------------------------- */
   /* Stage gate / Loading / Error                                     */
   /* ---------------------------------------------------------------- */
-  if (bootstrapping) {
+  if (resolvedSaveId === undefined) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-900 text-white">
         <ProgressBar className="w-64" />
@@ -415,7 +478,7 @@ export default function MatchDayLivePage() {
     );
   }
 
-  if (loading) {
+  if (pageLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-green-900 text-white">
         <ProgressBar className="w-64" />
@@ -446,7 +509,6 @@ export default function MatchDayLivePage() {
         </div>
       </div>
 
-      {/* Single ticker list; grouped by division; show latest event only */}
       <AppCard variant="outline" className="bg-white/10 p-4">
         <MatchTicker
           games={tickerGames}
@@ -461,7 +523,7 @@ export default function MatchDayLivePage() {
               setIsHomeTeamForPopup(true);
             }
             setPopupMatchId(numId);
-            setPauseReason(null); // pure viewer open, not a forced pause
+            setPauseReason(null);
             const side = m && coachTeamId && m.awayTeam.id === coachTeamId ? "away" : "home";
             void api
               .get<MatchStateDTO>(`/matchstate/${numId}`, { params: { side } })
@@ -470,15 +532,12 @@ export default function MatchDayLivePage() {
                 setBench(data.bench);
                 setSubsRemaining(data.subsRemaining);
               })
-              .catch(() => {
-                /* ignore; user can retry during HT */
-              });
+              .catch(() => { /* ignore */ });
           }}
           onTeamClick={async ({ matchId, isHome }) => {
             setPopupMatchId(matchId);
             setIsHomeTeamForPopup(isHome);
             setPauseReason("COACH_PAUSE");
-            // ⛔ Pause clock when a team is clicked
             await setStage("HALFTIME");
             try {
               const side = isHome ? "home" : "away";
@@ -486,9 +545,7 @@ export default function MatchDayLivePage() {
               setLineup(data.lineup);
               setBench(data.bench);
               setSubsRemaining(data.subsRemaining);
-            } catch {
-              /* ignore; popup still opens */
-            }
+            } catch { /* ignore */ }
           }}
           showMinute={false}
           groupByDivision
@@ -514,7 +571,6 @@ export default function MatchDayLivePage() {
           subsRemaining={subsRemaining}
           onSubstitute={handleSub}
           canSubstitute={canSubstitute}
-          // New: pass optional reason so UI can enforce GK rules/show messaging
           pauseReason={pauseReason ?? undefined}
         />
       )}

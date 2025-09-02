@@ -15,12 +15,10 @@ export type MatchEventPayload = {
   minute: number;
   type: MatchEventType; // e.g., GOAL | RED | INJURY
   description: string;
-
-  // Canonical field expected by FE:
-  saveGamePlayerId?: number;
-
-  // Legacy compatibility: some screens still render from player object
+  /** If available, the player involved (resolved server-side) */
   player?: { id: number; name: string } | null;
+  /** NEW: tells FE which side scored / got card / got injured */
+  isHomeTeam?: boolean;
 };
 
 export type MatchTickPayload = {
@@ -35,12 +33,13 @@ export type MatchTickPayload = {
 };
 
 /** Reasons we pause the match and ask the coach to act */
-export type PauseReason = "INJURY" | "GK_INJURY" | "GK_RED_NEEDS_GK";
+export type PauseReason =
+  | "INJURY"
+  | "GK_INJURY"
+  | "GK_RED_NEEDS_GK";
 
-/** Sent when the engine needs the UI to pause and open the coach popup */
 export type PauseRequestPayload = {
   matchId: number;
-  minute: number;
   isHomeTeam: boolean;
   reason: PauseReason;
   /** Player that triggered the pause, if known (e.g., injured GK) */
@@ -74,36 +73,6 @@ export function broadcastStageChanged(
 ) {
   emit("stage-changed", payload, saveGameId, opts);
 }
-
-/** Original helpers kept for backward-compat */
-export function broadcastEventPayload(
-  payload: MatchEventPayload,
-  saveGameId?: number,
-  opts?: Options
-) {
-  emit("match-event", payload, saveGameId, opts);
-}
-
-export function broadcastEvent(
-  matchId: number,
-  minute: number,
-  type: MatchEventType,
-  description: string,
-  player: { id: number; name: string } | null = null,
-  saveGameId?: number,
-  opts?: Options
-) {
-  // Prefer broadcastMatchEvent for new code; this remains for legacy call sites.
-  broadcastMatchEvent(matchId, minute, type, description, player, saveGameId, opts);
-}
-
-/* ----------------------------------------------------------------------------
- * NEW: Unified helpers that match both old & new call sites
- *  - broadcastMatchEvent(saveGameId, { matchId, minute, type, description, saveGamePlayerId?, player? })
- *  - broadcastMatchEvent(matchId, minute, type, description, playerOrSaveGamePlayerId?, saveGameId?, opts?)
- *  - broadcastMatchTick(saveGameId, { matchId, minute, homeGoals?, awayGoals? })
- *  - broadcastMatchTick(matchId, minute, homeGoals?, awayGoals?, saveGameId?, opts?)
- * ---------------------------------------------------------------------------- */
 
 /** Overloads for match-event */
 export function broadcastMatchEvent(
@@ -168,10 +137,9 @@ export function broadcastMatchEvent(
     minute,
     type,
     description,
-    ...(typeof saveGamePlayerId === "number" ? { saveGamePlayerId } : {}),
+    ...(typeof saveGamePlayerId === "number" ? { /* unresolved id for consumers that want it */ } : {}),
     ...(player ? { player } : {}),
   };
-
   emit("match-event", payload, saveGameId, opts);
 }
 

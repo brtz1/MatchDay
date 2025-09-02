@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation, matchPath } from "react-router-dom";
+import { matchdayUrl } from "@/utils/paths";
 
 /* ── Services / store ─────────────────────────────────────────────── */
 import { getTeamById } from "@/services/teamService";
@@ -111,12 +112,12 @@ export default function TeamRosterPage() {
      (Prevents missing early minute ticks if user stayed on Formation/Game tabs.)
   --------------------------------------------------------------------------- */
   useEffect(() => {
-    if (bootstrapping) return;
-    if (gameStage === "MATCHDAY") {
-      // If your route differs, change "/live" accordingly.
-      navigate("/live");
-    }
-  }, [gameStage, bootstrapping, navigate]);
+  if (bootstrapping) return;
+  if (gameStage === "MATCHDAY") {
+    navigate(matchdayUrl);
+  }
+}, [gameStage, bootstrapping, navigate]);
+
 
   useEffect(() => {
     if (!teamId || teamId <= 0) {

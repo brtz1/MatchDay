@@ -11,6 +11,7 @@ import {
   broadcastMatchEvent,
   broadcastMatchTick,
   broadcastStageChanged,
+  broadcastPauseRequest,
 } from "../sockets/broadcast";
 
 /* -------------------------------------------------------------------------- */
@@ -36,7 +37,7 @@ export async function stopMatchday(saveGameId: number) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
+/* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
 function sleep(ms: number) {
@@ -69,9 +70,10 @@ export async function ensureInitialMatchState(saveGameMatchId: number) {
 }
 
 async function getActiveMatchday(saveGameId: number) {
+  // Also fetch coachTeamId so we can decide if injury pauses should stop the clock
   const gs = await prisma.gameState.findFirst({
     where: { currentSaveGameId: saveGameId },
-    select: { currentMatchday: true, gameStage: true },
+    select: { currentMatchday: true, gameStage: true, coachTeamId: true },
   });
   if (!gs || typeof gs.currentMatchday !== "number") {
     throw new Error(`No currentMatchday for save ${saveGameId}`);
@@ -92,13 +94,29 @@ async function getActiveMatchday(saveGameId: number) {
     },
   });
   if (!md) throw new Error(`Matchday not found for save=${saveGameId}`);
-  return md;
+  return { md, coachTeamId: gs.coachTeamId ?? null };
 }
 
 async function getMatchState(mId: number) {
   let st = await prisma.matchState.findUnique({ where: { saveGameMatchId: mId } });
   if (!st) st = await ensureInitialMatchState(mId);
   return st as MatchState;
+}
+
+/** Remove a player from the active lineup (do NOT move to reserves). */
+async function removePlayerFromLineup(
+  matchId: number,
+  playerId: number,
+  isHomeTeam: boolean
+): Promise<void> {
+  const state = await prisma.matchState.findUnique({ where: { saveGameMatchId: matchId } });
+  if (!state) return;
+  const key = isHomeTeam ? "homeLineup" : "awayLineup";
+  const updated = (state as any)[key].filter((id: number) => id !== playerId);
+  await prisma.matchState.update({
+    where: { saveGameMatchId: matchId },
+    data: isHomeTeam ? { homeLineup: updated } : { awayLineup: updated },
+  });
 }
 
 async function updateScoreForGoal(
@@ -118,9 +136,31 @@ async function updateScoreForGoal(
   return { homeGoals, awayGoals };
 }
 
+/**
+ * Best-effort resolution of which side an event belongs to.
+ * Prefer SimulatedMatchEvent.isHomeTeam when present; otherwise infer from player.teamId.
+ */
+async function resolveIsHomeTeam(
+  e: SimulatedMatchEvent,
+  match: { homeTeamId: number; awayTeamId: number }
+): Promise<boolean | null> {
+  if (typeof e.isHomeTeam === "boolean") return e.isHomeTeam;
+  if (e.saveGamePlayerId) {
+    const p = await prisma.saveGamePlayer.findUnique({
+      where: { id: e.saveGamePlayerId },
+      select: { teamId: true },
+    });
+    if (p) {
+      if (p.teamId === match.homeTeamId) return true;
+      if (p.teamId === match.awayTeamId) return false;
+    }
+  }
+  return null;
+}
+
 async function persistAndBroadcastEvents(
   saveGameId: number,
-  match: SaveGameMatch,
+  match: SaveGameMatch & { homeTeamId: number; awayTeamId: number },
   simulated: SimulatedMatchEvent[]
 ) {
   if (!simulated.length) return;
@@ -140,7 +180,7 @@ async function persistAndBroadcastEvents(
     )
   );
 
-  // Broadcast each event; enrich with player name for the FE (best-effort)
+  // Broadcast each; enrich with player + isHomeTeam (for optimistic UI)
   for (const e of simulated) {
     let player: { id: number; name: string } | null = null;
     try {
@@ -153,14 +193,47 @@ async function persistAndBroadcastEvents(
       /* ignore */
     }
 
+    const isHomeTeam = await resolveIsHomeTeam(e, match);
+
     broadcastMatchEvent(saveGameId, {
       matchId: match.id,
       minute: e.minute,
       type: e.type,
       description: e.description,
       player,
+      ...(typeof isHomeTeam === "boolean" ? { isHomeTeam } : {}),
     });
   }
+}
+
+/**
+ * Pause entire matchday loop (used at HT and injury-pause for coached team).
+ * Waits until GameState.gameStage flips back to MATCHDAY or a hard stop occurs.
+ */
+async function pauseUntilResumed(saveGameId: number, mdNumber: number) {
+  pausedSaves.add(saveGameId);
+
+  await prisma.gameState.updateMany({
+    where: { currentSaveGameId: saveGameId },
+    data: { gameStage: GameStage.HALFTIME },
+  });
+  broadcastStageChanged({ gameStage: "HALFTIME", matchdayNumber: mdNumber }, saveGameId);
+
+  // Wait until resumed to MATCHDAY (poll every 400ms, up to ~2 minutes)
+  const started = Date.now();
+  while (true) {
+    if (stoppedSaves.has(saveGameId)) return;
+    const gs = await prisma.gameState.findFirst({
+      where: { currentSaveGameId: saveGameId },
+      select: { gameStage: true },
+    });
+    if (gs?.gameStage === GameStage.MATCHDAY) break;
+    if (Date.now() - started > 120_000) break; // safety escape
+    await sleep(400);
+  }
+
+  broadcastStageChanged({ gameStage: "MATCHDAY", matchdayNumber: mdNumber }, saveGameId);
+  pausedSaves.delete(saveGameId);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -170,7 +243,7 @@ async function persistAndBroadcastEvents(
 export async function startOrResumeMatchday(saveGameId: number): Promise<void> {
   stoppedSaves.delete(saveGameId);
 
-  const md = await getActiveMatchday(saveGameId);
+  const { md, coachTeamId } = await getActiveMatchday(saveGameId);
   const matchIds = md.saveGameMatches.map((m) => m.id);
 
   // Ensure MatchState exists for each match
@@ -204,60 +277,93 @@ export async function startOrResumeMatchday(saveGameId: number): Promise<void> {
       return;
     }
 
+    // If externally paused (e.g., via API), wait here.
+    while (pausedSaves.has(saveGameId)) {
+      if (stoppedSaves.has(saveGameId)) return;
+      await sleep(200);
+    }
+
     // Halftime handling at minute 46 (i.e., after minute 45 has been processed)
     if (minute === 46) {
-      pausedSaves.add(saveGameId);
-
-      await prisma.gameState.updateMany({
-        where: { currentSaveGameId: saveGameId },
-        data: { gameStage: GameStage.HALFTIME },
-      });
-      broadcastStageChanged(
-        { gameStage: "HALFTIME", matchdayNumber: md.number },
-        saveGameId
-      );
-
-      // Wait until resumed to MATCHDAY (poll every 400ms, up to ~2 minutes)
-      const started = Date.now();
-      while (true) {
-        if (stoppedSaves.has(saveGameId)) return;
-        const gs = await prisma.gameState.findFirst({
-          where: { currentSaveGameId: saveGameId },
-          select: { gameStage: true },
-        });
-        if (gs?.gameStage === GameStage.MATCHDAY) break;
-        if (Date.now() - started > 120_000) break; // safety escape
-        await sleep(400);
-      }
-
-      // Announce MATCHDAY again after halftime
-      broadcastStageChanged(
-        { gameStage: "MATCHDAY", matchdayNumber: md.number },
-        saveGameId
-      );
-      pausedSaves.delete(saveGameId);
+      await pauseUntilResumed(saveGameId, md.number);
     }
 
     // Process each match this minute
     for (const matchId of matchIds) {
       const match = (await prisma.saveGameMatch.findUnique({
         where: { id: matchId },
-      })) as SaveGameMatch | null;
+        select: {
+          id: true,
+          homeGoals: true,
+          awayGoals: true,
+          homeTeamId: true,
+          awayTeamId: true,
+        },
+      })) as (SaveGameMatch & { homeTeamId: number; awayTeamId: number }) | null;
+
       if (!match) continue;
 
       const state = await getMatchState(matchId);
 
       // Simulate events for this minute
-      const simEvents = await simulateMatch(match, state, minute);
+      const simEventsRaw = await simulateMatch(match, state, minute);
+
+      // Rule: if a player was RED-carded this minute, discard any GOAL events
+      // by that same player in this minute to prevent impossible combos.
+      const sentOffIds = new Set<number>(
+        simEventsRaw
+          .filter((e) => e.type === MatchEventType.RED && typeof e.saveGamePlayerId === "number")
+          .map((e) => e.saveGamePlayerId!) // non-null after filter
+      );
+
+      const simEvents = simEventsRaw.filter(
+        (e) => !(e.type === MatchEventType.GOAL && sentOffIds.has(e.saveGamePlayerId!))
+      );
 
       // If any GOAL, update score first (so tick reflects new score)
       for (const e of simEvents) {
         if (e.type === MatchEventType.GOAL) {
-          await updateScoreForGoal(match.id, e.isHomeTeam);
+          // Resolve side (fallback via DB if missing)
+          const isHome = (await resolveIsHomeTeam(e, match)) ?? true;
+          await updateScoreForGoal(match.id, isHome);
         }
       }
 
-      // Persist + broadcast all events
+      // Handle immediate side-effects BEFORE broadcasting (so UI is consistent)
+
+      // 1) RED card → remove the player from lineup immediately (no replacement)
+      for (const e of simEvents) {
+        if (e.type === MatchEventType.RED && typeof e.saveGamePlayerId === "number") {
+          const isHome = (await resolveIsHomeTeam(e, match)) ?? true;
+          await removePlayerFromLineup(match.id, e.saveGamePlayerId!, isHome);
+          // (Suspension across next matchdays should be applied during advanceMatchday)
+        }
+      }
+
+      // 2) INJURY → if it happened on the coached side, pause and open halftime popup
+      // We always broadcast the pause request; the global pause only triggers if it's the coach's team.
+      for (const e of simEvents) {
+        if (e.type === MatchEventType.INJURY) {
+          const isHome = (await resolveIsHomeTeam(e, match)) ?? true;
+
+          // Notify UI to open halftime popup for that side
+          broadcastPauseRequest(
+            { matchId: match.id, isHomeTeam: isHome, reason: "INJURY" },
+            saveGameId
+          );
+
+          // Only pause the whole matchday if injury is on the coached team
+          if (
+            coachTeamId &&
+            ((isHome && match.homeTeamId === coachTeamId) ||
+              (!isHome && match.awayTeamId === coachTeamId))
+          ) {
+            await pauseUntilResumed(saveGameId, md.number);
+          }
+        }
+      }
+
+      // Persist + broadcast all events (with isHomeTeam resolved for FE)
       await persistAndBroadcastEvents(saveGameId, match, simEvents);
 
       // Broadcast a tick with the latest score
