@@ -5,16 +5,20 @@ import type { MatchEventDTO } from "@/types";
 /** Shape returned by GET /api/match-events/by-matchday/:number */
 export type GroupedEventsByMatch = Record<number, MatchEventDTO[]>;
 
+/** Backend payload shape for /matchday/advance (we forward selection so engine uses final picks) */
+export type AdvancePayload = {
+  saveGameId: number;
+  formation?: string;
+  lineupIds?: number[];
+  reserveIds?: number[];
+};
+
 /** Optional helper if you expose this in your axios service */
 async function fetchTeamMatchInfo(saveGameId: number, matchday: number, teamId: number) {
+  // BE route returns only { matchId, isHomeTeam }
   const { data } = await api.get<{
-    saveGameId: number;
-    matchdayId: number;
     matchId: number;
     isHomeTeam: boolean;
-    homeTeamId: number;
-    awayTeamId: number;
-    opponentTeamId: number;
   }>("/matchday/team-match-info", { params: { saveGameId, matchday, teamId } });
   return data;
 }
@@ -43,6 +47,7 @@ export async function saveCoachSelection(params: {
     return;
   } catch (e) {
     // fall back below
+    // eslint-disable-next-line no-console
     console.warn(
       "[FE-matchService] /formation/coach not available; falling back to per-match route",
       e
@@ -59,12 +64,30 @@ export async function saveCoachSelection(params: {
   });
 }
 
-/** Advance into MATCHDAY (engine will be started on backend) */
-export async function advanceToMatchday(saveGameId: number): Promise<{ saveGameId: number; matchdayNumber: number }> {
-  const { data } = await api.post<{ saveGameId: number; matchdayNumber: number }>(
+/**
+ * Advance into MATCHDAY (engine will be started on backend).
+ * Backward-compatible:
+ *   - advanceToMatchday(42)
+ *   - advanceToMatchday({ saveGameId: 42, formation, lineupIds, reserveIds })
+ */
+export async function advanceToMatchday(
+  arg: number | AdvancePayload
+): Promise<{ saveGameId: number; matchdayNumber: number; advanced?: boolean }> {
+  const payload: AdvancePayload =
+    typeof arg === "number"
+      ? { saveGameId: arg }
+      : {
+          saveGameId: arg.saveGameId,
+          formation: arg.formation,
+          lineupIds: arg.lineupIds,
+          reserveIds: arg.reserveIds,
+        };
+
+  const { data } = await api.post<{ saveGameId: number; matchdayNumber: number; advanced?: boolean }>(
     "/matchday/advance",
-    { saveGameId }
+    payload
   );
+
   return data;
 }
 
@@ -82,4 +105,61 @@ export async function getMatchEventsByMatchday(
 export async function getMatchEventsByMatchId(matchId: number): Promise<MatchEventDTO[]> {
   const { data } = await api.get<MatchEventDTO[]>(`/match-events/${matchId}`);
   return data ?? [];
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: Head-to-head helper used by GameTab’s dynamic import          */
+/* ------------------------------------------------------------------ */
+
+export type HeadToHeadAPI =
+  | { text: string }                         // simplest form
+  | { summary: string }                      // alternate field
+  | { result: string }                       // alternate field
+  | {
+      // richer payload (we’ll synthesize a string if needed)
+      homeTeamId: number;
+      awayTeamId: number;
+      homeTeamName?: string | null;
+      awayTeamName?: string | null;
+      homeGoals?: number | null;
+      awayGoals?: number | null;
+      matchdayNumber?: number | null;
+      timestamp?: string | null;
+    };
+
+/**
+ * Return last H2H as an object that includes at least one of:
+ *  - { text } or { summary } or { result }
+ * If BE returns a richer object, we'll keep it and the caller can stringify it.
+ */
+export async function getLastHeadToHead(
+  homeId: number,
+  awayId: number,
+  opts?: { saveGameId?: number }
+): Promise<HeadToHeadAPI> {
+  // Prefer axios base URL (/api) via our api instance.
+  const { data } = await api.get<HeadToHeadAPI>("/matches/last-head-to-head", {
+    params: {
+      homeId,
+      awayId,
+      ...(opts?.saveGameId ? { saveGameId: opts.saveGameId } : {}),
+    },
+  });
+
+  // If BE didn't provide text/summary/result, synthesize a short line.
+  if (data && typeof data === "object" && !("text" in data) && !("summary" in data) && !("result" in data)) {
+    const d = data as any;
+    const hn = d.homeTeamName ?? `Team ${d.homeTeamId ?? "?"}`;
+    const an = d.awayTeamName ?? `Team ${d.awayTeamId ?? "?"}`;
+    const hg = typeof d.homeGoals === "number" ? d.homeGoals : null;
+    const ag = typeof d.awayGoals === "number" ? d.awayGoals : null;
+    const md = typeof d.matchdayNumber === "number" ? d.matchdayNumber : null;
+
+    if (hg !== null && ag !== null) {
+      const line = `${hn} ${hg}-${ag} ${an}${md ? ` (Matchday ${md})` : ""}`;
+      return { text: line };
+    }
+  }
+
+  return data;
 }

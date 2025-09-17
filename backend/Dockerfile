@@ -4,7 +4,7 @@ WORKDIR /usr/src/app
 
 # 1. Install dependencies
 COPY package*.json ./
-RUN npm install --network-timeout=600000
+RUN npm install --network-timeout=60000
 
 # 2. Install system deps
 RUN apt-get update && \

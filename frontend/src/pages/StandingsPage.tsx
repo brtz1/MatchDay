@@ -1,5 +1,6 @@
+// frontend/src/pages/StandingsPage.tsx
 import * as React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -12,6 +13,10 @@ import { ProgressBar } from "@/components/common/ProgressBar";
 import TopNavBar from "@/components/common/TopNavBar";
 import { useGameState } from "@/store/GameStateStore";
 import { teamUrl } from "@/utils/paths";
+
+/** 🔌 sockets */
+import { useSocketEvent } from "@/hooks/useSocket";
+import { connectSocket, joinSaveRoom, leaveSaveRoom } from "@/socket";
 
 /* ------------------------------------------------------------------ */
 /* Local types (robust to both backend shapes)                         */
@@ -37,6 +42,16 @@ type DivisionGroup = {
   teams: TeamRow[]; // we normalize to this no matter what BE returns
 };
 
+type StageChangedPayload = {
+  gameStage:
+    | "ACTION"
+    | "MATCHDAY"
+    | "HALFTIME"
+    | "RESULTS"
+    | "STANDINGS"
+    | "PENALTIES";
+};
+
 export default function StandingsPage() {
   const navigate = useNavigate();
   const location = useLocation() as { state?: { cameFromResults?: boolean } };
@@ -44,40 +59,78 @@ export default function StandingsPage() {
 
   const { coachTeamId, saveGameId: storeSaveId } = useGameState();
 
+  const [resolvedSaveId, setResolvedSaveId] = useState<number | undefined>(
+    typeof storeSaveId === "number" && !Number.isNaN(storeSaveId)
+      ? storeSaveId
+      : undefined,
+  );
+
   const [divisions, setDivisions] = useState<DivisionGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load grouped standings
+  /* ------------------------------------------------------------------ */
+  /* Resolve save id (robust)                                           */
+  /* ------------------------------------------------------------------ */
   useEffect(() => {
-    let disposed = false;
-
-    async function resolveSaveId(): Promise<number | undefined> {
-      if (typeof storeSaveId === "number" && !Number.isNaN(storeSaveId)) return storeSaveId;
+    let cancelled = false;
+    (async () => {
+      if (typeof storeSaveId === "number" && !Number.isNaN(storeSaveId)) {
+        setResolvedSaveId(storeSaveId);
+        return;
+      }
       try {
         const gs = await getGameState();
-        return gs?.currentSaveGameId ?? undefined;
+        if (!cancelled) {
+          setResolvedSaveId(
+            typeof gs?.currentSaveGameId === "number"
+              ? gs.currentSaveGameId
+              : undefined,
+          );
+        }
       } catch {
-        return undefined;
+        if (!cancelled) setResolvedSaveId(undefined);
       }
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storeSaveId]);
 
+  /* ------------------------------------------------------------------ */
+  /* Socket room join/leave for this page                               */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (typeof resolvedSaveId !== "number") return;
+    connectSocket(); // idempotent
+    let disposed = false;
     (async () => {
+      try {
+        await joinSaveRoom(resolvedSaveId, { waitAck: true, timeoutMs: 3000 });
+      } catch {
+        /* non-fatal */
+      }
+      if (disposed) return;
+    })();
+    return () => {
+      disposed = true;
+      void leaveSaveRoom(resolvedSaveId);
+    };
+  }, [resolvedSaveId]);
+
+  /* ------------------------------------------------------------------ */
+  /* Fetch + normalize standings                                        */
+  /* ------------------------------------------------------------------ */
+  const reloadStandings = useCallback(
+    async (sid?: number) => {
+      if (typeof sid !== "number") return;
       setLoading(true);
       setError(null);
       try {
-        const resolved = await resolveSaveId();
-        if (!resolved) throw new Error("No active save found.");
-
-        // BE returns an array of divisions; each may have .rows (new) and/or .teams (legacy)
-        const raw = await getCurrentStandings(resolved);
-
-        // Normalize to our local DivisionGroup shape
+        const raw = await getCurrentStandings(sid);
         const normalized: DivisionGroup[] = Array.isArray(raw)
           ? raw.map((div: any) => {
               const division = String(div?.division ?? "");
-
-              // Prefer legacy teams if present; otherwise map new rows -> legacy fields
               const teams: TeamRow[] = Array.isArray(div?.teams)
                 ? div.teams.map((t: any) => ({
                     teamId: Number(t.teamId ?? t.id),
@@ -90,7 +143,7 @@ export default function StandingsPage() {
                     goalsAgainst: Number(t.goalsAgainst ?? 0),
                     goalDifference: Number(
                       t.goalDifference ??
-                        (Number(t.goalsFor ?? 0) - Number(t.goalsAgainst ?? 0))
+                        (Number(t.goalsFor ?? 0) - Number(t.goalsAgainst ?? 0)),
                     ),
                     points: Number(t.points ?? 0),
                     position: Number(t.position ?? 0),
@@ -106,52 +159,88 @@ export default function StandingsPage() {
                     goalsFor: Number(r.gf ?? 0),
                     goalsAgainst: Number(r.ga ?? 0),
                     goalDifference: Number(
-                      r.gd ?? (Number(r.gf ?? 0) - Number(r.ga ?? 0))
+                      r.gd ?? (Number(r.gf ?? 0) - Number(r.ga ?? 0)),
                     ),
                     points: Number(r.points ?? 0),
                     position: Number(r.position ?? 0),
                   }))
                 : [];
-
               return { division, teams };
             })
           : [];
-
-        if (!disposed) setDivisions(normalized);
+        setDivisions(normalized);
       } catch (e) {
         console.error("[Standings] Failed to load standings:", e);
-        if (!disposed) setError("Failed to load standings.");
+        setError("Failed to load standings.");
       } finally {
-        if (!disposed) setLoading(false);
+        setLoading(false);
       }
-    })();
+    },
+    [],
+  );
 
-    return () => {
-      disposed = true;
-    };
-  }, [storeSaveId]);
+  // Initial load once we know the save id
+  useEffect(() => {
+    if (typeof resolvedSaveId !== "number") return;
+    void reloadStandings(resolvedSaveId);
+  }, [resolvedSaveId, reloadStandings]);
 
-  // Grace timer ONLY when we came from RESULTS → Standings
+  /* ------------------------------------------------------------------ */
+  /* Live refresh hooks                                                 */
+  /* ------------------------------------------------------------------ */
+
+  // Server tells us standings are ready → refetch now
+  useSocketEvent<{ saveGameId?: number }>("standings-updated", (msg) => {
+    if (
+      typeof resolvedSaveId === "number" &&
+      (typeof msg?.saveGameId !== "number" || msg.saveGameId === resolvedSaveId)
+    ) {
+      void reloadStandings(resolvedSaveId);
+    }
+  });
+
+  // If we land here before recompute is done, a late stage-changed to STANDINGS/RESULTS should also trigger a refetch
+  useSocketEvent<StageChangedPayload>("stage-changed", (p) => {
+    if (p?.gameStage === "RESULTS" || p?.gameStage === "STANDINGS") {
+      if (typeof resolvedSaveId === "number") {
+        void reloadStandings(resolvedSaveId);
+      }
+    }
+  });
+
+  // Small grace refetch if we came directly from RESULTS (covers any missed socket)
+  useEffect(() => {
+    if (!cameFromResults || typeof resolvedSaveId !== "number") return;
+    const t = setTimeout(() => void reloadStandings(resolvedSaveId), 800);
+    return () => clearTimeout(t);
+  }, [cameFromResults, resolvedSaveId, reloadStandings]);
+
+  /* ------------------------------------------------------------------ */
+  /* Auto-return to Team Roster when arriving from RESULTS              */
+  /* ------------------------------------------------------------------ */
   useEffect(() => {
     if (!cameFromResults) return;
-    const resolved = typeof storeSaveId === "number" ? storeSaveId : undefined;
-    if (!resolved || !coachTeamId) return;
+    const sid =
+      typeof resolvedSaveId === "number" ? resolvedSaveId : storeSaveId ?? undefined;
+    if (!sid || !coachTeamId) return;
 
     const t = setTimeout(async () => {
       try {
-        const res = await finalizeStandings(resolved);
-        const targetCoach = res.coachTeamId ?? coachTeamId;
+        const res = await finalizeStandings(sid);
+        const targetCoach = res?.coachTeamId ?? coachTeamId;
         navigate(teamUrl(targetCoach), { replace: true });
       } catch (e) {
         console.warn("[Standings] finalize failed; routing anyway", e);
         navigate(teamUrl(coachTeamId), { replace: true });
       }
-    }, 30000);
+    }, 3000);
 
     return () => clearTimeout(t);
-  }, [cameFromResults, storeSaveId, coachTeamId, navigate]);
+  }, [cameFromResults, resolvedSaveId, storeSaveId, coachTeamId, navigate]);
 
-  // Stable ordering in grid
+  /* ------------------------------------------------------------------ */
+  /* Stable ordering in grid                                            */
+  /* ------------------------------------------------------------------ */
   const gridDivisions = useMemo(() => {
     const byKey = new Map(divisions.map((d) => [String(d.division), d]));
     return [

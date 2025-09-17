@@ -25,11 +25,26 @@ async function getTopPlayers() {
     const { data } = await axios.get(`${BASE}/top`);
     return data;
 }
+/* ------------------------------------------- Golden Boot (new endpoints) */
+async function getSeasonGoldenBoot(params) {
+    const { data } = await axios.get(`/api/golden-boot/season`, {
+        params,
+    });
+    return data;
+}
+async function getGoldenBootHistory(params) {
+    const { data } = await axios.get(`/api/golden-boot/history`, {
+        params,
+    });
+    return data;
+}
 /* ------------------------------------------------------------------ Export */
 export default {
     getPlayerStats,
     getPlayerStatsSummary,
     recordPlayerStats,
     getTopPlayers,
+    getSeasonGoldenBoot,
+    getGoldenBootHistory,
 };
 //# sourceMappingURL=statsService.js.map

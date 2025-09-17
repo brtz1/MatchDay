@@ -9,6 +9,7 @@ const router = express.Router();
 
 type Side = "home" | "away";
 type Position = "GK" | "DF" | "MF" | "AT";
+type EnginePauseReason = "INJURY" | "GK_INJURY" | "GK_RED_NEEDS_GK";
 
 type PlayerUI = {
   id: number;
@@ -35,6 +36,12 @@ function normalizePos(p?: string | null): Position {
   if (s === "AT" || s === "F" || s === "FW" || s === "ATT" || s === "ATTACKER" || s === "ST")
     return "AT";
   return "MF";
+}
+
+function normalizeReason(x: any): EnginePauseReason | undefined {
+  const s = typeof x === "string" ? x.trim().toUpperCase() : "";
+  if (s === "INJURY" || s === "GK_INJURY" || s === "GK_RED_NEEDS_GK") return s as EnginePauseReason;
+  return undefined;
 }
 
 const POSITION_ORDER: Record<Position, number> = { GK: 0, DF: 1, MF: 2, AT: 3 };
@@ -87,7 +94,7 @@ async function getMatchStateOrThrow(matchId: number) {
 
 /**
  * Build a hydrated, UI-ready state for one side.
- * - Keeps injured players ON the field; just flags `isInjured=true`.
+ * - Keeps injured players ON the field; just flags `isInjured=true` (engine/red-removal happens elsewhere).
  * - Sorts players GK → DF → MF → AT, then by rating desc.
  */
 async function buildPublicSideState(matchId: number, side: Side): Promise<PublicSideState> {
@@ -107,7 +114,7 @@ async function buildPublicSideState(matchId: number, side: Side): Promise<Public
 
   const byId = new Map(players.map((p) => [p.id, p]));
 
-  // Injuries are tracked via MatchEvent (enum INJURY); players remain on the field until subbed.
+  // Injuries are tracked via MatchEvent (enum INJURY) – mark them, don't remove
   const injuryEvents = await prisma.matchEvent.findMany({
     where: {
       saveGameMatchId: matchId,
@@ -141,7 +148,7 @@ async function buildPublicSideState(matchId: number, side: Side): Promise<Public
         name: p.name,
         position: normalizePos(p.position),
         rating: p.rating ?? 0,
-        isInjured: injured.has(p.id), // if they were injured previously, still flagged
+        isInjured: injured.has(p.id),
       } as PlayerUI;
     })
     .filter(Boolean) as PlayerUI[];
@@ -160,11 +167,19 @@ function uniq<T>(arr: T[]): T[] {
   return Array.from(new Set(arr));
 }
 
+/**
+ * Apply a substitution locally.
+ * - Normal flow: `out` must be on the field.
+ * - Injury/GK_RED flows: allow `out` to be already removed (engine/coach may have removed him).
+ * - GK rules enforced: GK ↔ GK only; can't end up with 2 GKs.
+ * - If FE forgets to send `reason`, we infer injury flow if the outgoing player has an INJURY event this match.
+ */
 async function applySubstitutionLocal(
   matchId: number,
   outId: number,
   inId: number,
-  isHomeTeam: boolean
+  isHomeTeam: boolean,
+  reason?: EnginePauseReason
 ): Promise<void> {
   const ms = await getMatchStateOrThrow(matchId);
 
@@ -175,45 +190,73 @@ async function applySubstitutionLocal(
   if (subsMade >= 3) {
     throw new Error("No substitutions remaining");
   }
-  if (!lineup.includes(outId)) {
+
+  // basic presence
+  const outIdx = lineup.indexOf(outId);
+  const inBenchIdx = bench.indexOf(inId);
+
+  // infer injury flow if out is not on pitch but there is an injury event logged for him in this match
+  let isInjuryFlow =
+    reason === "INJURY" || reason === "GK_INJURY" || reason === "GK_RED_NEEDS_GK";
+
+  if (!isInjuryFlow && outIdx === -1) {
+    const recentInjury = await prisma.matchEvent.findFirst({
+      where: {
+        saveGameMatchId: matchId,
+        type: MatchEventType.INJURY,
+        saveGamePlayerId: outId,
+      },
+      select: { id: true },
+      orderBy: { minute: "desc" },
+    });
+    if (recentInjury) isInjuryFlow = true;
+  }
+
+  if (!isInjuryFlow && outIdx === -1) {
     throw new Error("Selected outgoing player is not on the field");
   }
-  if (!bench.includes(inId)) {
+  if (inBenchIdx === -1) {
     throw new Error("Selected incoming player is not on the bench");
   }
 
-  // Positions used for GK rules
+  // Positions for GK rules
   const idsToLoad = uniq([...lineup, outId, inId]);
   const players = await prisma.saveGamePlayer.findMany({
     where: { id: { in: idsToLoad } },
     select: { id: true, position: true },
   });
-  const posById = new Map<number, Position>(
-    players.map((p) => [p.id, normalizePos(p.position)])
-  );
+  const posById = new Map<number, Position>(players.map((p) => [p.id, normalizePos(p.position)]));
 
   const outPos = posById.get(outId) ?? "MF";
   const inPos = posById.get(inId) ?? "MF";
 
-  // Count current GKs on field
   const gkOnField = lineup
     .map((id) => posById.get(id) ?? "MF")
     .filter((pos) => pos === "GK").length;
 
-  // GK rules
+  // GK rules (apply in both normal and injury flows)
   if (outPos === "GK" && inPos !== "GK") {
     throw new Error("Goalkeeper can only be substituted by another goalkeeper");
   }
   if (outPos !== "GK" && inPos === "GK") {
-    // Would make two GKs?
     if (gkOnField >= 1) {
       throw new Error("Cannot have two goalkeepers on the field");
     }
   }
 
-  // Apply swap: out -> bench, in -> lineup
-  const newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
-  const newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+  // Apply swap
+  let newLineup: number[];
+  let newBench: number[];
+
+  if (outIdx !== -1) {
+    // Normal: out on field → move OUT to bench, IN to field
+    newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
+    newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+  } else {
+    // Injury-flow: OUT already off → just move IN from bench to lineup
+    newLineup = uniq(lineup.concat(inId));
+    newBench = uniq(bench.filter((id) => id !== inId));
+  }
 
   // Persist counters + arrays
   if (isHomeTeam) {
@@ -234,6 +277,48 @@ async function applySubstitutionLocal(
         awayReserves: newBench,
         awaySubsMade: subsMade + 1,
         subsRemainingAway: Math.max(0, 3 - (subsMade + 1)),
+      },
+    });
+  }
+}
+
+/* --------------------------- remove without sub --------------------------- */
+/**
+ * Remove a player from the lineup immediately (injury/red-card "no sub" path).
+ * - Does NOT add the player to the bench.
+ * - Does NOT change subs counters.
+ */
+async function removeFromLineupNoSub(
+  matchId: number,
+  playerId: number,
+  isHomeTeam: boolean
+): Promise<void> {
+  const ms = await getMatchStateOrThrow(matchId);
+  const lineup = isHomeTeam ? (ms.homeLineup ?? []) : (ms.awayLineup ?? []);
+  const reserves = isHomeTeam ? (ms.homeReserves ?? []) : (ms.awayReserves ?? []);
+
+  const exists = lineup.includes(playerId);
+  if (!exists) {
+    // If not on the field, nothing to do — be lenient.
+    return;
+  }
+
+  const newLineup = lineup.filter((id) => id !== playerId);
+  // Bench unchanged; counters unchanged
+  if (isHomeTeam) {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        homeLineup: newLineup,
+        homeReserves: reserves,
+      },
+    });
+  } else {
+    await prisma.matchState.update({
+      where: { saveGameMatchId: matchId },
+      data: {
+        awayLineup: newLineup,
+        awayReserves: reserves,
       },
     });
   }
@@ -280,8 +365,12 @@ router.get(
 /* ---------------------------------- POST ---------------------------------- */
 /**
  * POST /api/matchstate/:matchId/substitute
- * Body: { out: number, in: number, isHomeTeam: boolean }
- *    or { outId: number, inId: number, isHomeTeam: boolean }
+ * Body: {
+ *   out?: number, outId?: number, outPlayerId?: number,
+ *   in: number, inId?: number, inPlayerId?: number,
+ *   isHomeTeam?: boolean, side?: "home"|"away",
+ *   reason?: "INJURY"|"GK_INJURY"|"GK_RED_NEEDS_GK"
+ * }
  *
  * Returns: { side, lineup, bench, subsRemaining } for that side (post-sub)
  */
@@ -290,30 +379,66 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const matchId = Number(req.params.matchId);
-      // Accept both naming styles to be forgiving
-      const out: number =
-        typeof req.body?.out === "number" ? req.body.out : req.body?.outId;
-      const incoming: number =
-        typeof req.body?.in === "number" ? req.body.in : req.body?.inId;
-      const isHomeTeam: boolean = req.body?.isHomeTeam;
 
-      if (
-        !Number.isFinite(matchId) ||
-        !Number.isFinite(out) ||
-        !Number.isFinite(incoming) ||
-        typeof isHomeTeam !== "boolean"
-      ) {
-        return res.status(400).json({ error: "Invalid parameters" });
+      const rawOut =
+        req.body?.out ??
+        req.body?.outId ??
+        req.body?.outPlayerId;
+
+      const rawIn =
+        req.body?.["in"] ??
+        req.body?.inId ??
+        req.body?.inPlayerId;
+
+      const rawSide: string | undefined = typeof req.body?.side === "string" ? req.body.side : undefined;
+      const reason: EnginePauseReason | undefined = normalizeReason(req.body?.reason);
+
+      // Normalize side / isHomeTeam
+      let isHomeTeam: boolean | undefined;
+      if (rawSide) {
+        const sideNorm = String(rawSide).toLowerCase();
+        if (sideNorm === "home") isHomeTeam = true;
+        else if (sideNorm === "away") isHomeTeam = false;
+        else return res.status(400).json({ error: `Invalid side: ${rawSide}` });
+      } else {
+        const rawIsHomeTeam = req.body?.isHomeTeam;
+        if (typeof rawIsHomeTeam === "boolean") {
+          isHomeTeam = rawIsHomeTeam;
+        } else if (typeof rawIsHomeTeam === "string") {
+          if (rawIsHomeTeam.toLowerCase() === "true") isHomeTeam = true;
+          else if (rawIsHomeTeam.toLowerCase() === "false") isHomeTeam = false;
+        }
       }
 
-      await applySubstitutionLocal(matchId, Number(out), Number(incoming), Boolean(isHomeTeam));
+      // Coerce player ids (accept numeric strings)
+      const out = Number(rawOut);
+      const incoming = Number(rawIn);
+
+      // Validate presence and types
+      const problems: string[] = [];
+      if (!Number.isFinite(matchId)) problems.push("matchId");
+      // `out` may be missing from the field in injury flows, but still must be a number
+      if (!Number.isFinite(out)) problems.push("out / outId / outPlayerId");
+      if (!Number.isFinite(incoming)) problems.push("in / inId / inPlayerId");
+      if (typeof isHomeTeam !== "boolean") problems.push("side or isHomeTeam");
+
+      if (problems.length) {
+        return res.status(400).json({
+          error: `Invalid parameters: ${problems.join(", ")}`,
+          details: { matchId, out: rawOut, in: rawIn, side: rawSide, isHomeTeam: req.body?.isHomeTeam },
+        });
+      }
+
+      // (Optional) enforce pause/halftime before allowing subs
+      // await ensureCanSubstitute(matchId);
+
+      await applySubstitutionLocal(matchId, out, incoming, isHomeTeam!, reason);
 
       const side: Side = isHomeTeam ? "home" : "away";
       const updated = await buildPublicSideState(matchId, side);
 
       return res.json(updated);
     } catch (err: any) {
-      // Map well-known errors to HTTP statuses/messages (keeps FE logic unchanged)
       const msg = String(err?.message ?? "");
 
       if (/No substitutions remaining/i.test(msg)) {
@@ -334,8 +459,65 @@ router.post(
         return res.status(409).json({ error: "Cannot have two goalkeepers on the field." });
       }
 
-      // Fallback
       return res.status(400).json({ error: err?.message ?? "Substitution failed." });
+    }
+  }
+);
+
+/**
+ * POST /api/matchstate/:matchId/remove-player
+ * Body: { playerId: number, isHomeTeam: boolean }
+ *
+ * Removes the player from the lineup immediately (no sub, no bench add, no counter change).
+ * Returns: { side, lineup, bench, subsRemaining } for that side.
+ */
+router.post(
+  "/:matchId/remove-player",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      const playerId: number = req.body?.playerId;
+      const isHomeTeam: boolean = req.body?.isHomeTeam;
+
+      if (!Number.isFinite(matchId) || !Number.isFinite(playerId) || typeof isHomeTeam !== "boolean") {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      await removeFromLineupNoSub(matchId, Number(playerId), Boolean(isHomeTeam));
+
+      const side: Side = isHomeTeam ? "home" : "away";
+      const updated = await buildPublicSideState(matchId, side);
+      return res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/matchstate/:matchId/pause
+ * Body: { isPaused: boolean }
+ *
+ * Sets the isPaused flag for a given match. The engine loop should respect this flag.
+ * (Main matchday pausing is done via /matchday/set-stage, which the engine honors.)
+ */
+router.post(
+  "/:matchId/pause",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      const isPaused = Boolean(req.body?.isPaused);
+      if (!Number.isFinite(matchId)) return res.status(400).json({ error: "Invalid matchId" });
+
+      await ensureInitialMatchState(matchId);
+      const ms = await prisma.matchState.update({
+        where: { saveGameMatchId: matchId },
+        data: { isPaused },
+        select: { isPaused: true },
+      });
+      return res.json({ ok: true, isPaused: ms.isPaused });
+    } catch (err) {
+      next(err);
     }
   }
 );

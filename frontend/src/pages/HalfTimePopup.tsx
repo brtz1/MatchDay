@@ -1,5 +1,6 @@
-import * as React from "react";
-import { useState, useEffect, MouseEvent, useMemo } from "react";
+// frontend/src/pages/HalfTimePopup.tsx
+
+import React, { useState, useEffect, MouseEvent, useMemo } from "react";
 import clsx from "clsx";
 import Modal from "@/components/common/Modal";
 import { AppButton } from "@/components/common/AppButton";
@@ -15,6 +16,8 @@ export interface PlayerDTO {
   position: string;
   rating: number;
   isInjured: boolean;
+  /** Optional: when true, player is not eligible to appear on bench (e.g., red/injury) */
+  unavailable?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -26,7 +29,12 @@ export type PauseReason =
   | "GK_INJURY"
   | "GK_RED_NEEDS_GK"
   | "INJURY"
-  | "COACH_PAUSE";
+  | "COACH_PAUSE"
+  // ✅ allow ET half-time reason coming from the engine/FE
+  | "ET_HALF";
+
+/** Distinguish standard half-time vs extra-time half-time (UI only) */
+export type HalfTimeMode = "HT" | "ET";
 
 /* -------------------------------------------------------------------------- */
 /* Props                                                                      */
@@ -42,6 +50,12 @@ export interface HalfTimePopupProps {
   onSubstitute: (args: { out: number; in: number }) => void;
   canSubstitute: boolean;
   pauseReason?: PauseReason;
+
+  /** Incident player info (for injury / GK red/injury) */
+  incidentPlayer?: { id: number; name: string; position?: string; rating?: number };
+
+  /** Label ET half-time explicitly (caller may omit; we infer from pauseReason === 'ET_HALF') */
+  mode?: HalfTimeMode;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -58,9 +72,14 @@ export default function HalfTimePopup({
   onSubstitute,
   canSubstitute,
   pauseReason,
+  incidentPlayer,
+  mode,
 }: HalfTimePopupProps) {
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
-  const [selectedIn,   setSelectedIn]  = useState<number | null>(null);
+  const [selectedIn,  setSelectedIn]  = useState<number | null>(null);
+
+  // If mode not provided, infer ET vs HT from pauseReason
+  const effectiveMode: HalfTimeMode = mode ?? (pauseReason === "ET_HALF" ? "ET" : "HT");
 
   // Reset selections when reopened/disabled or out of subs
   useEffect(() => {
@@ -77,7 +96,7 @@ export default function HalfTimePopup({
     [lineup]
   );
   const hasBenchGK = useMemo(
-    () => bench.some((p) => isGK(p.position)),
+    () => bench.some((p) => isGK(p.position) && !p.isInjured && !p.unavailable),
     [bench]
   );
 
@@ -90,25 +109,13 @@ export default function HalfTimePopup({
     [selectedIn, bench]
   );
 
-  // When paused due to GK incident and there is a GK on the bench while no GK is on the field,
-  // a GK must be selected from the bench.
-  const mustPickGK =
-    (pauseReason === "GK_INJURY" || pauseReason === "GK_RED_NEEDS_GK") &&
-    gkOnFieldCount === 0 &&
-    hasBenchGK;
-
-  // Validation for the substitution button
+  // Validation for the substitution button (mirror backend constraints for UX)
   let validationMessage: string | null = null;
-
-  // Prevent two GKs on the field: if adding a GK and there is already a GK on field,
-  // the outgoing player must be that GK (GK-for-GK swap).
   if (selectedInIsGK && gkOnFieldCount >= 1 && !selectedOutIsGK) {
     validationMessage = "You cannot play with two goalkeepers. Swap GK for GK.";
   }
-
-  // If mustPickGK, then incoming must be a GK.
-  if (mustPickGK && selectedIn != null && !selectedInIsGK) {
-    validationMessage = "You must select a goalkeeper from the bench.";
+  if (selectedOutIsGK && !selectedInIsGK) {
+    validationMessage = "Goalkeeper can only be substituted by another goalkeeper.";
   }
 
   function commitSub(e: MouseEvent) {
@@ -139,44 +146,93 @@ export default function HalfTimePopup({
       ? "Choose two different players."
       : validationMessage ?? "";
 
-  // Banner message / guidance based on pauseReason
+  // Friendly guidance based on pauseReason (no enforcement)
   const banner = (() => {
     switch (pauseReason) {
       case "GK_INJURY":
         if (gkOnFieldCount === 0 && hasBenchGK) {
-          return "Goalkeeper injured. You must bring on a goalkeeper from the bench.";
+          return "Goalkeeper injured. Tip: you can bring on a goalkeeper from the bench (optional).";
         }
         if (gkOnFieldCount === 0 && !hasBenchGK) {
-          return "Goalkeeper injured. No reserve goalkeeper available — you may continue without a GK or use an outfield player later.";
+          return "Goalkeeper injured. No reserve goalkeeper available — you may continue without a GK.";
         }
-        return "Goalkeeper injured. Review your lineup and substitutions.";
+        return "Goalkeeper injured. Review your lineup and substitutions if you wish.";
       case "GK_RED_NEEDS_GK":
         if (gkOnFieldCount === 0 && hasBenchGK) {
-          return "Goalkeeper sent off. Consider bringing on a goalkeeper (you'll remain a player down).";
+          return "Goalkeeper sent off. Tip: you can bring on a goalkeeper now (optional).";
         }
         if (gkOnFieldCount === 0 && !hasBenchGK) {
           return "Goalkeeper sent off. No reserve goalkeeper available — you will continue without a GK.";
         }
-        return "Goalkeeper sent off. Review your lineup and substitutions.";
+        return "Goalkeeper sent off. Review your lineup and substitutions if you wish.";
       case "INJURY":
-        return "Player injured. You may substitute if you have players remaining.";
+        return "Player injured. You may substitute, or resume the match without a sub.";
       case "COACH_PAUSE":
         return "Coaching pause. Make changes if needed, then resume the match.";
       case "HALFTIME":
-      default:
+      case "ET_HALF":
+      default: {
+        if (effectiveMode === "ET") {
+          return "Extra time half-time. Make substitutions if needed, then resume extra time.";
+        }
         return "Half-time. Make substitutions if needed, then resume the second half.";
+      }
     }
   })();
+
+  const normalizePos = (pos?: string) => {
+    const s = (pos || "").toUpperCase();
+    if (s === "G" || s === "GOALKEEPER") return "GK";
+    if (s === "D" || s === "DEF" || s === "DEFENDER") return "DF";
+    if (s === "M" || s === "MID" || s === "MIDFIELDER") return "MF";
+    if (s === "F" || s === "FW" || s === "ATT" || s === "ATTACKER" || s === "ST") return "AT";
+    return s || "MF";
+  };
+
+  // Incident header (optional)
+  const incidentHeader = (() => {
+    if (!incidentPlayer) return null;
+    const pos = normalizePos(incidentPlayer.position);
+    const rating =
+      typeof incidentPlayer.rating === "number" && !Number.isNaN(incidentPlayer.rating)
+        ? `, ${incidentPlayer.rating}`
+        : "";
+    if (pauseReason === "INJURY" || pauseReason === "GK_INJURY") {
+      return (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-600/70 dark:bg-red-900/20 dark:text-red-100">
+          <span className="mr-1">🚑</span>
+          <strong>{incidentPlayer.name}</strong>
+          {` (${pos}${rating})`} got injured.
+        </div>
+      );
+    }
+    if (pauseReason === "GK_RED_NEEDS_GK") {
+      return (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-600/70 dark:bg-red-900/20 dark:text-red-100">
+          <span className="mr-1">🟥</span>
+          GK sent off: <strong>{incidentPlayer.name}</strong>
+          {` (${pos}${rating})`}
+        </div>
+      );
+    }
+    return null;
+  })();
+
+  // Title: show ET label when applicable
+  const titleText = effectiveMode === "ET" ? "Extra Time – Half-time" : "Match Paused";
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Match Paused"
+      title={titleText}
       size="lg"
       isLocked={false}
       className="flex flex-col gap-4"
     >
+      {/* Incident header (optional) */}
+      {incidentHeader}
+
       {/* Guidance banner */}
       <div className="rounded-md border border-yellow-400 bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-600/70 dark:bg-yellow-900/20 dark:text-yellow-100">
         {banner}
@@ -203,16 +259,16 @@ export default function HalfTimePopup({
           {/* On Field */}
           <RosterList
             kind="lineup"
-            title={`On Field ${gkOnFieldCount ? "(GK present)" : "(no GK)"}`}
+            title={`On Field`}
             players={lineup}
             selected={selectedOut}
             onSelect={canSubstitute && subsRemaining > 0 ? setSelectedOut : noopSelect}
           />
 
-          {/* Bench */}
+          {/* Bench (injured/unavailable filtered OUT completely) */}
           <RosterList
             kind="bench"
-            title={`Bench ${hasBenchGK ? "(GK available)" : ""}`}
+            title={`Bench`}
             players={bench}
             selected={selectedIn}
             onSelect={canSubstitute && subsRemaining > 0 ? setSelectedIn : noopSelect}
@@ -282,16 +338,22 @@ function RosterList({
   const POS_ORDER: Record<string, number> = { GK: 0, DF: 1, MF: 2, AT: 3 };
   const posRank = (p: PlayerDTO) => POS_ORDER[normalizePos(p.position)] ?? 99;
 
+  // For bench: remove ineligible players completely (injured or explicitly unavailable)
+  const visible = useMemo(() => {
+    if (kind !== "bench") return players;
+    return players.filter((p) => !p.isInjured && !p.unavailable);
+  }, [kind, players]);
+
   // Always show GK → DF → MF → AT; then rating DESC; then name ASC
   const sorted = useMemo(() => {
-    return [...players].sort((a, b) => {
+    return [...visible].sort((a, b) => {
       const ra = posRank(a);
       const rb = posRank(b);
       if (ra !== rb) return ra - rb;
       if (b.rating !== a.rating) return b.rating - a.rating;
       return a.name.localeCompare(b.name);
     });
-  }, [players]);
+  }, [visible]);
 
   return (
     <div>
@@ -300,10 +362,9 @@ function RosterList({
       </p>
       <div className="max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
         {sorted.map((p, idx) => {
-          // Injured players:
-          //  - LINEUP: selectable (must be able to sub OUT)
-          //  - BENCH: disabled (cannot sub IN)
-          const isDisabled = kind === "bench" ? p.isInjured : false;
+          // Fallback safety: if an ineligible player still slips through, disable the button.
+          const isDisabled =
+            kind === "bench" ? p.isInjured || p.unavailable === true : false;
 
           return (
             <button
@@ -323,7 +384,6 @@ function RosterList({
             >
               <span className="w-6 text-center font-mono">{normalizePos(p.position)}</span>
               <span className="flex-1 truncate">{p.name}</span>
-              {/* Removed duplicate GK badge as requested */}
               <span className="w-6 text-right">{p.rating}</span>
             </button>
           );

@@ -1,6 +1,6 @@
 /**
- * gameState.ts
- * ------------
+ * gameStateService.ts
+ * -------------------
  * Consolidates all “game-level” REST calls — current match-day, manual saves,
  * load existing saves, etc.  Pages can import these helpers instead of
  * sprinkling raw axios calls everywhere.
@@ -16,8 +16,8 @@ export interface GameState {
   currentSaveGameId?: number;
   timestamp: string;
 
-  // ✅ NEW FIELDS for match control
-  gameStage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+  // ✅ Include PENALTIES to match store usage
+  gameStage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS" | "PENALTIES";
   matchdayType: "LEAGUE" | "CUP";
 }
 

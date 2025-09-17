@@ -1,21 +1,22 @@
+// frontend/src/routes/ProtectedMatchdayRoute.tsx
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useGameState } from "@/store/GameStateStore";
 import api from "@/services/axios";
 
-type GameStage = "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+// Use the canonical GameStage type from the store so it never drifts.
+import type { GameStage as StoreGameStage } from "@/store/GameStateStore";
 
 type Props = { children: ReactNode };
 
 /**
  * Route guard that:
- * - Waits to resolve save id (from store or /gamestate) before deciding.
- * - Allows MATCHDAY, HALFTIME, RESULTS.
+ * - Resolves a save id (from store or /gamestate) before deciding.
+ * - Allows MATCHDAY, HALFTIME, RESULTS, PENALTIES.
  * - Gives a short grace window (up to 3s) to let ACTION → MATCHDAY flip.
  * - Never sends you to Title unless we are 100% sure there is NO save.
  */
 export default function ProtectedMatchdayRoute({ children }: Props) {
-  const nav = useNavigate();
   const { state } = useLocation();
   const {
     gameStage,
@@ -30,6 +31,7 @@ export default function ProtectedMatchdayRoute({ children }: Props) {
     (typeof currentSaveGameId === "number" ? currentSaveGameId : undefined);
 
   const [resolvedSaveId, setResolvedSaveId] = useState<number | null | undefined>(undefined);
+
   useEffect(() => {
     let cancelled = false;
     if (typeof storeSaveId === "number") {
@@ -44,21 +46,33 @@ export default function ProtectedMatchdayRoute({ children }: Props) {
         if (!cancelled) setResolvedSaveId(undefined); // unknown → do not redirect
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [storeSaveId]);
 
   const allowed = useMemo(
-    () => new Set<GameStage>(["MATCHDAY", "HALFTIME", "RESULTS"]),
+    () =>
+      new Set<StoreGameStage>([
+        "MATCHDAY",
+        "HALFTIME",
+        "RESULTS",
+        "PENALTIES", // ← include PK shootout stage
+      ]),
     []
   );
 
-  // Give the server time to flip into MATCHDAY after you click the button
+  // Grace window to let server flip ACTION→MATCHDAY after you click the button
   const [graceActive, setGraceActive] = useState(false);
   const graceTimer = useRef<number | null>(null);
 
-  // Start grace when we arrive here with a hint we came from Formation
+  // Type-safe check for `state.fromFormation` without `any`
+  function hasFromFormation(s: unknown): s is { fromFormation?: boolean } {
+    return !!s && typeof s === "object" && "fromFormation" in (s as Record<string, unknown>);
+  }
+
   useEffect(() => {
-    const hinted = Boolean((state as any)?.fromFormation);
+    const hinted = hasFromFormation(state) && !!state.fromFormation;
     if (!hinted || graceActive) return;
     setGraceActive(true);
     graceTimer.current = window.setTimeout(() => setGraceActive(false), 3000);
@@ -68,7 +82,7 @@ export default function ProtectedMatchdayRoute({ children }: Props) {
   }, [state, graceActive]);
 
   // Decide what to do
-  // 1) Unknown save id? show nothing (let child render a loader)
+  // 1) Unknown save id? render children (let the page show its own loader)
   if (resolvedSaveId === undefined) return <>{children}</>;
 
   // 2) Definitely no save → Title

@@ -49,8 +49,16 @@ export async function getGameState() {
     return data;
 }
 export async function setStage(payload) {
-    const { data } = await api.post("/matchday/set-stage", payload);
-    return data;
+    const res = await api.post("/matchday/set-stage", payload);
+    if (!res.data?.gameStage)
+        throw new Error("set-stage returned no gameStage");
+    return res.data;
+}
+/* -- Formation / Coach XI -------------------------------------------------- */
+/** POST /formation/coach — persist confirmed XI exactly as chosen on FE. */
+export async function postCoachFormation(payload) {
+    const { data } = await api.post("/formation/coach", payload);
+    return data ?? { ok: true };
 }
 /* -- Matchday Flow --------------------------------------------------------- */
 export async function advanceMatchday(payload) {

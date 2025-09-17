@@ -12,7 +12,6 @@ export default function CountrySelectionPage() {
     const [countries, setCountries] = useState([]);
     const [teamCounts, setTeamCounts] = useState({});
     const [selected, setSelected] = useState([]);
-    const [coachName, setCoachName] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     useEffect(() => {
@@ -40,16 +39,14 @@ export default function CountrySelectionPage() {
     };
     const totalClubs = selected.reduce((sum, c) => sum + (teamCounts[c] ?? 0), 0);
     function handleStart() {
-        if (!coachName.trim()) {
-            setError("Please enter a coach name.");
-            return;
-        }
         if (totalClubs < 128) {
             setError("Pick enough countries to reach 128 clubs.");
             return;
         }
+        // Persist selection so DrawPage can recover on refresh
         localStorage.setItem("selectedCountries", JSON.stringify(selected));
-        navigate("/draw", { state: { selectedCountries: selected, coachName } });
+        // Go to Draw; coach name will be handled there
+        navigate("/draw", { state: { selectedCountries: selected } });
     }
     if (loading) {
         return (_jsx("div", { className: "flex min-h-screen items-center justify-center bg-green-900", children: _jsx(ProgressBar, { height: 1 }) }));
@@ -61,6 +58,6 @@ export default function CountrySelectionPage() {
                                                 const isSelected = selected.includes(c);
                                                 return (_jsxs("tr", { onClick: () => toggleCountry(c), className: clsx("cursor-pointer border-b border-gray-300 transition-colors hover:bg-yellow-100", isSelected && "bg-yellow-200 font-bold"), children: [_jsx("td", { className: "p-2", children: _jsx("img", { src: getFlagUrl(c), alt: c, className: "h-4 w-6 rounded shadow", onError: (e) => (e.currentTarget.src =
                                                                     "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=") }) }), _jsx("td", { className: "p-2", children: c }), _jsx("td", { className: "p-2", children: teamCounts[c] ?? 0 })] }, c));
-                                            }) })] }) })] }), _jsxs(AppCard, { variant: "outline", className: "flex w-full flex-col items-center justify-between bg-white/10 sm:w-64", children: [_jsxs("div", { className: "text-center", children: [_jsx("h3", { className: "mb-2 text-lg font-bold", children: "Selected Clubs" }), _jsx("p", { className: "text-3xl font-bold text-yellow-300", children: totalClubs }), _jsxs("p", { className: "mt-1 text-sm text-gray-300", children: ["from ", selected.length, " countries"] }), _jsx("div", { className: "mt-4 w-full", children: _jsx("input", { type: "text", placeholder: "Enter your coach name", value: coachName, onChange: (e) => setCoachName(e.target.value), className: "w-full rounded-md border border-gray-300 p-2 text-black" }) })] }), _jsx(AppButton, { onClick: handleStart, variant: "primary", className: "mt-6 w-full", children: "Start" })] })] })] }));
+                                            }) })] }) })] }), _jsxs(AppCard, { variant: "outline", className: "flex w-full flex-col items-center justify-between bg-white/10 sm:w-64", children: [_jsxs("div", { className: "text-center", children: [_jsx("h3", { className: "mb-2 text-lg font-bold", children: "Selected Clubs" }), _jsx("p", { className: "text-3xl font-bold text-yellow-300", children: totalClubs }), _jsxs("p", { className: "mt-1 text-sm text-gray-300", children: ["from ", selected.length, " countries"] })] }), _jsx(AppButton, { onClick: handleStart, variant: "primary", className: "mt-6 w-full", children: "Continue" })] })] })] }));
 }
 //# sourceMappingURL=CountrySelectionPage.js.map

@@ -1,3 +1,5 @@
+// frontend/src/pages/DrawPage.tsx
+
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -32,20 +34,18 @@ export default function DrawPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Load country selection from location or localStorage ──
+  // ── Load selection from router state or localStorage (coach name is NOT required here) ──
   useEffect(() => {
-    const stateCoach = location.state?.coachName;
-    const stateCountries = location.state?.selectedCountries;
-    const fromStorage = localStorage.getItem("selectedCountries") ?? "[]";
+    const stateCountries = (location.state as any)?.selectedCountries as string[] | undefined;
     const parsedCountries =
       stateCountries && Array.isArray(stateCountries) && stateCountries.length
         ? stateCountries
-        : (JSON.parse(fromStorage) as string[]);
+        : (JSON.parse(localStorage.getItem("selectedCountries") ?? "[]") as string[]);
 
-    if (parsedCountries.length && stateCoach) {
-      setCoachName(stateCoach);
+    if (parsedCountries && parsedCountries.length) {
       setSelectedCountries(parsedCountries);
     } else {
+      // No selection? Go back to New Game flow
       navigate(newGameUrl, { replace: true });
     }
   }, [location.state, navigate]);
@@ -62,36 +62,36 @@ export default function DrawPage() {
   setError(null);
 
   try {
+    const saveName = coachName.trim();
     const { data } = await axios.post<DrawResponse>("/save-game", {
-      name: "New Save",
+      name: saveName,
       coachName,
       countries: selectedCountries,
     });
 
-    const { userTeamId, userTeamName, saveGameId } = data;
+      const { userTeamId, userTeamName, saveGameId } = data;
 
-    if (!userTeamId || !saveGameId) {
-      throw new Error("Invalid draw response from server");
+      if (!userTeamId || !saveGameId) {
+        throw new Error("Invalid draw response from server");
+      }
+
+      // ✅ Update all stores
+      setCurrentTeamId(userTeamId);
+      setCurrentSaveGameId(saveGameId);
+      setCoachTeamId(userTeamId);
+      setSaveGameId(saveGameId);
+      await refreshGameState();
+
+      // ✅ Clear local data and navigate
+      localStorage.removeItem("selectedCountries");
+      navigate(teamUrl(userTeamId), { replace: true });
+    } catch (err: any) {
+      console.error("❌ Draw failed:", err);
+      setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
+    } finally {
+      setLoading(false);
     }
-
-    // ✅ Update all stores
-    setCurrentTeamId(userTeamId);
-    setCurrentSaveGameId(saveGameId);
-    setCoachTeamId(userTeamId);
-    setSaveGameId(saveGameId);
-    await refreshGameState();
-
-    // ✅ Clear local data and navigate
-    localStorage.removeItem("selectedCountries");
-    navigate(teamUrl(userTeamId), { replace: true });
-  } catch (err: any) {
-    console.error("❌ Draw failed:", err);
-    setError(err?.response?.data?.error ?? err.message ?? "Draw failed");
-  } finally {
-    setLoading(false);
-  }
-};
-
+  };
 
   if (!selectedCountries) {
     return (

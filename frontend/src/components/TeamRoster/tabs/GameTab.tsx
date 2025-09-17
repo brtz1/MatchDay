@@ -40,12 +40,12 @@ function TeamLink({ id, name }: { id?: number; name?: string | null }) {
 }
 
 /**
- * Best-effort H2H fetcher:
+ * Best-effort H2H fetcher (now save-aware):
  * 1) Tries to use whatever export exists in @/services/matchService.
- * 2) Falls back to GET /api/matches/last-head-to-head?homeId=&awayId=
+ * 2) Falls back to GET /api/matches/last-head-to-head?homeId=&awayId[&saveGameId].
  * Accepts shapes: { text } | { summary } | { result } | string.
  */
-async function fetchLastH2H(homeId: number, awayId: number): Promise<string | null> {
+async function fetchLastH2H(homeId: number, awayId: number, saveGameId?: number): Promise<string | null> {
   // Try dynamic import of the service to avoid compile errors from missing named exports
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,13 +56,13 @@ async function fetchLastH2H(homeId: number, awayId: number): Promise<string | nu
       mod?.getLastH2H;
 
     if (typeof fn === "function") {
-      const res = await fn(homeId, awayId);
+      const res = await fn(homeId, awayId, { saveGameId });
       if (!res) return null;
       if (typeof res === "string") return res;
       if (typeof res === "object") {
-        if (typeof res.text === "string") return res.text;
-        if (typeof res.summary === "string") return res.summary;
-        if (typeof res.result === "string") return res.result;
+        if (typeof (res as any).text === "string") return (res as any).text;
+        if (typeof (res as any).summary === "string") return (res as any).summary;
+        if (typeof (res as any).result === "string") return (res as any).result;
       }
       try {
         return JSON.stringify(res);
@@ -76,7 +76,13 @@ async function fetchLastH2H(homeId: number, awayId: number): Promise<string | nu
 
   // HTTP fallback (keep endpoint in sync with your backend)
   try {
-    const qs = new URLSearchParams({ homeId: String(homeId), awayId: String(awayId) });
+    const qs = new URLSearchParams({
+      homeId: String(homeId),
+      awayId: String(awayId),
+    });
+    if (typeof saveGameId === "number") {
+      qs.set("saveGameId", String(saveGameId));
+    }
     const resp = await fetch(`/api/matches/last-head-to-head?${qs.toString()}`);
     if (resp.ok) {
       const data = await resp.json();
@@ -95,8 +101,8 @@ export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
 
-  // Read GameState to label the upcoming simulated matchday (fallback to match payload)
-  const { currentMatchday: seasonMd, matchdayType: seasonType } = useGameState();
+  // Read GameState for MD label and to pass active saveGameId to H2H
+  const { currentMatchday: seasonMd, matchdayType: seasonType, saveGameId, bootstrapping } = useGameState();
 
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +119,7 @@ export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
 
         if (m) {
           try {
-            const h2hText = await fetchLastH2H(m.homeTeamId, m.awayTeamId);
+            const h2hText = await fetchLastH2H(m.homeTeamId, m.awayTeamId, saveGameId ?? undefined);
             if (!cancelled) setLastResult(h2hText);
           } catch {
             if (!cancelled) setLastResult(null);
@@ -131,8 +137,8 @@ export default function GameTab({ teamId, teamName, morale }: GameTabProps) {
     return () => {
       cancelled = true;
     };
-    // Re-fetch when switching team page OR when matchday advances
-  }, [teamId, seasonMd]);
+    // Re-fetch when switching team page OR when matchday/save changes
+  }, [teamId, seasonMd, saveGameId, bootstrapping]);
 
   if (!loaded) return <p>Loading next match...</p>;
   if (error) return <p className="text-error">{error}</p>;

@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation, matchPath } from "react-router-dom";
+import { matchdayUrl } from "@/utils/paths";
 /* ── Services / store ─────────────────────────────────────────────── */
 import { getTeamById } from "@/services/teamService";
 import { useTeamContext } from "@/store/TeamContext";
@@ -34,11 +35,15 @@ function formatDivision(div) {
 export default function TeamRosterPage() {
     const { teamId: teamIdParam } = useParams();
     const { currentTeamId } = useTeamContext();
+    // Grab the whole GameState API once so we can use optional actions without TS complaining
+    const gameState = useGameState();
     const { coachTeamId, saveGameId, bootstrapping, 
+    // NEW: react to MATCHDAY to jump to Live immediately
+    gameStage, 
     // grace/timer flags from GameState store
     cameFromResults, clearCameFromResults, refreshGameState, 
-    // selection store
-    lineupIds, reserveIds, } = useGameState();
+    // selection store (used for legend only; PlayerRoster reads the store internally)
+    lineupIds, } = gameState;
     const navigate = useNavigate();
     const location = useLocation();
     const urlTeamId = teamIdParam ? Number(teamIdParam) : null;
@@ -66,6 +71,50 @@ export default function TeamRosterPage() {
             }
         })();
     }, [cameFromResults, clearCameFromResults, refreshGameState]);
+    /* ---------------------------------------------------------------------------
+       NEW: Reset lineup/reserve *visual selection* when arriving from Results.
+       Uses either:
+         - store flag (cameFromResults), or
+         - router state flag (location.state?.cameFromResults)
+       Prefers store method `resetFormationSelection()` if present; falls back to
+       `setLineupIds([])` + `setReserveIds([])` when available.
+       Also clears router state to avoid repeated resets.
+    --------------------------------------------------------------------------- */
+    useEffect(() => {
+        const fromRouter = Boolean(location.state?.cameFromResults);
+        const shouldReset = Boolean(cameFromResults || fromRouter);
+        if (!shouldReset)
+            return;
+        try {
+            if (typeof gameState.resetFormationSelection === "function") {
+                gameState.resetFormationSelection();
+            }
+            else {
+                if (typeof gameState.setLineupIds === "function")
+                    gameState.setLineupIds([]);
+                if (typeof gameState.setReserveIds === "function")
+                    gameState.setReserveIds([]);
+            }
+        }
+        finally {
+            if (fromRouter) {
+                // Clear the router flag so a rerender doesn't trigger another reset
+                navigate(location.pathname, { replace: true, state: {} });
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cameFromResults, location.state, navigate, location.pathname]);
+    /* ---------------------------------------------------------------------------
+       NEW: If the backend/socket flips stage to MATCHDAY, jump to Live instantly.
+       (Prevents missing early minute ticks if user stayed on Formation/Game tabs.)
+    --------------------------------------------------------------------------- */
+    useEffect(() => {
+        if (bootstrapping)
+            return;
+        if (gameStage === "MATCHDAY") {
+            navigate(matchdayUrl);
+        }
+    }, [gameStage, bootstrapping, navigate]);
     useEffect(() => {
         if (!teamId || teamId <= 0) {
             console.warn("Invalid or missing team ID — redirecting to home");
@@ -124,6 +173,6 @@ export default function TeamRosterPage() {
     const secondary = team.colors?.secondary ?? "#000000";
     const divisionLabel = formatDivision(team.division);
     const coachLabel = (team.coachName?.trim() ?? "") || "—";
-    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", divisionLabel, "\u00A0|\u00A0 Coach ", coachLabel, " | Morale", " ", typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsxs("div", { className: "w-[65%]", children: [_jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer, lineupIds: lineupIds, benchIds: reserveIds }), _jsxs("div", { className: "mt-1 text-[11px] text-white/80", children: [_jsxs("span", { className: "mr-4", children: ["Legend: ", _jsx("span", { className: "font-bold text-white", children: "\u25EF" }), " Lineup \u00A0\u00A0 ", _jsx("span", { className: "font-bold text-white", children: "\u2013" }), " Reserve"] }), _jsxs("span", { children: ["Selected starters: ", _jsx("span", { className: "font-semibold", children: lineupIds.length }), " / 11"] })] })] }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsx("div", { className: "space-y-2 text-sm", children: _jsx(GameTab, { teamId: team.id, teamName: team.name, morale: typeof team.morale === "number" ? team.morale : null }) }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: () => { }, onSell: () => { } })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: () => null })), isCoachTeam && _jsx(FormationTab, { players: team.players }), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
+    return (_jsxs(_Fragment, { children: [isTeamRosterPage && _jsx(TopNavBar, { coachTeamId: coachedId }), _jsxs("div", { className: "min-h-screen space-y-4 bg-green-700 p-4 text-white pt-12", children: [_jsxs("div", { className: "flex items-center justify-between rounded p-2 shadow", style: { backgroundColor: primary, color: secondary }, children: [_jsx("h1", { className: "flex items-center gap-2 text-2xl font-bold", children: team.name }), _jsxs("p", { className: "text-xs", children: ["Division ", divisionLabel, "\u00A0|\u00A0 Coach ", coachLabel, " | Morale", " ", typeof team.morale === "number" ? team.morale : "—"] })] }), _jsxs("div", { className: "flex h-[60vh] gap-4", children: [_jsxs("div", { className: "w-[65%]", children: [_jsx(PlayerRoster, { players: team.players, selectedPlayer: selectedPlayer, onSelectPlayer: setSelectedPlayer }), _jsxs("div", { className: "mt-1 text-[11px] text-white/80", children: [_jsxs("span", { className: "mr-4", children: ["Legend: ", _jsx("span", { className: "font-bold text-white", children: "\u25EF" }), " Lineup \u00A0\u00A0", " ", _jsx("span", { className: "font-bold text-white", children: "\u2013" }), " Reserve"] }), _jsxs("span", { children: ["Selected starters: ", _jsx("span", { className: "font-semibold", children: lineupIds.length }), " / 11"] })] })] }), _jsx("div", { className: "w-[35%]", children: _jsxs(TeamRosterTabs, { tabs: tabs, children: [_jsx("div", { className: "space-y-2 text-sm", children: _jsx(GameTab, { teamId: team.id, teamName: team.name, morale: typeof team.morale === "number" ? team.morale : null }) }), isCoachTeam ? (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, onRenewContract: () => { }, onSell: () => { } })) : (_jsx(PlayerTab, { selectedPlayer: selectedPlayer, renderActions: () => null })), isCoachTeam && _jsx(FormationTab, { players: team.players }), isCoachTeam && _jsx("div", { className: "text-sm", children: "Financial breakdown coming soon\u2026" })] }) })] })] })] }));
 }
 //# sourceMappingURL=TeamRosterPage.js.map

@@ -110,7 +110,7 @@ export default function StandingsPage() {
                 console.warn("[Standings] finalize failed; routing anyway", e);
                 navigate(teamUrl(coachTeamId), { replace: true });
             }
-        }, 30000);
+        }, 3000);
         return () => clearTimeout(t);
     }, [cameFromResults, storeSaveId, coachTeamId, navigate]);
     // Stable ordering in grid

@@ -3,24 +3,46 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/services/axios";
 import { useGameState } from "@/store/GameStateStore";
-/** Supported options (❌ 4-2-3-1 removed) */
-const FORMATION_OPTIONS = [
-    "4-4-2",
-    "4-3-3",
-    "3-5-2",
-    "5-3-2",
-    "3-4-3",
-];
-function sleep(ms) {
-    return new Promise((res) => setTimeout(res, ms));
+import { advanceToMatchday } from "@/services/matchService";
+import { postCoachFormation } from "@/services/axios";
+import { FORMATION_LAYOUTS } from "@/utils/formationHelper";
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+function hasExactlyOneGK(selectedIds, players) {
+    const set = new Set(selectedIds);
+    const gks = players.filter((p) => set.has(p.id) && p.position === "GK");
+    return gks.length === 1;
+}
+/** Derive DF-MF-AT from the 10 outfielders in the lineup. GK must be exactly 1. */
+function deriveFormationFromLineup(lineupIds, players) {
+    const set = new Set(lineupIds);
+    let df = 0, mf = 0, at = 0, gk = 0;
+    for (const p of players) {
+        if (!set.has(p.id))
+            continue;
+        if (p.position === "GK")
+            gk += 1;
+        else if (p.position === "DF")
+            df += 1;
+        else if (p.position === "MF")
+            mf += 1;
+        else if (p.position === "AT")
+            at += 1;
+    }
+    // We only encode the outfield split; GK is implicitly 1 by validation.
+    // If GK isn’t 1 for some reason, it won’t block posting but FE validates before.
+    return `${df}-${mf}-${at}`;
 }
 export default function FormationTab({ players }) {
     const navigate = useNavigate();
-    const { saveGameId, coachTeamId, refreshGameState, setGameStage, setSaveGameId, setCoachTeamId, selectedFormation, setSelectedFormation, lineupIds, reserveIds, autopickSelection, } = useGameState();
-    // If store holds an unsupported formation, normalize to 4-4-2
+    const { saveGameId, coachTeamId, refreshGameState, selectedFormation, setSelectedFormation, lineupIds, reserveIds, autopickSelection, reserveLimit, } = useGameState();
+    // Options come from canonical layouts to avoid FE/FE drift
+    const FORMATION_OPTIONS = useMemo(() => Object.keys(FORMATION_LAYOUTS), []);
+    // Normalize unknowns to first option
     const normalized = FORMATION_OPTIONS.includes(selectedFormation)
         ? selectedFormation
-        : "4-4-2";
+        : FORMATION_OPTIONS[0];
     const [formation, setFormation] = useState(normalized);
     const [loading, setLoading] = useState(false);
     const [errMsg, setErrMsg] = useState(null);
@@ -35,60 +57,54 @@ export default function FormationTab({ players }) {
                 console.warn("[FormationTab] Failed to refresh game state on mount", e);
             }
         })();
-        if (formation !== normalized) {
-            setFormation(normalized);
-            setSelectedFormation(normalized);
+        // Ensure the store always has a valid formation immediately
+        const isValid = (f) => !!f && FORMATION_OPTIONS.includes(f);
+        if (!isValid(selectedFormation)) {
+            setSelectedFormation(FORMATION_OPTIONS[0]); // push default into the store
+            setFormation(FORMATION_OPTIONS[0]); // keep local state in sync
+        }
+        else {
+            setFormation(selectedFormation);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    const options = useMemo(() => FORMATION_OPTIONS, []);
+    /** Change the suggestion ONLY; do not auto-reshape existing XI. */
     const handleFormationChange = (next) => {
         setFormation(next);
         setSelectedFormation(next);
-        // Visual-only autopick (no cross-fill; enforced in store)
-        const compact = players.map(p => ({
+    };
+    /** Explicit button to apply suggestion → auto-pick. */
+    const handleApplySuggestion = () => {
+        const compact = players.map((p) => ({
             id: p.id,
             position: p.position,
             rating: p.rating,
         }));
-        autopickSelection(compact, next);
+        autopickSelection(compact, formation);
     };
-    async function startMatchWithSelection(id) {
-        try {
-            // Your FE service persists coach selection first (see FE-matchService.ts below)
-            // Then we advance stage.
-            const payload = { saveGameId: id, formation, lineupIds, reserveIds };
-            console.log("[FormationTab] POST /matchday/advance", payload);
-            const { data } = await api.post("/matchday/advance", payload);
-            console.log("[FormationTab] ✅ advance responded ->", data);
-            return true;
+    /** Validate only on CTA click (UI can temporarily exceed). */
+    function validateSelection() {
+        if (lineupIds.length !== 11) {
+            return `Your lineup must have exactly 11 players (currently ${lineupIds.length}).`;
         }
-        catch (err) {
-            console.error("[FormationTab] ❌ advance failed:", err);
-            return false;
+        if (!hasExactlyOneGK(lineupIds, players)) {
+            return "Your lineup must include exactly 1 Goalkeeper.";
         }
-    }
-    async function confirmBackendStage(expected, tries = 10, delayMs = 200) {
-        for (let attempt = 1; attempt <= tries; attempt++) {
-            const { data: gs } = await api.get("/gamestate");
-            try {
-                setGameStage((gs.gameStage ?? "ACTION"));
-                setSaveGameId(typeof gs.currentSaveGameId === "number" ? gs.currentSaveGameId : null);
-                setCoachTeamId(gs.coachTeamId ?? null);
-            }
-            catch (e) {
-                console.warn("[FormationTab] pushToStore failed (ignored):", e);
-            }
-            if (gs.gameStage === expected)
-                return true;
-            await sleep(delayMs);
+        if (reserveIds.length > reserveLimit) {
+            return `Your reserves exceed the limit (${reserveIds.length}/${reserveLimit}). Reduce the bench before continuing.`;
         }
-        return false;
-    }
-    function hasExactlyOneGK(selected) {
-        const set = new Set(selected);
-        const gks = players.filter(p => set.has(p.id) && p.position === "GK");
-        return gks.length === 1;
+        // sanity: no overlap / duplicates
+        const lu = new Set(lineupIds);
+        if (reserveIds.some((id) => lu.has(id))) {
+            return "A player cannot be in both Lineup and Reserves.";
+        }
+        if (new Set(lineupIds).size !== lineupIds.length) {
+            return "Duplicate players detected in Lineup.";
+        }
+        if (new Set(reserveIds).size !== reserveIds.length) {
+            return "Duplicate players detected in Reserves.";
+        }
+        return null;
     }
     const handleAdvance = async () => {
         setErrMsg(null);
@@ -96,32 +112,47 @@ export default function FormationTab({ players }) {
             setErrMsg("Missing saveGameId. Try reloading.");
             return;
         }
-        if (lineupIds.length !== 11) {
-            setErrMsg("Your lineup must have exactly 11 players.");
+        if (typeof coachTeamId !== "number" || Number.isNaN(coachTeamId)) {
+            setErrMsg("Missing coachTeamId. Try reloading.");
             return;
         }
-        if (!hasExactlyOneGK(lineupIds)) {
-            setErrMsg("Your lineup must include exactly 1 Goalkeeper.");
+        const v = validateSelection();
+        if (v) {
+            setErrMsg(v);
             return;
         }
+        const effectiveFormation = deriveFormationFromLineup(lineupIds, players);
         setLoading(true);
         try {
-            const ok = await startMatchWithSelection(saveGameId);
-            if (!ok) {
-                setErrMsg("Failed to start matchday. Check backend logs.");
-                return;
-            }
-            const confirmed = await confirmBackendStage("MATCHDAY", 10, 200);
-            if (!confirmed) {
-                setErrMsg("Stage didn’t change to MATCHDAY on the backend.");
-                return;
-            }
-            navigate("/matchday");
+            // 1) Persist the CONFIRMED XI “as-is” (no server auto-balance)
+            console.log("[FormationTab] POST /formation/coach", {
+                saveGameId,
+                teamId: coachTeamId,
+                lineupIds,
+                reserveIds,
+                formation: effectiveFormation,
+            });
+            await postCoachFormation({
+                saveGameId,
+                teamId: coachTeamId,
+                lineupIds,
+                reserveIds,
+                formation: effectiveFormation,
+            });
+            // 2) Start the engine via /matchday/advance
+            console.log("[FormationTab] POST /matchday/advance", { saveGameId });
+            await advanceToMatchday(saveGameId);
+            // Navigate immediately; Live page listens to sockets / stage
+            navigate("/matchday", { state: { fromFormation: true } });
+        }
+        catch (e) {
+            console.error("[FormationTab] ❌ advance flow failed:", e);
+            setErrMsg("Could not save selection and start matchday. Check backend logs.");
         }
         finally {
             setLoading(false);
         }
     };
-    return (_jsxs("div", { className: "flex w-full max-w-xl flex-col gap-4", children: [_jsx("label", { className: "text-sm font-medium text-white/80", children: "Formation" }), _jsx("select", { className: "rounded-lg border border-gray-300 bg-white p-2 text-black outline-none ring-0", value: formation, onChange: (e) => handleFormationChange(e.target.value), disabled: loading, children: options.map((opt) => (_jsx("option", { value: opt, children: opt }, opt))) }), _jsx("button", { type: "button", onClick: handleAdvance, disabled: loading || !saveGameId, className: "inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50", children: loading ? "Starting…" : "Go to Matchday Live" }), errMsg && _jsx("div", { className: "text-sm text-red-300", children: errMsg }), _jsxs("div", { className: "text-xs text-white/50", children: [typeof saveGameId === "number" ? `SaveGame #${saveGameId}` : "SaveGame: unknown", " \u2022", " ", typeof coachTeamId === "number" ? `Team #${coachTeamId}` : "Team: unknown", " \u2022", " ", "Lineup ", lineupIds.length, "/11"] })] }));
+    return (_jsxs("div", { className: "flex w-full max-w-xl flex-col gap-4", children: [_jsx("label", { className: "text-sm font-medium text-white/80", children: "Suggested Formation" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("select", { className: "rounded-lg border border-gray-300 bg-white p-2 text-black outline-none ring-0", value: formation, onChange: (e) => handleFormationChange(e.target.value), disabled: loading, children: FORMATION_OPTIONS.map((opt) => (_jsx("option", { value: opt, children: opt }, opt))) }), _jsx("button", { type: "button", onClick: handleApplySuggestion, disabled: loading, className: "inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50", title: "Auto-pick lineup & bench according to the suggested shape", children: "Apply suggestion" })] }), _jsx("button", { type: "button", onClick: handleAdvance, disabled: loading || !saveGameId, className: "inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50", children: loading ? "Starting…" : "Go to Matchday Live" }), errMsg && _jsx("div", { className: "text-sm text-red-300", children: errMsg }), _jsxs("div", { className: "text-xs text-white/50", children: [typeof saveGameId === "number" ? `SaveGame #${saveGameId}` : "SaveGame: unknown", " \u2022", " ", typeof coachTeamId === "number" ? `Team #${coachTeamId}` : "Team: unknown", " \u2022", " ", "Lineup ", lineupIds.length, "/11 \u2022 Reserves ", reserveIds.length, "/", reserveLimit] })] }));
 }
 //# sourceMappingURL=FormationTab.js.map

@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+// frontend/src/pages/HalfTimePopup.tsx
 import { useState, useEffect, useMemo } from "react";
 import clsx from "clsx";
 import Modal from "@/components/common/Modal";
@@ -7,9 +8,11 @@ import MatchEventFeed from "@/components/MatchBroadcast/MatchEventFeed";
 /* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
-export default function HalfTimePopup({ open, onClose, events, lineup, bench, subsRemaining, onSubstitute, canSubstitute, pauseReason, }) {
+export default function HalfTimePopup({ open, onClose, events, lineup, bench, subsRemaining, onSubstitute, canSubstitute, pauseReason, incidentPlayer, mode, }) {
     const [selectedOut, setSelectedOut] = useState(null);
     const [selectedIn, setSelectedIn] = useState(null);
+    // If mode not provided, infer ET vs HT from pauseReason
+    const effectiveMode = mode ?? (pauseReason === "ET_HALF" ? "ET" : "HT");
     // Reset selections when reopened/disabled or out of subs
     useEffect(() => {
         if (!open || !canSubstitute || subsRemaining === 0) {
@@ -22,21 +25,13 @@ export default function HalfTimePopup({ open, onClose, events, lineup, bench, su
     const hasBenchGK = useMemo(() => bench.some((p) => isGK(p.position)), [bench]);
     const selectedOutIsGK = useMemo(() => (selectedOut != null ? isGK(lineup.find((p) => p.id === selectedOut)?.position) : false), [selectedOut, lineup]);
     const selectedInIsGK = useMemo(() => (selectedIn != null ? isGK(bench.find((p) => p.id === selectedIn)?.position) : false), [selectedIn, bench]);
-    // When paused due to GK incident and there is a GK on the bench while no GK is on the field,
-    // a GK must be selected from the bench.
-    const mustPickGK = (pauseReason === "GK_INJURY" || pauseReason === "GK_RED_NEEDS_GK") &&
-        gkOnFieldCount === 0 &&
-        hasBenchGK;
-    // Validation for the substitution button
+    // Validation for the substitution button (mirror backend constraints for UX)
     let validationMessage = null;
-    // Prevent two GKs on the field: if adding a GK and there is already a GK on field,
-    // the outgoing player must be that GK (GK-for-GK swap).
     if (selectedInIsGK && gkOnFieldCount >= 1 && !selectedOutIsGK) {
         validationMessage = "You cannot play with two goalkeepers. Swap GK for GK.";
     }
-    // If mustPickGK, then incoming must be a GK.
-    if (mustPickGK && selectedIn != null && !selectedInIsGK) {
-        validationMessage = "You must select a goalkeeper from the bench.";
+    if (selectedOutIsGK && !selectedInIsGK) {
+        validationMessage = "Goalkeeper can only be substituted by another goalkeeper.";
     }
     function commitSub(e) {
         e.preventDefault();
@@ -63,35 +58,70 @@ export default function HalfTimePopup({ open, onClose, events, lineup, bench, su
                 : selectedOut === selectedIn
                     ? "Choose two different players."
                     : validationMessage ?? "";
-    // Banner message / guidance based on pauseReason
+    // Friendly guidance based on pauseReason (no enforcement)
     const banner = (() => {
         switch (pauseReason) {
             case "GK_INJURY":
                 if (gkOnFieldCount === 0 && hasBenchGK) {
-                    return "Goalkeeper injured. You must bring on a goalkeeper from the bench.";
+                    return "Goalkeeper injured. Tip: you can bring on a goalkeeper from the bench (optional).";
                 }
                 if (gkOnFieldCount === 0 && !hasBenchGK) {
-                    return "Goalkeeper injured. No reserve goalkeeper available — you may continue without a GK or use an outfield player later.";
+                    return "Goalkeeper injured. No reserve goalkeeper available — you may continue without a GK.";
                 }
-                return "Goalkeeper injured. Review your lineup and substitutions.";
+                return "Goalkeeper injured. Review your lineup and substitutions if you wish.";
             case "GK_RED_NEEDS_GK":
                 if (gkOnFieldCount === 0 && hasBenchGK) {
-                    return "Goalkeeper sent off. Consider bringing on a goalkeeper (you'll remain a player down).";
+                    return "Goalkeeper sent off. Tip: you can bring on a goalkeeper now (optional).";
                 }
                 if (gkOnFieldCount === 0 && !hasBenchGK) {
                     return "Goalkeeper sent off. No reserve goalkeeper available — you will continue without a GK.";
                 }
-                return "Goalkeeper sent off. Review your lineup and substitutions.";
+                return "Goalkeeper sent off. Review your lineup and substitutions if you wish.";
             case "INJURY":
-                return "Player injured. You may substitute if you have players remaining.";
+                return "Player injured. You may substitute, or resume the match without a sub.";
             case "COACH_PAUSE":
                 return "Coaching pause. Make changes if needed, then resume the match.";
             case "HALFTIME":
-            default:
+            case "ET_HALF":
+            default: {
+                if (effectiveMode === "ET") {
+                    return "Extra time half-time. Make substitutions if needed, then resume extra time.";
+                }
                 return "Half-time. Make substitutions if needed, then resume the second half.";
+            }
         }
     })();
-    return (_jsxs(Modal, { open: open, onClose: onClose, title: "Match Paused", size: "lg", isLocked: false, className: "flex flex-col gap-4", children: [_jsx("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-600/70 dark:bg-yellow-900/20 dark:text-yellow-100", children: banner }), _jsxs("div", { className: "grid gap-4 md:grid-cols-2", children: [_jsxs("div", { children: [_jsx("h3", { className: "mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200", children: "Match Events" }), _jsx(MatchEventFeed, { events: events, maxHeightRem: 18 })] }), _jsxs("div", { className: "flex flex-col gap-3", children: [_jsxs("div", { className: "flex items-baseline justify-between", children: [_jsxs("h3", { className: "text-sm font-semibold text-gray-700 dark:text-gray-200", children: ["Substitutions ", _jsxs("span", { className: "opacity-70", children: ["(remaining ", subsRemaining, ")"] })] }), _jsx("p", { className: "text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400", children: "Max 3 per match" })] }), _jsx(RosterList, { kind: "lineup", title: `On Field ${gkOnFieldCount ? "(GK present)" : "(no GK)"}`, players: lineup, selected: selectedOut, onSelect: canSubstitute && subsRemaining > 0 ? setSelectedOut : noopSelect }), _jsx(RosterList, { kind: "bench", title: `Bench ${hasBenchGK ? "(GK available)" : ""}`, players: bench, selected: selectedIn, onSelect: canSubstitute && subsRemaining > 0 ? setSelectedIn : noopSelect }), _jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: clsx("text-xs", validationMessage ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"), children: selectedOut != null && selectedIn != null ? (_jsxs(_Fragment, { children: ["Selected: ", _jsxs("strong", { children: ["#", selectedOut] }), " \u2192 ", _jsxs("strong", { children: ["#", selectedIn] }), validationMessage ? _jsxs("span", { className: "ml-2", children: ["\u2022 ", validationMessage] }) : null] })) : (_jsx("span", { className: "opacity-80", children: helperText })) }), canSubstitute && (_jsx(AppButton, { onClick: commitSub, disabled: disableCommit, children: "Confirm Sub" }))] })] })] }), _jsx("div", { className: "mt-4 flex justify-end gap-2", children: _jsx(AppButton, { variant: "ghost", onClick: onClose, children: "Resume Match" }) })] }));
+    const normalizePos = (pos) => {
+        const s = (pos || "").toUpperCase();
+        if (s === "G" || s === "GOALKEEPER")
+            return "GK";
+        if (s === "D" || s === "DEF" || s === "DEFENDER")
+            return "DF";
+        if (s === "M" || s === "MID" || s === "MIDFIELDER")
+            return "MF";
+        if (s === "F" || s === "FW" || s === "ATT" || s === "ATTACKER" || s === "ST")
+            return "AT";
+        return s || "MF";
+    };
+    // Incident header (optional)
+    const incidentHeader = (() => {
+        if (!incidentPlayer)
+            return null;
+        const pos = normalizePos(incidentPlayer.position);
+        const rating = typeof incidentPlayer.rating === "number" && !Number.isNaN(incidentPlayer.rating)
+            ? `, ${incidentPlayer.rating}`
+            : "";
+        if (pauseReason === "INJURY" || pauseReason === "GK_INJURY") {
+            return (_jsxs("div", { className: "rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-600/70 dark:bg-red-900/20 dark:text-red-100", children: [_jsx("span", { className: "mr-1", children: "\uD83D\uDE91" }), _jsx("strong", { children: incidentPlayer.name }), ` (${pos}${rating})`, " got injured."] }));
+        }
+        if (pauseReason === "GK_RED_NEEDS_GK") {
+            return (_jsxs("div", { className: "rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-600/70 dark:bg-red-900/20 dark:text-red-100", children: [_jsx("span", { className: "mr-1", children: "\uD83D\uDFE5" }), "GK sent off: ", _jsx("strong", { children: incidentPlayer.name }), ` (${pos}${rating})`] }));
+        }
+        return null;
+    })();
+    // Title: show ET label when applicable
+    const titleText = effectiveMode === "ET" ? "Extra Time – Half-time" : "Match Paused";
+    return (_jsxs(Modal, { open: open, onClose: onClose, title: titleText, size: "lg", isLocked: false, className: "flex flex-col gap-4", children: [incidentHeader, _jsx("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-600/70 dark:bg-yellow-900/20 dark:text-yellow-100", children: banner }), _jsxs("div", { className: "grid gap-4 md:grid-cols-2", children: [_jsxs("div", { children: [_jsx("h3", { className: "mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200", children: "Match Events" }), _jsx(MatchEventFeed, { events: events, maxHeightRem: 18 })] }), _jsxs("div", { className: "flex flex-col gap-3", children: [_jsxs("div", { className: "flex items-baseline justify-between", children: [_jsxs("h3", { className: "text-sm font-semibold text-gray-700 dark:text-gray-200", children: ["Substitutions ", _jsxs("span", { className: "opacity-70", children: ["(remaining ", subsRemaining, ")"] })] }), _jsx("p", { className: "text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400", children: "Max 3 per match" })] }), _jsx(RosterList, { kind: "lineup", title: `On Field ${gkOnFieldCount ? "(GK present)" : "(no GK)"}`, players: lineup, selected: selectedOut, onSelect: canSubstitute && subsRemaining > 0 ? setSelectedOut : noopSelect }), _jsx(RosterList, { kind: "bench", title: `Bench ${hasBenchGK ? "(GK available)" : ""}`, players: bench, selected: selectedIn, onSelect: canSubstitute && subsRemaining > 0 ? setSelectedIn : noopSelect }), _jsxs("div", { className: "flex items-center justify-between", children: [_jsx("p", { className: clsx("text-xs", validationMessage ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-300"), children: selectedOut != null && selectedIn != null ? (_jsxs(_Fragment, { children: ["Selected: ", _jsxs("strong", { children: ["#", selectedOut] }), " \u2192 ", _jsxs("strong", { children: ["#", selectedIn] }), validationMessage ? _jsxs("span", { className: "ml-2", children: ["\u2022 ", validationMessage] }) : null] })) : (_jsx("span", { className: "opacity-80", children: helperText })) }), canSubstitute && (_jsx(AppButton, { onClick: commitSub, disabled: disableCommit, children: "Confirm Sub" }))] })] })] }), _jsx("div", { className: "mt-4 flex justify-end gap-2", children: _jsx(AppButton, { variant: "ghost", onClick: onClose, children: "Resume Match" }) })] }));
 }
 /* -------------------------------------------------------------------------- */
 /* Helper – RosterList                                                        */

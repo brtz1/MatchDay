@@ -12,12 +12,29 @@ import {
 
 import gameStateService from "@/services/gameStateService";
 import { onStageChanged, offStageChanged } from "@/socket";
+import * as Sock from "@/socket"; // ⬅️ for raw socket access to PK events
+import { FORMATION_LAYOUTS } from "@/utils/formationHelper";
+
+// PK shared types
+import type {
+  PkAttempt,
+  PkEndPayload,
+  PkStartPayload,
+  TeamOrder,
+} from "@/types/pk";
 
 /* ------------------------------------------------------------------------- */
 /* Types                                                                     */
 /* ------------------------------------------------------------------------- */
 
-export type GameStage = "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS";
+export type GameStage =
+  | "ACTION"
+  | "MATCHDAY"
+  | "HALFTIME"
+  | "RESULTS"
+  | "STANDINGS"
+  | "PENALTIES"; // ⬅️ NEW
+
 export type MatchdayType = "LEAGUE" | "CUP";
 
 export type Position = "GK" | "DF" | "MF" | "AT";
@@ -68,6 +85,9 @@ export interface GameStateContextType {
   lineupIds: number[];
   reserveIds: number[];
 
+  /** Max bench size, exposed for UI/validation convenience */
+  reserveLimit: number;
+
   /** Cycle a player's selection (none → lineup → reserve → none → lineup …) */
   cycleSelection: (playerId: number) => void;
 
@@ -79,6 +99,19 @@ export interface GameStateContextType {
 
   /** Auto-pick selection for a given formation using a player list */
   autopickSelection: (players: MinimalPlayer[], formation: string) => void;
+
+  /** ------------------------------- PK State ------------------------------- */
+  /** Active shootout match id (null if none) */
+  pkMatchId: number | null;
+  /** Pre-ordered takers for each side (when available) */
+  pkHome: TeamOrder | null;
+  pkAway: TeamOrder | null;
+  /** Interleaved attempts so far */
+  pkAttempts: PkAttempt[];
+  /** End payload when decided */
+  pkEnded: PkEndPayload | null;
+  /** Clear all PK state (e.g., after ack or when leaving stage) */
+  clearPk: () => void;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -86,29 +119,30 @@ export interface GameStateContextType {
 /* ------------------------------------------------------------------------- */
 
 function isGameStage(v: unknown): v is GameStage {
-  return v === "ACTION" || v === "MATCHDAY" || v === "HALFTIME" || v === "RESULTS" || v === "STANDINGS";
+  return (
+    v === "ACTION" ||
+    v === "MATCHDAY" ||
+    v === "HALFTIME" ||
+    v === "RESULTS" ||
+    v === "STANDINGS" ||
+    v === "PENALTIES" // ⬅️ NEW
+  );
 }
 
 function isMatchdayType(v: unknown): v is MatchdayType {
   return v === "LEAGUE" || v === "CUP";
 }
 
-/** Supported formation layouts (❌ removed 4-2-3-1) */
-const FORMATION_LAYOUTS: Record<string, { GK: number; DF: number; MF: number; AT: number }> = {
-  "4-4-2": { GK: 1, DF: 4, MF: 4, AT: 2 },
-  "4-3-3": { GK: 1, DF: 4, MF: 3, AT: 3 },
-  "3-5-2": { GK: 1, DF: 3, MF: 5, AT: 2 },
-  "5-3-2": { GK: 1, DF: 5, MF: 3, AT: 2 },
-  "3-4-3": { GK: 1, DF: 3, MF: 4, AT: 3 },
-};
-
-const BENCH_MAX = 8;
+const BENCH_MAX = 6; // <-- per your rule (max 6)
+const LINEUP_MAX = 11;
 
 /* ------------------------------------------------------------------------- */
 /* Context                                                                   */
 /* ------------------------------------------------------------------------- */
 
-const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
+const GameStateContext = createContext<GameStateContextType | undefined>(
+  undefined,
+);
 
 /* ------------------------------------------------------------------------- */
 /* Provider                                                                  */
@@ -119,27 +153,62 @@ interface GameStateProviderProps {
   autoLoad?: boolean; // Allow skipping auto-refresh
 }
 
-type StageChangedPayload = { gameStage: GameStage; matchdayNumber?: number };
+type StageChangedPayload = {
+  gameStage: GameStage;
+  matchdayNumber?: number;
+  saveGameId?: number;
+};
 
-export function GameStateProvider({ children, autoLoad = true }: GameStateProviderProps) {
+export function GameStateProvider({
+  children,
+  autoLoad = true,
+}: GameStateProviderProps) {
   const [saveGameId, setSaveGameId] = useState<number | null>(null);
   const [coachTeamId, setCoachTeamId] = useState<number | null>(null);
   const [currentMatchday, setCurrentMatchday] = useState<number | null>(null);
   const [gameStage, setGameStage] = useState<GameStage>("ACTION");
-  const [matchdayType, setMatchdayType] = useState<MatchdayType>("LEAGUE");
+  const [matchdayType, setMatchdayType] =
+    useState<MatchdayType>("LEAGUE");
   const [bootstrapping, setBootstrapping] = useState(true);
 
   // One-shot “came from results” flag + when we entered STANDINGS
   const [cameFromResults, setCameFromResults] = useState(false);
-  const [standingsEnteredAt, setStandingsEnteredAt] = useState<number | null>(null);
+  const [standingsEnteredAt, setStandingsEnteredAt] =
+    useState<number | null>(null);
 
   // Keep last known stage to detect transitions
   const prevStageRef = useRef<GameStage>("ACTION");
 
   // Ephemeral formation selection
-  const [selectedFormation, setSelectedFormation] = useState<string>("4-4-2");
+  const [selectedFormation, setSelectedFormation] =
+    useState<string>("4-4-2");
   const [lineupIds, setLineupIds] = useState<number[]>([]);
   const [reserveIds, setReserveIds] = useState<number[]>([]);
+
+  // 🔧 Track latest arrays to compute atomic updates safely for cycleSelection
+  const lineupRef = useRef<number[]>(lineupIds);
+  const reserveRef = useRef<number[]>(reserveIds);
+  useEffect(() => {
+    lineupRef.current = lineupIds;
+  }, [lineupIds]);
+  useEffect(() => {
+    reserveRef.current = reserveIds;
+  }, [reserveIds]);
+
+  // ------------------------------- PK state --------------------------------
+  const [pkMatchId, setPkMatchId] = useState<number | null>(null);
+  const [pkHome, setPkHome] = useState<TeamOrder | null>(null);
+  const [pkAway, setPkAway] = useState<TeamOrder | null>(null);
+  const [pkAttempts, setPkAttempts] = useState<PkAttempt[]>([]);
+  const [pkEnded, setPkEnded] = useState<PkEndPayload | null>(null);
+
+  const clearPk = () => {
+    setPkMatchId(null);
+    setPkHome(null);
+    setPkAway(null);
+    setPkAttempts([]);
+    setPkEnded(null);
+  };
 
   const resetState = () => {
     setSaveGameId(null);
@@ -154,12 +223,13 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
     setSelectedFormation("4-4-2");
     setLineupIds([]);
     setReserveIds([]);
+
+    clearPk(); // ⬅️ also reset PK state
   };
 
   const refreshGameState = async () => {
     try {
       const state = await gameStateService.getGameState();
-      // console.log("[GameState] Loaded:", state);
 
       // If there is no active save, hard reset the store.
       if (!state || state.currentSaveGameId == null) {
@@ -171,11 +241,15 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
       setSaveGameId(state.currentSaveGameId ?? null); // mirror of currentSaveGameId
       setCoachTeamId(state.coachTeamId ?? null);
       setCurrentMatchday(
-        typeof state.currentMatchday === "number" ? state.currentMatchday : null
+        typeof state.currentMatchday === "number"
+          ? state.currentMatchday
+          : null,
       );
 
       const prev = prevStageRef.current;
-      const nextStage = isGameStage(state.gameStage) ? state.gameStage : gameStage;
+      const nextStage = isGameStage(state.gameStage)
+        ? state.gameStage
+        : gameStage;
 
       if (isGameStage(state.gameStage)) {
         setGameStage(state.gameStage);
@@ -195,10 +269,14 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
         setStandingsEnteredAt(null);
       }
 
+      // If we leave the PK screen by any backend stage change, wipe PK state
+      if (prev === "PENALTIES" && nextStage !== "PENALTIES") {
+        clearPk();
+      }
+
       prevStageRef.current = nextStage;
-    } catch (err) {
-      // Network / server hiccup: keep existing store values so we don't bounce routes.
-      // console.error("[GameState] failed to refresh (keeping previous state):", err);
+    } catch {
+      // Keep previous store values on transient errors
     }
   };
 
@@ -230,6 +308,8 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
       // Update store synchronously with socket
       setGameStage(nextStage);
 
+      if (p.saveGameId && p.saveGameId !== (saveGameId ?? undefined)) return;
+
       if (typeof p.matchdayNumber === "number") {
         setCurrentMatchday(p.matchdayNumber);
       }
@@ -244,6 +324,11 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
         setStandingsEnteredAt(null);
       }
 
+      // Leaving PK stage by stage-changed? clear PK state
+      if (prev === "PENALTIES" && nextStage !== "PENALTIES") {
+        clearPk();
+      }
+
       prevStageRef.current = nextStage;
     };
 
@@ -251,39 +336,116 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
     return () => {
       offStageChanged(handler);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ----------------------------------------------------------------------- */
+  /* Socket: Penalties flow (subscribe to pk-start / pk-attempt / pk-end)    */
+  /* ----------------------------------------------------------------------- */
+  useEffect(() => {
+    const raw: any =
+      (Sock as any)?.socket ||
+      (Sock as any)?.getSocket?.() ||
+      (window as any)?.socket;
+
+    if (!raw?.on) return;
+
+    const handlePkStart = (payload: PkStartPayload) => {
+      setPkMatchId(payload.matchId);
+      setPkHome(payload.home);
+      setPkAway(payload.away);
+      setPkAttempts([]);
+      setPkEnded(null);
+
+      // Only take over the screen if the coached team is involved
+      const coachedInvolved =
+        (coachTeamId && payload.home?.id === coachTeamId) ||
+        (coachTeamId && payload.away?.id === coachTeamId);
+
+      if (coachedInvolved) {
+        setGameStage("PENALTIES");
+        prevStageRef.current = "PENALTIES";
+      }
+    };
+
+    const handlePkAttempt = (att: PkAttempt) => {
+      // Keep interleaved list; consumers can group by isHome/shotIndex
+      setPkAttempts((prev) => [...prev, att]);
+    };
+
+    const handlePkEnd = (end: PkEndPayload) => {
+      setPkEnded(end);
+      // We do NOT auto-change stage here; the backend should emit stage-changed
+      // after /pk/ack (or immediately for AI-only shootouts).
+    };
+
+    raw.on("pk-start", handlePkStart);
+    raw.on("pk-attempt", handlePkAttempt);
+    raw.on("pk-end", handlePkEnd);
+
+    return () => {
+      raw.off?.("pk-start", handlePkStart);
+      raw.off?.("pk-attempt", handlePkAttempt);
+      raw.off?.("pk-end", handlePkEnd);
+    };
+  }, [coachTeamId]);
 
   // --------------------------- Selection helpers ----------------------------
 
   /**
-   * Endless cycle: none → lineup → reserve → none → lineup …
-   * Uses current arrays (not functional reducers) because we apply both sets in one click.
+   * Endless cycle with limits:
+   * none → lineup → reserve → none → lineup …
+   * - Prevents duplicates
+   * - Atomic updates (reads refs, sets both lists together)
+   * - Formation-agnostic; validation (exactly 1 GK, etc.) happens on advance CTA
    */
   const cycleSelection = (playerId: number) => {
-    const inLineup = lineupIds.includes(playerId);
-    const inRes = reserveIds.includes(playerId);
+    // read the latest values
+    const curLineup = lineupRef.current;
+    const curReserve = reserveRef.current;
 
-    if (!inLineup && !inRes) {
-      // none → lineup
-      setLineupIds([...lineupIds, playerId]);
-      return;
-    }
-    if (inLineup) {
+    const inLineup = curLineup.includes(playerId);
+    const inReserve = curReserve.includes(playerId);
+
+    let nextLineup = curLineup.slice();
+    let nextReserve = curReserve.slice();
+
+    if (!inLineup && !inReserve) {
+      // none → lineup (no caps here; validate on advance)
+      nextLineup = [playerId, ...nextLineup];
+    } else if (inLineup) {
       // lineup → reserve
-      setLineupIds(lineupIds.filter((id) => id !== playerId));
-      setReserveIds([...reserveIds, playerId]);
-      return;
-    }
-    if (inRes) {
+      nextLineup = nextLineup.filter((id) => id !== playerId);
+      if (!nextReserve.includes(playerId)) {
+        nextReserve = [playerId, ...nextReserve];
+      }
+    } else {
       // reserve → none
-      setReserveIds(reserveIds.filter((id) => id !== playerId));
-      return;
+      nextReserve = nextReserve.filter((id) => id !== playerId);
     }
+
+    // safety: de-dup cross lists
+    const luSet = new Set(nextLineup);
+    nextReserve = nextReserve.filter((id) => !luSet.has(id));
+
+    // Debug — remove once verified
+    console.debug(
+      "[cycleSelection]",
+      { playerId, inLineup, inReserve },
+      { nextLineup, nextReserve },
+    );
+
+    setLineupIds(nextLineup);
+    setReserveIds(nextReserve);
   };
 
   const setSelection = (lineup: number[], reserves: number[]) => {
-    setLineupIds([...new Set(lineup)]);
-    setReserveIds([...new Set(reserves.filter((id) => !lineup.includes(id)))]);
+    const lu = [...new Set(lineup)].slice(0, LINEUP_MAX);
+    const rs = [...new Set(reserves)]
+      .filter((id) => !lu.includes(id))
+      .slice(0, BENCH_MAX);
+    setLineupIds(lu);
+    setReserveIds(rs);
   };
 
   const resetSelection = () => {
@@ -295,16 +457,28 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
    * Autopick that DOES NOT cross-fill positions.
    * - Select up to the formation's requested count PER position (capped by what's available).
    * - If you can't reach 11 due to shortages (e.g., only 2 MFs), leave fewer than 11.
-   * - Bench still picks best-of-rest up to BENCH_MAX (optionally preferring 1 GK).
+   * - Bench picks best-of-rest up to BENCH_MAX (prefer 1 GK if available).
    */
-  const autopickSelection = (players: MinimalPlayer[], formation: string) => {
-    const layout = FORMATION_LAYOUTS[formation] ?? FORMATION_LAYOUTS["4-4-2"];
+  const autopickSelection = (
+    players: MinimalPlayer[],
+    formation: string,
+  ) => {
+    const layout =
+      FORMATION_LAYOUTS[formation] ?? FORMATION_LAYOUTS["4-4-2"];
 
     const byPos = {
-      GK: players.filter((p) => p.position === "GK").sort((a, b) => b.rating - a.rating),
-      DF: players.filter((p) => p.position === "DF").sort((a, b) => b.rating - a.rating),
-      MF: players.filter((p) => p.position === "MF").sort((a, b) => b.rating - a.rating),
-      AT: players.filter((p) => p.position === "AT").sort((a, b) => b.rating - a.rating),
+      GK: players
+        .filter((p) => p.position === "GK")
+        .sort((a, b) => b.rating - a.rating),
+      DF: players
+        .filter((p) => p.position === "DF")
+        .sort((a, b) => b.rating - a.rating),
+      MF: players
+        .filter((p) => p.position === "MF")
+        .sort((a, b) => b.rating - a.rating),
+      AT: players
+        .filter((p) => p.position === "AT")
+        .sort((a, b) => b.rating - a.rating),
     };
 
     const lineup: number[] = [];
@@ -317,11 +491,12 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
     lineup.push(...byPos.AT.slice(0, layout.AT).map((p) => p.id));
 
     // ❌ Do NOT top-up to 11 with other positions.
-    // User must manage shortages to reach 11 (and exactly 1 GK) before advancing.
 
-    // Bench: up to 8 best of the rest (prefer 1 GK if available)
+    // Bench: up to BENCH_MAX best of the rest (prefer 1 GK if available)
     const chosen = new Set(lineup);
-    const rest = [...players].filter((p) => !chosen.has(p.id)).sort((a, b) => b.rating - a.rating);
+    const rest = [...players]
+      .filter((p) => !chosen.has(p.id))
+      .sort((a, b) => b.rating - a.rating);
 
     const bench: number[] = [];
     const benchGK = rest.find((p) => p.position === "GK");
@@ -360,10 +535,19 @@ export function GameStateProvider({ children, autoLoad = true }: GameStateProvid
     setSelectedFormation,
     lineupIds,
     reserveIds,
+    reserveLimit: BENCH_MAX,
     cycleSelection,
     setSelection,
     resetSelection,
     autopickSelection,
+
+    // PK state
+    pkMatchId,
+    pkHome,
+    pkAway,
+    pkAttempts,
+    pkEnded,
+    clearPk,
   };
 
   return (

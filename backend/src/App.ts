@@ -22,6 +22,9 @@ import matchdayRoute from './routes/matchdayRoute';
 import matchEventRoute from './routes/matchEventRoute';
 import nextMatchRoute from './routes/nextMatchRoute';
 import h2hRoute from './routes/h2hRoute';
+import goldenBootRoute from './routes/goldenBootRoute';
+import statsSyncRoute from './routes/statsSyncRoute';
+import formationRoute from './routes/formationRoute';
 
 dotenv.config();
 
@@ -60,10 +63,10 @@ app.use('/api/cup', cupRoute);
 app.use('/api/matchday', matchdayRoute);
 app.use('/api/matches', nextMatchRoute);
 app.use('/api/matches', h2hRoute);
-
-// ⬇️ Mount match-events (needed for /api/match-events/by-matchday/:matchdayId)
 app.use('/api/match-events', matchEventRoute);
-console.log('✅ Route /api/match-events is mounted');
+app.use('/api/golden-boot', goldenBootRoute);
+app.use('/api/stats', statsSyncRoute);
+app.use('/api/formation', formationRoute);
 
 // 404 JSON fallback
 app.use((req, res) => {

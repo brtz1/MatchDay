@@ -57,6 +57,10 @@ function formatDivision(div?: number | string | null): string {
 export default function TeamRosterPage() {
   const { teamId: teamIdParam } = useParams<{ teamId?: string }>();
   const { currentTeamId } = useTeamContext();
+
+  // Grab the whole GameState API once so we can use optional actions without TS complaining
+  const gameState = useGameState() as any;
+
   const {
     coachTeamId,
     saveGameId,
@@ -70,10 +74,9 @@ export default function TeamRosterPage() {
     clearCameFromResults,
     refreshGameState,
 
-    // selection store
+    // selection store (used for legend only; PlayerRoster reads the store internally)
     lineupIds,
-    reserveIds,
-  } = useGameState();
+  } = gameState;
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -92,6 +95,35 @@ export default function TeamRosterPage() {
     !!matchPath("/team/:id", location.pathname) || !!matchPath("/teams/:id", location.pathname);
 
   /* ---------------------------------------------------------------------------
+     ALWAYS refresh GameState when landing on this page (and on tab focus).
+     This ensures currentMatchday is correct immediately for GameTab.
+  --------------------------------------------------------------------------- */
+  useEffect(() => {
+    if (bootstrapping) return;
+
+    // Refresh on route (re)entry
+    (async () => {
+      try {
+        await refreshGameState();
+      } catch {
+        // swallow; page still loads
+      }
+    })();
+
+    // Also refresh when user returns focus to the tab/window
+    const onFocus = () => {
+      try {
+        refreshGameState();
+      } catch {
+        /* noop */
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key, bootstrapping]);
+
+  /* ---------------------------------------------------------------------------
      After RESULTS → STANDINGS → back here, refresh GameState so currentMatchday
      is advanced (backend increments during finalize flow).
   --------------------------------------------------------------------------- */
@@ -108,16 +140,45 @@ export default function TeamRosterPage() {
   }, [cameFromResults, clearCameFromResults, refreshGameState]);
 
   /* ---------------------------------------------------------------------------
+     NEW: Reset lineup/reserve *visual selection* when arriving from Results.
+     Uses either:
+       - store flag (cameFromResults), or
+       - router state flag (location.state?.cameFromResults)
+     Prefers store method `resetFormationSelection()` if present; falls back to
+     `setLineupIds([])` + `setReserveIds([])` when available.
+     Also clears router state to avoid repeated resets.
+  --------------------------------------------------------------------------- */
+  useEffect(() => {
+    const fromRouter = Boolean((location.state as any)?.cameFromResults);
+    const shouldReset = Boolean(cameFromResults || fromRouter);
+    if (!shouldReset) return;
+
+    try {
+      if (typeof gameState.resetFormationSelection === "function") {
+        gameState.resetFormationSelection();
+      } else {
+        if (typeof gameState.setLineupIds === "function") gameState.setLineupIds([]);
+        if (typeof gameState.setReserveIds === "function") gameState.setReserveIds([]);
+      }
+    } finally {
+      if (fromRouter) {
+        // Clear the router flag so a rerender doesn't trigger another reset
+        navigate(location.pathname, { replace: true, state: {} });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameFromResults, location.state, navigate, location.pathname]);
+
+  /* ---------------------------------------------------------------------------
      NEW: If the backend/socket flips stage to MATCHDAY, jump to Live instantly.
      (Prevents missing early minute ticks if user stayed on Formation/Game tabs.)
   --------------------------------------------------------------------------- */
   useEffect(() => {
-  if (bootstrapping) return;
-  if (gameStage === "MATCHDAY") {
-    navigate(matchdayUrl);
-  }
-}, [gameStage, bootstrapping, navigate]);
-
+    if (bootstrapping) return;
+    if (gameStage === "MATCHDAY") {
+      navigate(matchdayUrl);
+    }
+  }, [gameStage, bootstrapping, navigate]);
 
   useEffect(() => {
     if (!teamId || teamId <= 0) {
@@ -215,13 +276,15 @@ export default function TeamRosterPage() {
               players={team.players}
               selectedPlayer={selectedPlayer}
               onSelectPlayer={setSelectedPlayer}
-              lineupIds={lineupIds}
-              benchIds={reserveIds}
+              // ⬇️ Do NOT pass lineupIds/benchIds; PlayerRoster uses store directly (avoids stale-prop UI bugs)
             />
 
             {/* Tiny legend */}
             <div className="mt-1 text-[11px] text-white/80">
-              <span className="mr-4">Legend: <span className="font-bold text-white">◯</span> Lineup &nbsp;&nbsp; <span className="font-bold text-white">–</span> Reserve</span>
+              <span className="mr-4">
+                Legend: <span className="font-bold text-white">◯</span> Lineup &nbsp;&nbsp;{" "}
+                <span className="font-bold text-white">–</span> Reserve
+              </span>
               <span>
                 Selected starters: <span className="font-semibold">{lineupIds.length}</span> / 11
               </span>
@@ -247,10 +310,7 @@ export default function TeamRosterPage() {
                   onSell={() => {}}
                 />
               ) : (
-                <PlayerTab
-                  selectedPlayer={selectedPlayer}
-                  renderActions={() => null}
-                />
+                <PlayerTab selectedPlayer={selectedPlayer} renderActions={() => null} />
               )}
 
               {/* Formation tab (coach only) */}

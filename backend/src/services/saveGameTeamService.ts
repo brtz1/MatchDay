@@ -1,6 +1,6 @@
 // backend/src/services/saveGameTeamService.ts
 
-import prisma from "@/utils/prisma";
+import prisma from "../utils/prisma";
 
 /**
  * Get full team data for the coach's team (with private players).

@@ -1,3 +1,5 @@
+// backend/src/routes/transferRoute.ts
+
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { transferPlayer } from '../services/transferService';
@@ -7,7 +9,8 @@ const router = Router();
 
 /**
  * GET /api/transfers
- * List all transfers (most recent first).
+ * List all transfers (most recent first, by id).
+ * In a date-less model, id DESC is our stable proxy for recency.
  */
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -17,7 +20,9 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
         fromTeam: true,
         toTeam: true,
       },
-      orderBy: { date: 'desc' },
+      // If your Transfer model has matchdayNumber, prefer:
+      // orderBy: [{ matchdayNumber: 'desc' }, { id: 'desc' }],
+      orderBy: { id: 'desc' },
     });
     res.status(200).json(transfers);
   } catch (error) {
@@ -29,7 +34,8 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
 /**
  * POST /api/transfers
  * Create a new player transfer.
- * Body: { saveGameId: number; playerId: number; fromTeamId: number; toTeamId: number; fee: number }
+ * Body: { saveGameId: number; playerId: number; fromTeamId: number | null; toTeamId: number; fee: number }
+ * NOTE: No real-world dates; transferService should stamp current matchday if you track it on transfers.
  */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -40,7 +46,8 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       (fromTeamId !== null && typeof fromTeamId !== 'number')
     ) {
       res.status(400).json({
-        error: 'saveGameId, playerId, toTeamId, and fee must be numbers; fromTeamId can be null or number',
+        error:
+          'saveGameId, playerId, toTeamId, and fee must be numbers; fromTeamId can be null or number',
       });
       return;
     }
@@ -53,8 +60,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     const coachTeamId = gameState.coachTeamId;
 
     const isCoachInvolved =
-      (fromTeamId !== null && fromTeamId === coachTeamId) ||
-      toTeamId === coachTeamId;
+      (fromTeamId !== null && fromTeamId === coachTeamId) || toTeamId === coachTeamId;
 
     if (!isCoachInvolved) {
       return res.status(403).json({ error: 'You can only transfer players to/from your team' });

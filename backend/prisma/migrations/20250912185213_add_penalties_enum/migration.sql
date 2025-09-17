@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "GameStage" ADD VALUE 'PENALTIES';

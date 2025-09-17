@@ -21,6 +21,9 @@ export interface SaveGameLite {
   name: string;
   coachName: string;
   createdAt: string;
+
+  /** Optional on list() until backend includes it. Needed by LoadGamePage to show coached team name. */
+  coachTeamId?: number;
 }
 
 export interface SaveGameWithTeams extends SaveGameLite {
@@ -86,10 +89,7 @@ async function createNewSave(payload: NewSaveRequest) {
  * POST `/save-game/load` – resume an existing save
  */
 async function loadSave(id: number) {
-  const { data } = await axios.post<LoadSaveResponse>(
-    `${BASE}/load`,
-    { id }
-  );
+  const { data } = await axios.post<LoadSaveResponse>(`${BASE}/load`, { id });
   return data;
 }
 
@@ -97,10 +97,7 @@ async function loadSave(id: number) {
  * POST `/manual-save` – quick in-season save
  */
 async function manualSave(payload: ManualSaveRequest) {
-  const { data } = await axios.post<ManualSaveResponse>(
-    "/manual-save",
-    payload
-  );
+  const { data } = await axios.post<ManualSaveResponse>("/manual-save", payload);
   return data;
 }
 

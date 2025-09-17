@@ -6,7 +6,6 @@ import {
   MatchEvent as PrismaMatchEvent,
   GameStage,
 } from "@prisma/client";
-// ❌ removed: import { applySubstitution } from './matchService';
 import { applyAISubstitutions } from "./halftimeService";
 import { ensureAppearanceRows } from "./appearanceService";
 import { getGameState } from "./gameState";
@@ -28,26 +27,70 @@ function uniq<T>(arr: T[]): T[] {
   return Array.from(new Set(arr));
 }
 
-/**
- * Local substitution impl (kept in-sync with matchStateRoute + halftimeService):
- * - max 3 subs
- * - out must be on the field; in must be on the bench
- * - GK can only be replaced by GK
- * - Prevent 2 GKs on the field
- * - Returns the outgoing player to the bench
- */
-async function applySubstitutionInternal(
-  matchId: number,
-  outId: number,
-  inId: number,
-  isHomeTeam: boolean
-): Promise<void> {
+/** Utility to fetch a match state's side-specific arrays safely. */
+async function getMatchStateForSide(matchId: number, isHomeTeam: boolean) {
   const ms = await prisma.matchState.findUnique({ where: { saveGameMatchId: matchId } });
   if (!ms) throw new Error(`MatchState not found for match ${matchId}`);
 
   const lineup: number[] = uniq(isHomeTeam ? ms.homeLineup ?? [] : ms.awayLineup ?? []);
   const bench: number[] = uniq(isHomeTeam ? ms.homeReserves ?? [] : ms.awayReserves ?? []);
   const subsMade: number = isHomeTeam ? (ms.homeSubsMade ?? 0) : (ms.awaySubsMade ?? 0);
+
+  return { ms, lineup, bench, subsMade };
+}
+
+/** Writes back side-specific arrays/counters. */
+async function writeMatchStateForSide(
+  matchId: number,
+  isHomeTeam: boolean,
+  data: {
+    newLineup: number[];
+    newBench: number[];
+    newSubsMade?: number;
+  },
+) {
+  const patch: any = isHomeTeam
+    ? {
+        homeLineup: data.newLineup,
+        homeReserves: data.newBench,
+        ...(typeof data.newSubsMade === "number" && {
+          homeSubsMade: data.newSubsMade,
+          subsRemainingHome: Math.max(0, 3 - data.newSubsMade),
+        }),
+      }
+    : {
+        awayLineup: data.newLineup,
+        awayReserves: data.newBench,
+        ...(typeof data.newSubsMade === "number" && {
+          awaySubsMade: data.newSubsMade,
+          subsRemainingAway: Math.max(0, 3 - data.newSubsMade),
+        }),
+      };
+
+  await prisma.matchState.update({
+    where: { saveGameMatchId: matchId },
+    data: patch,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Local substitution impl                                                    */
+/* -------------------------------------------------------------------------- */
+/**
+ * Substitution rules (MatchDay!):
+ * - Max 3 subs per side.
+ * - OUT must currently be on the field; IN must be on the bench.
+ * - GK can only be replaced by GK. Prevent two GKs on the field.
+ * - ❗️NEW POLICY: The outgoing player is **discarded** for this match
+ *   (removed from lineup and reserves) and cannot re-enter.
+ */
+async function applySubstitutionInternal(
+  matchId: number,
+  outId: number,
+  inId: number,
+  isHomeTeam: boolean,
+): Promise<void> {
+  const { lineup, bench, subsMade } = await getMatchStateForSide(matchId, isHomeTeam);
 
   if (subsMade >= 3) throw new Error("No substitutions remaining");
   if (!lineup.includes(outId)) throw new Error("Selected outgoing player is not on the field");
@@ -60,7 +103,7 @@ async function applySubstitutionInternal(
     select: { id: true, position: true },
   });
   const posById = new Map<number, ReturnType<typeof normalizePos>>(
-    players.map((p) => [p.id, normalizePos(p.position)])
+    players.map((p) => [p.id, normalizePos(p.position)]),
   );
 
   const outPos = posById.get(outId) ?? "MF";
@@ -77,30 +120,19 @@ async function applySubstitutionInternal(
     if (gkOnField >= 1) throw new Error("Cannot have two goalkeepers on the field");
   }
 
+  // ❗️Discard OUT completely (do NOT push to bench)
   const newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
-  const newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+  const newBench = uniq(
+    bench
+      .filter((id) => id !== inId) // remove the player who comes in
+      .filter((id) => id !== outId), // make sure OUT isn't left in bench by accident
+  );
 
-  if (isHomeTeam) {
-    await prisma.matchState.update({
-      where: { saveGameMatchId: matchId },
-      data: {
-        homeLineup: newLineup,
-        homeReserves: newBench,
-        homeSubsMade: subsMade + 1,
-        subsRemainingHome: Math.max(0, 3 - (subsMade + 1)),
-      },
-    });
-  } else {
-    await prisma.matchState.update({
-      where: { saveGameMatchId: matchId },
-      data: {
-        awayLineup: newLineup,
-        awayReserves: newBench,
-        awaySubsMade: subsMade + 1,
-        subsRemainingAway: Math.max(0, 3 - (subsMade + 1)),
-      },
-    });
-  }
+  await writeMatchStateForSide(matchId, isHomeTeam, {
+    newLineup,
+    newBench,
+    newSubsMade: subsMade + 1,
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -192,18 +224,38 @@ export async function getMatchLineup(matchId: number): Promise<MatchLineup> {
  * Substitutes one player for another on the specified side.
  * - Uses local implementation (kept consistent with routes/services).
  * - Also ensures the incoming sub is counted as having "played" for stats.
+ * - ❗️Outgoing player is discarded (cannot re-enter this match).
  */
 export async function submitSubstitution(
   matchId: number,
   side: "home" | "away",
   outPlayerId: number,
-  inPlayerId: number
+  inPlayerId: number,
 ): Promise<void> {
   const isHome = side === "home";
   await applySubstitutionInternal(matchId, outPlayerId, inPlayerId, isHome);
 
   // Mark the incoming sub as "played" immediately (idempotent).
   await ensureAppearanceRows(matchId, [inPlayerId]);
+}
+
+/**
+ * Remove a player from the match entirely (injury/red/no-sub flows).
+ * - The player is deleted from lineup & reserves for the given side.
+ * - Does NOT touch subs counters.
+ * Use this from your /matchstate/:id/remove-player route and red-card handlers.
+ */
+export async function removePlayerFromMatch(
+  matchId: number,
+  isHomeTeam: boolean,
+  playerId: number,
+): Promise<void> {
+  const { lineup, bench } = await getMatchStateForSide(matchId, isHomeTeam);
+
+  const newLineup = lineup.filter((id) => id !== playerId);
+  const newBench = bench.filter((id) => id !== playerId);
+
+  await writeMatchStateForSide(matchId, isHomeTeam, { newLineup, newBench });
 }
 
 /**
@@ -227,6 +279,7 @@ export async function resumeMatch(matchId: number): Promise<void> {
  * Performs automatic substitutions for AI teams (injury-first).
  * - Can be called at halftime OR immediately after an injury event.
  * - Non-coached sides only; coached side is left for the user to handle.
+ * - ❗️AI subs also discard the outgoing player (cannot re-enter).
  */
 export async function runAISubstitutions(matchId: number): Promise<void> {
   await applyAISubstitutions(matchId);
@@ -235,6 +288,7 @@ export async function runAISubstitutions(matchId: number): Promise<void> {
 /**
  * Convenience helper to auto-substitute injured players right now (during play)
  * for AI-controlled teams only. Call this when you register an INJURY event.
+ * If your AI branch ever removes a player with no sub, call removePlayerFromMatch.
  */
 export async function autoSubInjuriesNow(matchId: number): Promise<void> {
   const match = await prisma.saveGameMatch.findUnique({

@@ -27,7 +27,6 @@ export default function CountrySelectionPage() {
   const [teamCounts, setTeamCounts] = useState<CountryTeamCounts>({});
   const [selected, setSelected] = useState<string[]>([]);
 
-  const [coachName, setCoachName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,17 +64,14 @@ export default function CountrySelectionPage() {
   );
 
   function handleStart() {
-    if (!coachName.trim()) {
-      setError("Please enter a coach name.");
-      return;
-    }
     if (totalClubs < 128) {
       setError("Pick enough countries to reach 128 clubs.");
       return;
     }
-
+    // Persist selection so DrawPage can recover on refresh
     localStorage.setItem("selectedCountries", JSON.stringify(selected));
-    navigate("/draw", { state: { selectedCountries: selected, coachName } });
+    // Go to Draw; coach name will be handled there
+    navigate("/draw", { state: { selectedCountries: selected } });
   }
 
   if (loading) {
@@ -171,16 +167,6 @@ export default function CountrySelectionPage() {
             <p className="mt-1 text-sm text-gray-300">
               from {selected.length} countries
             </p>
-
-            <div className="mt-4 w-full">
-              <input
-                type="text"
-                placeholder="Enter your coach name"
-                value={coachName}
-                onChange={(e) => setCoachName(e.target.value)}
-                className="w-full rounded-md border border-gray-300 p-2 text-black"
-              />
-            </div>
           </div>
 
           <AppButton
@@ -188,7 +174,7 @@ export default function CountrySelectionPage() {
             variant="primary"
             className="mt-6 w-full"
           >
-            Start
+            Continue
           </AppButton>
         </AppCard>
       </AppCard>

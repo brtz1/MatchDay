@@ -18,19 +18,17 @@ export default function DrawPage() {
     const [coachName, setCoachName] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    // ── Load country selection from location or localStorage ──
+    // ── Load selection from router state or localStorage (coach name is NOT required here) ──
     useEffect(() => {
-        const stateCoach = location.state?.coachName;
         const stateCountries = location.state?.selectedCountries;
-        const fromStorage = localStorage.getItem("selectedCountries") ?? "[]";
         const parsedCountries = stateCountries && Array.isArray(stateCountries) && stateCountries.length
             ? stateCountries
-            : JSON.parse(fromStorage);
-        if (parsedCountries.length && stateCoach) {
-            setCoachName(stateCoach);
+            : JSON.parse(localStorage.getItem("selectedCountries") ?? "[]");
+        if (parsedCountries && parsedCountries.length) {
             setSelectedCountries(parsedCountries);
         }
         else {
+            // No selection? Go back to New Game flow
             navigate(newGameUrl, { replace: true });
         }
     }, [location.state, navigate]);
@@ -45,8 +43,9 @@ export default function DrawPage() {
         setLoading(true);
         setError(null);
         try {
+            const saveName = coachName.trim();
             const { data } = await axios.post("/save-game", {
-                name: "New Save",
+                name: saveName,
                 coachName,
                 countries: selectedCountries,
             });

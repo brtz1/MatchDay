@@ -227,7 +227,6 @@ router.get("/:id/next-match", async (req: Request, res: Response) => {
         id: true,
         homeTeamId: true,
         awayTeamId: true,
-        matchDate: true, // adjust if your field differs
       },
       orderBy: { id: "asc" },
     });
@@ -248,7 +247,6 @@ router.get("/:id/next-match", async (req: Request, res: Response) => {
       awayTeamId: match.awayTeamId,
       homeTeamName: nameById.get(match.homeTeamId) ?? `Team ${match.homeTeamId}`,
       awayTeamName: nameById.get(match.awayTeamId) ?? `Team ${match.awayTeamId}`,
-      matchDate: match.matchDate ? new Date(match.matchDate).toISOString() : "",
       refereeName: null, // wire when you add referees
       matchdayNumber: md.number,
       matchdayType: md.type,

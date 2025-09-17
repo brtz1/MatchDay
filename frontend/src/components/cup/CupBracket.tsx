@@ -1,105 +1,639 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import * as React from "react";
+import { useMemo, useRef, useLayoutEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-export interface CupMatch {
+/* ------------------------------------------------------------------ */
+/* Types                                                              */
+/* ------------------------------------------------------------------ */
+export type CupMatch = {
   id: number;
-  homeTeam: string;
   homeTeamId: number;
-  awayTeam: string;
   awayTeamId: number;
+  homeTeam: string;
+  awayTeam: string;
   homeGoals: number | null;
   awayGoals: number | null;
   matchdayNumber: number;
-  stage: string;
+  stage: string; // "Round of 128" | "Round of 64" | "Round of 32" | "Round of 16" | "Quarterfinal" | "Semifinal" | "Final"
+};
+type RoundBucket = { title: string; matches: CupMatch[] };
+
+const ROUND_ORDER = [
+  "Round of 128",
+  "Round of 64",
+  "Round of 32",
+  "Round of 16",
+  "Quarterfinal",
+  "Semifinal",
+  "Final",
+] as const;
+
+const STAGE_COUNTS: Record<(typeof ROUND_ORDER)[number], number> = {
+  "Round of 128": 64,
+  "Round of 64": 32,
+  "Round of 32": 16,
+  "Round of 16": 8,
+  Quarterfinal: 4,
+  Semifinal: 2,
+  Final: 1,
+};
+
+// Keep display order stable (matches your backend calendar mapping)
+const STAGE_DAY: Record<(typeof ROUND_ORDER)[number], number> = {
+  "Round of 128": 3,
+  "Round of 64": 6,
+  "Round of 32": 8,
+  "Round of 16": 11,
+  Quarterfinal: 14,
+  Semifinal: 17,
+  Final: 20,
+};
+
+const DEPTH: Record<string, number> = {
+  "Round of 64": 1,
+  "Round of 32": 2,
+  "Round of 16": 3,
+  Quarterfinal: 4,
+  Semifinal: 5,
+};
+
+/* --- sizing -------------------------------------------------------- */
+const COL_W = 180;    // side columns
+const CTR_W = 200;    // final
+const COL_GAP = 12;
+
+const CARD_W = 180;
+const CARD_H = 50;    // fixed two-line card height
+
+/* A/B/C/D overlap tuning ------------------------------------------- */
+const UNDER_OFFSET = 1; // lower column game sits just under higher's center
+const PAIR_GAP = 1;     // tiny breathing room between the two cards (visual)
+
+/* Center-to-center spacing base (used by R128 pair math AND R64 ladder) */
+const S1 = CARD_H + UNDER_OFFSET + 8;
+
+/* ------------------------------------------------------------------ */
+/* Utilities                                                          */
+/* ------------------------------------------------------------------ */
+function splitHalf(list: CupMatch[]): [CupMatch[], CupMatch[]] {
+  const h = Math.floor(list.length / 2);
+  return [list.slice(0, h), list.slice(h)];
 }
 
-interface CupBracketProps {
-  matches: CupMatch[];
+/* Height of an R128 two-column group (A/B or C/D) with N pairs */
+function r128GroupHeight(pairs: number) {
+  // same formula used visually inside the R128 group
+  return (
+    (pairs - 1) * S1 +
+    CARD_H + // higher#1 bottom
+    (CARD_H / 2 + UNDER_OFFSET) + // offset to lower#1 top
+    CARD_H // lower#1 height
+  );
 }
 
-const stages = [
-  'Round of 128',
-  'Round of 64',
-  'Round of 32',
-  'Round of 16',
-  'Quarterfinal',
-  'Semifinal',
-  'Final',
-];
+/* spacing for depth d: d=1 R64, d=2 R32, ... */
+const COMPRESS: Record<number, number> = {
+  2: 0.80, // Round of 32
+  3: 0.72, // Round of 16
+  4: 0.66, // Quarterfinal
+  5: 0.62, // Semifinal
+};
 
-export default function CupBracket({ matches }: CupBracketProps) {
-  const navigate = useNavigate();
+/* spacing for depth d: d=1 R64, d=2 R32, d=3 R16, d=4 QF, d=5 SF
+   Uses compressed spacings so deeper rounds sit closer together.
+   Also returns a 'between' value that RoundColumn uses directly. */
+function spacingForDepth(depth: number) {
+  // spacing[1] is R64 center-to-center spacing
+  const spacing: number[] = [];
+  spacing[1] = Math.round(S1);
 
-  const getMatchesByStage = (stage: string) =>
-    matches.filter((m) => m.stage === stage);
+  // first R64 center is the midpoint between A1(center) and B1(center)
+  const A1center = CARD_H / 2;
+  const B1center = CARD_H + UNDER_OFFSET;
+  const firstCenter = (A1center + B1center) / 2;
+
+  // top padding so the first row's TOP aligns with its computed center
+  let pad = Math.round(firstCenter - CARD_H / 2);
+
+  // build compressed spacing for deeper rounds and accumulate pad
+  for (let d = 2; d <= depth; d++) {
+    // baseline doubling then compress for this depth
+    const doubled = spacing[d - 1] * 2;
+    const k = COMPRESS[d] ?? 1;
+    spacing[d] = Math.round(doubled * k);
+
+    // vertical offset from previous round's centers to this round's centers
+    pad += Math.round(spacing[d - 1] / 2);
+  }
+
+  const between = Math.max(0, Math.round(spacing[depth] - CARD_H));
+  return { pad, between, centerSpacing: spacing[depth] };
+}
+
+/* final vertical pad (center between semifinals) */
+function finalPad() {
+  const { pad, centerSpacing } = spacingForDepth(5);
+  const semiCenter = pad + CARD_H / 2;
+  const finalCenter = semiCenter + centerSpacing / 2;
+  return Math.round(finalCenter - CARD_H / 2);
+}
+
+/* Column content height helper for non-R128 anchors */
+function columnContentHeight(nMatches: number, depth: number) {
+  const { between } = spacingForDepth(depth);
+  if (nMatches <= 0) return CARD_H; // minimal anchor
+  return nMatches * CARD_H + (nMatches - 1) * between;
+}
+
+/* ---------- bracket completion helpers ---------------------------- */
+const STAGE_INDEX: Record<string, number> = Object.fromEntries(
+  ROUND_ORDER.map((s, i) => [s, i])
+);
+
+function makePlaceholder(stage: (typeof ROUND_ORDER)[number], idx: number): CupMatch {
+  const stageIdx = STAGE_INDEX[stage] ?? 0;
+  // Negative, deterministic id (unique across stages)
+  const id = -((stageIdx + 1) * 1000 + (idx + 1));
+  return {
+    id,
+    homeTeamId: -1,
+    awayTeamId: -1,
+    homeTeam: "TBD",
+    awayTeam: "TBD",
+    homeGoals: null,
+    awayGoals: null,
+    matchdayNumber: STAGE_DAY[stage],
+    stage,
+  };
+}
+
+function isWinnerKnown(m: CupMatch): boolean {
+  return m.homeGoals != null && m.awayGoals != null && m.homeGoals !== m.awayGoals;
+}
+function winnerOf(m: CupMatch): { id: number; name: string } | null {
+  if (!isWinnerKnown(m)) return null;
+  if ((m.homeGoals ?? 0) > (m.awayGoals ?? 0)) {
+    return { id: m.homeTeamId, name: m.homeTeam };
+  }
+  return { id: m.awayTeamId, name: m.awayTeam };
+}
+
+/** Build a map stage -> existing matches (sorted by matchdayNumber then id) */
+function groupIncomingByStage(matches: CupMatch[]) {
+  const m = new Map<(typeof ROUND_ORDER)[number], CupMatch[]>();
+  for (const s of ROUND_ORDER) m.set(s, []);
+  // push
+  for (const x of matches) {
+    if (ROUND_ORDER.includes(x.stage as any)) {
+      m.get(x.stage as (typeof ROUND_ORDER)[number])!.push(x);
+    }
+  }
+  // sort each
+  for (const s of ROUND_ORDER) {
+    const arr = m.get(s)!;
+    arr.sort((a, b) =>
+      a.matchdayNumber === b.matchdayNumber ? a.id - b.id : a.matchdayNumber - b.matchdayNumber
+    );
+  }
+  return m;
+}
+
+/** Return a *complete* stage array, using real matches if present, else placeholders of proper length */
+function padStageOrPlaceholders(
+  stage: (typeof ROUND_ORDER)[number],
+  fromIncoming: CupMatch[]
+): CupMatch[] {
+  const expected = STAGE_COUNTS[stage];
+  if (fromIncoming.length >= expected) return fromIncoming.slice(0, expected);
+  // If there are fewer than expected (shouldn't happen with your backend), pad to expected
+  const out = fromIncoming.slice();
+  while (out.length < expected) out.push(makePlaceholder(stage, out.length));
+  return out;
+}
+
+/** Derive a full stage from the previous stage by pairing winners: (0 vs 1), (2 vs 3), ... */
+function deriveFromPrevious(
+  stage: (typeof ROUND_ORDER)[number],
+  prevStageMatches: CupMatch[]
+): CupMatch[] {
+  const count = STAGE_COUNTS[stage];
+  const out: CupMatch[] = [];
+  for (let i = 0; i < count; i++) {
+    const srcA = prevStageMatches[i * 2];
+    const srcB = prevStageMatches[i * 2 + 1];
+    const aWin = srcA ? winnerOf(srcA) : null;
+    const bWin = srcB ? winnerOf(srcB) : null;
+
+    const m = makePlaceholder(stage, i);
+    if (aWin) {
+      m.homeTeamId = aWin.id;
+      m.homeTeam = aWin.name;
+    }
+    if (bWin) {
+      m.awayTeamId = bWin.id;
+      m.awayTeam = bWin.name;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Two-line card                                                      */
+/* ------------------------------------------------------------------ */
+function MatchCard({
+  m,
+  side,
+  showStub = true,
+}: {
+  m: CupMatch;
+  side: "left" | "right" | "center";
+  showStub?: boolean;
+}) {
+  const nav = useNavigate();
+  const hDisp = m.homeGoals == null ? "" : String(m.homeGoals);
+  const aDisp = m.awayGoals == null ? "" : String(m.awayGoals);
+  const homeClickable = m.homeTeamId > 0 && m.homeTeam !== "TBD";
+  const awayClickable = m.awayTeamId > 0 && m.awayTeam !== "TBD";
+
+  const btnCls =
+    "grid w-full grid-cols-[1fr,auto] items-center gap-2 text-[12px] leading-tight";
 
   return (
-    <div className="flex space-x-8 overflow-x-auto p-2 w-full justify-center">
-      {stages.map((stage) => {
-        const matchesForStage = getMatchesByStage(stage);
-        return (
-          <div
-            key={stage}
-            className="flex flex-col items-center min-w-[250px] max-w-[340px] bg-gradient-to-br from-blue-50 to-blue-200/70 rounded-2xl border border-blue-200 shadow-lg dark:border-blue-900 dark:from-blue-950 dark:to-blue-800/80 pb-4"
-          >
-            {/* Stage Header */}
-            <div className="w-full flex items-center justify-center rounded-t-2xl bg-blue-100 px-4 py-3 shadow-inner dark:bg-blue-900/60 mb-2">
-              <h2 className="text-xl font-bold tracking-wide text-blue-700 dark:text-yellow-300 uppercase text-center">
-                {stage}
-              </h2>
-            </div>
-            <div className="w-full rounded-xl bg-white/90 p-0 shadow-inner dark:bg-gray-950/60">
-              {matchesForStage.length === 0 ? (
-                <div className="text-gray-400 text-center py-4">No matches</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {matchesForStage.map((match, idx) => (
-                      <tr
-                        key={match.id}
-                        className={
-                          `transition-colors duration-100 cursor-pointer
-                          ${idx % 2 === 0
-                            ? 'bg-blue-50 dark:bg-blue-900/30'
-                            : 'bg-blue-100/60 dark:bg-blue-950/30'}
-                          hover:bg-yellow-100 dark:hover:bg-yellow-900/30`
-                        }
-                        onClick={() => navigate(`/teams/${match.homeTeamId}`)}
-                      >
-                        <td className="py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate"
-                          title={match.homeTeam}
-                          onClick={e => {
-                            e.stopPropagation();
-                            navigate(`/teams/${match.homeTeamId}`);
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          {match.homeTeam}
-                        </td>
-                        <td className="py-2 px-2 w-[16px] font-bold text-yellow-700 text-center align-middle">
-                          {match.homeGoals !== null && match.awayGoals !== null
-                            ? `${match.homeGoals} - ${match.awayGoals}`
-                            : "-"}
-                        </td>
-                        <td className="py-2 px-2 w-[90px] text-[#0d223d] text-center font-semibold hover:text-yellow-700 truncate"
-                          title={match.awayTeam}
-                          onClick={e => {
-                            e.stopPropagation();
-                            navigate(`/teams/${match.awayTeam}`);
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          {match.awayTeam}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+    <div
+      className="relative rounded-md border shadow bg-blue-800 text-white border-blue-400 px-2"
+      style={{ width: CARD_W, height: CARD_H, paddingTop: 6, paddingBottom: 6 }}
+    >
+      {showStub && side !== "center" && (
+        <div
+          className="absolute top-1/2 h-px bg-blue-300"
+          style={
+            side === "left"
+              ? ({ right: -10, width: 10, transform: "translateY(-0.5px)" } as React.CSSProperties)
+              : ({ left: -10, width: 10, transform: "translateY(-0.5px)" } as React.CSSProperties)
+          }
+        />
+      )}
+
+      {/* Home row */}
+      {homeClickable ? (
+        <button
+          type="button"
+          onClick={() => nav(`/teams/${m.homeTeamId}`)}
+          title={m.homeTeam}
+          className={btnCls}
+        >
+          <span className="truncate text-left">{m.homeTeam}</span>
+          <span className="rounded bg-blue-900/70 px-1.5 py-0.5 text-[11px] leading-none">
+            {hDisp}
+          </span>
+        </button>
+      ) : (
+        <div className={btnCls}>
+          <span className="truncate text-left opacity-80">{m.homeTeam}</span>
+          <span className="rounded bg-blue-900/40 px-1.5 py-0.5 text-[11px] leading-none opacity-80">
+            {hDisp}
+          </span>
+        </div>
+      )}
+
+      {/* Away row */}
+      {awayClickable ? (
+        <button
+          type="button"
+          onClick={() => nav(`/teams/${m.awayTeamId}`)}
+          title={m.awayTeam}
+          className="mt-0.5 grid w-full grid-cols-[1fr,auto] items-center gap-2 text-[12px] leading-tight"
+        >
+          <span className="truncate text-left">{m.awayTeam}</span>
+          <span className="rounded bg-blue-900/70 px-1.5 py-0.5 text-[11px] leading-none">
+            {aDisp}
+          </span>
+        </button>
+      ) : (
+        <div className="mt-0.5 grid w-full grid-cols-[1fr,auto] items-center gap-2 text-[12px] leading-tight">
+          <span className="truncate text-left opacity-80">{m.awayTeam}</span>
+          <span className="rounded bg-blue-900/40 px-1.5 py-0.5 text-[11px] leading-none opacity-80">
+            {aDisp}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* R128 Group: two columns with interleaved connectors                 */
+/*  Left:  A (outer/high) + B (inner/low)                              */
+/*  Right: D (inner/low) + C (outer/high)  → C is the edge column      */
+/* ------------------------------------------------------------------ */
+function R128Group({
+  title,
+  higherList,  // A (left) or C (right)
+  lowerList,   // B (left) or D (right)
+  side,
+}: {
+  title: string;
+  higherList: CupMatch[];
+  lowerList: CupMatch[];
+  side: "left" | "right";
+}) {
+  const pairs = Math.max(higherList.length, lowerList.length);
+  const height = r128GroupHeight(pairs);
+
+  const trunkMargin = 6; // small reach into the gap toward R64
+  const overlayWidth = COL_W * 2 + COL_GAP + trunkMargin;
+
+  // trunk X inside overlay
+  const trunkX =
+    side === "left" ? COL_W * 2 + COL_GAP + (trunkMargin - 2) : (trunkMargin - 2);
+
+  // COLUMN ORDER:
+  //  - Left:  [higher(A), lower(B)]
+  //  - Right: [lower(D),  higher(C)]  → edge column is higher (C)
+  const firstColList  = side === "left" ? higherList : lowerList;
+  const secondColList = side === "left" ? lowerList  : higherList;
+
+  // edges for long/short lines
+  const higherEdgeX = side === "left" ? COL_W : COL_W + COL_GAP + COL_W;
+  const lowerEdgeX  = side === "left" ? COL_W + COL_GAP + COL_W : COL_W;
+
+  return (
+    <div
+      style={{
+        gridColumn: "span 2 / span 2",
+        position: "relative",
+        width: COL_W * 2 + COL_GAP,
+      }}
+    >
+      <div className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-blue-900/80">
+        {title}
+      </div>
+
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `${COL_W}px ${COL_W}px`,
+          columnGap: `${COL_GAP}px`,
+          position: "relative",
+          height,
+        }}
+      >
+        {/* overlay connectors */}
+        <svg
+          width={overlayWidth}
+          height={height}
+          className="absolute"
+          style={
+            side === "left"
+              ? ({ left: 0, top: 0 } as React.CSSProperties)
+              : ({ right: 0, top: 0 } as React.CSSProperties)
+          }
+        >
+          {Array.from({ length: pairs }).map((_, i) => {
+            const yHighTop = i * S1;
+            const yHighCenter = yHighTop + CARD_H / 2;
+            const yLowTop = yHighCenter + UNDER_OFFSET;
+            const yLowCenter = yLowTop + CARD_H / 2;
+
+            return (
+              <g key={i}>
+                <line x1={higherEdgeX} y1={yHighCenter} x2={trunkX} y2={yHighCenter} stroke="#93c5fd" strokeWidth="2" />
+                <line x1={lowerEdgeX}  y1={yLowCenter}  x2={trunkX} y2={yLowCenter}  stroke="#93c5fd" strokeWidth="2" />
+                <line x1={trunkX} y1={yHighCenter} x2={trunkX} y2={yLowCenter} stroke="#93c5fd" strokeWidth="2" />
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* column #1 */}
+        <div style={{ position: "relative", height }}>
+          {firstColList.map((m, i) => {
+            const isHigher = side === "left"; // on left, first col is higher; on right, first is lower
+            const top = isHigher ? i * S1 : i * S1 + CARD_H / 2 + UNDER_OFFSET;
+            return (
+              <div key={m.id} style={{ position: "absolute", top, left: 0 }}>
+                <MatchCard m={m} side={side} showStub={false} />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* column #2 */}
+        <div style={{ position: "relative", height }}>
+          {secondColList.map((m, i) => {
+            const isHigher = side === "right"; // on right, second column is higher
+            const top = isHigher ? i * S1 : i * S1 + CARD_H / 2 + UNDER_OFFSET;
+            return (
+              <div key={m.id} style={{ position: "absolute", top, left: 0 }}>
+                <MatchCard m={m} side={side} showStub={false} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* R64..SF columns: rows centered within the R128 group (vertical fit) */
+/* ------------------------------------------------------------------ */
+function RoundColumn({
+  title,
+  matches,
+  side,
+  depth,
+  anchorHeight, // height of the R128 group on this side (or fallback)
+}: {
+  title: string;
+  matches: CupMatch[];
+  side: "left" | "right";
+  depth: number; // 1=R64, 2=R32, 3=R16, 4=QF, 5=SF
+  anchorHeight: number;
+}) {
+  const { pad, between } = spacingForDepth(depth);
+
+  // column content height (from top of first card to bottom of last card)
+  const n = matches.length;
+  const contentH = n * CARD_H + (n - 1) * between;
+
+  // extra shift to center the whole column vertically within the anchor window
+  const extraOffset = Math.max(0, Math.round((anchorHeight - contentH) / 2));
+
+  return (
+    <div className="flex min-w-[180px] flex-col">
+      <div className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-blue-900/80">
+        {title}
+      </div>
+      <div className="relative" style={{ paddingTop: pad + extraOffset }}>
+        {matches.map((m, i) => (
+          <div key={m.id} style={{ marginBottom: i < matches.length - 1 ? between : 0 }}>
+            <MatchCard m={m} side={side} />
           </div>
-        );
-      })}
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Final column: always render (TBD if not determined)                 */
+/* ------------------------------------------------------------------ */
+function FinalColumn({ match }: { match: CupMatch }) {
+  const pad = finalPad();
+  return (
+    <div className="flex min-w-[200px] flex-col">
+      <div className="mb-2 text-center text-sm font-extrabold uppercase tracking-wide text-blue-900">
+        Final
+      </div>
+      <div className="relative" style={{ paddingTop: pad }}>
+        <MatchCard m={match} side="center" />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Main                                                                */
+/* ------------------------------------------------------------------ */
+export default function CupBracket({ matches }: { matches: CupMatch[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  const {
+    leftA, leftB,   // left R128: A outer/higher, B inner/lower
+    rightC, rightD, // right R128: C outer/higher, D inner/lower
+    roundsLeft,     // R64..SF left (far→near)
+    roundsRight,    // R64..SF right (far→near)
+    finalMatch,
+  } = useMemo(() => {
+    // 1) Group incoming real matches
+    const grouped = groupIncomingByStage(matches);
+
+    // 2) Build a complete bracket, stage by stage
+    const fullByStage = new Map<(typeof ROUND_ORDER)[number], CupMatch[]>();
+
+    // R128: either real (padded) or placeholders
+    const r128Existing = grouped.get("Round of 128") ?? [];
+    const r128 = padStageOrPlaceholders("Round of 128", r128Existing);
+    fullByStage.set("Round of 128", r128);
+
+    // For subsequent rounds:
+    for (let si = 1; si < ROUND_ORDER.length; si++) {
+      const stage = ROUND_ORDER[si];
+      const existing = grouped.get(stage) ?? [];
+      if (existing.length > 0) {
+        // Use as-is (and pad if somehow short)
+        fullByStage.set(stage, padStageOrPlaceholders(stage, existing));
+        continue;
+      }
+      // Derive from previous stage winners
+      const prev = fullByStage.get(ROUND_ORDER[si - 1]) ?? [];
+      fullByStage.set(stage, deriveFromPrevious(stage, prev));
+    }
+
+    // 3) Split each stage into left/right halves for the layout
+    const r128Full = fullByStage.get("Round of 128")!;
+    const [left128, right128] = splitHalf(r128Full);
+    const [A, B] = splitHalf(left128);   // A higher (outer), B lower (inner)
+    const [C, D] = splitHalf(right128);  // C outer/higher, D inner/lower
+
+    // For R64..SF: we build arrays of RoundBucket for left and right
+    const roundsLeft: RoundBucket[] = [];
+    const roundsRight: RoundBucket[] = [];
+    for (const stage of ROUND_ORDER) {
+      if (stage === "Round of 128" || stage === "Final") continue;
+      const all = fullByStage.get(stage)!;
+      const [L, R] = splitHalf(all);
+      roundsLeft.push({ title: stage, matches: L });
+      roundsRight.push({ title: stage, matches: R });
+    }
+
+    const finalMatch = fullByStage.get("Final")![0];
+
+    return {
+      leftA: A, leftB: B,
+      rightC: C, rightD: D,
+      roundsLeft, roundsRight,
+      finalMatch,
+    };
+  }, [matches]);
+
+  // R128 group heights used as vertical anchors for each side
+  const leftAnchorH  = r128GroupHeight(Math.max(leftA.length, leftB.length));
+  const rightAnchorH = r128GroupHeight(Math.max(rightC.length, rightD.length));
+
+  // columns count: 2 (R128 group) + R64 + R32 + R16 + QF + SF = 7 columns per side, plus Final
+  const leftCols = 2 + 5;
+  const rightCols = 2 + 5;
+
+  // keep scale support (no scaling if container is large); anchored to left
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const grid = gridRef.current;
+    if (!wrap || !grid) return;
+
+    const ro = new ResizeObserver(() => {
+      const naturalW = grid.scrollWidth;
+      const naturalH = grid.scrollHeight;
+      const availW = wrap.clientWidth;
+      const availH = wrap.clientHeight;
+      const s = Math.min(1, availW / Math.max(naturalW, 1), availH / Math.max(naturalH, 1));
+      setScale(s);
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [leftCols, rightCols]);
+
+  const rightRoundsNearToFar = roundsRight.slice().reverse();
+
+  // Always show every column (R128..SF on both sides) and Final in the center
+  const gridCols =
+    `repeat(${leftCols}, ${COL_W}px) ${CTR_W}px repeat(${rightCols}, ${COL_W}px)`;
+
+  return (
+    <div ref={wrapRef} className="w-full h-full">
+      <div
+        ref={gridRef}
+        className="grid"
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          gap: `${COL_GAP}px`,
+          gridTemplateColumns: gridCols,
+        }}
+      >
+        {/* LEFT: R128 (A+B) → ladder rounds centered within R128 height */}
+        <R128Group title="Round of 128" higherList={leftA} lowerList={leftB} side="left" />
+        {roundsLeft.map((rb) => (
+          <RoundColumn
+            key={`L-${rb.title}`}
+            title={rb.title}
+            matches={rb.matches}
+            side="left"
+            depth={DEPTH[rb.title] ?? 1}
+            anchorHeight={leftAnchorH}
+          />
+        ))}
+
+        {/* CENTER Final (always) */}
+        <FinalColumn match={finalMatch} />
+
+        {/* RIGHT: ladder rounds centered within R128 height → R128 (D+C) */}
+        {rightRoundsNearToFar.map((rb) => (
+          <RoundColumn
+            key={`R-${rb.title}`}
+            title={rb.title}
+            matches={rb.matches}
+            side="right"
+            depth={DEPTH[rb.title] ?? 1}
+            anchorHeight={rightAnchorH}
+          />
+        ))}
+        <R128Group title="Round of 128" higherList={rightC} lowerList={rightD} side="right" />
+      </div>
     </div>
   );
 }

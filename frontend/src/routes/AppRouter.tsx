@@ -1,3 +1,5 @@
+// frontend/src/routes/AppRouter.tsx
+
 import * as React from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
@@ -13,6 +15,7 @@ import TopPlayersPage from "@/pages/TopPlayersPage";
 import TransferMarketPage from "@/pages/TransferMarketPage";
 import CupLogPage from "@/pages/CupLogPage";
 import PostMatchSummary from "@/pages/PostMatchSummary";
+import PenaltyShootoutPage from "@/pages/PenaltyShootoutPage"; // ⬅️ NEW: PK screen
 
 /* ── Admin / utilities (lazy-loaded) */
 const MatchesPage = React.lazy(() => import("@/pages/MatchesPage"));
@@ -52,11 +55,17 @@ function AppRouterInner() {
   const { coachTeamId, bootstrapping } = useGameState();
   const location = useLocation();
 
+  // Hide TopNavBar on Matchday Live and PK pages to keep the immersive view
+  const path = location.pathname;
+  const isImmersive =
+    path.startsWith("/matchday") ||
+    path.startsWith("/pk"); // ⬅️ NEW: hide navbar on PK route too
+
   const showNav =
     typeof coachTeamId === "number" &&
     !isNaN(coachTeamId) &&
     coachTeamId > 0 &&
-    !location.pathname.startsWith("/matchday"); // Avoid showing TopNavBar on Matchday
+    !isImmersive;
 
   if (bootstrapping) {
     return (
@@ -87,6 +96,10 @@ function AppRouterInner() {
             <Route path={cupUrl} element={<CupLogPage />} />
             <Route path={resultsUrl(":matchdayId")} element={<PostMatchSummary />} />
             <Route path="/results" element={<Navigate to={standingsUrl} replace />} />
+
+            {/* ⬇️ NEW: Penalty Shootout full-screen page */}
+            {/* If you later add a path helper, replace '/pk' with that constant */}
+            <Route path="/pk" element={<PenaltyShootoutPage />} />
 
             {/* Admin / utilities */}
             <Route path={adminMatchesUrl} element={<MatchesPage />} />

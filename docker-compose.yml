@@ -19,7 +19,6 @@ services:
 
   backend:
     build: ./backend
-    # entrypoint: ["sh", "/usr/src/app/entrypoint.sh"]   <- remove this line
     ports:
       - "4000:4000"
     environment:

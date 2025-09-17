@@ -37,6 +37,31 @@ export interface TopPlayerRow {
   goals: number;
 }
 
+export type GoldenBootScope = 'all' | 'league' | 'cup';
+
+export interface GoldenBootRow {
+  rank: number;
+  saveGamePlayerId: number;
+  name: string;
+  teamId: number | null;
+  teamName: string | null;
+  position: 'GK'|'DF'|'MF'|'AT'|null;
+  goals: number;
+}
+
+export interface SeasonGoldenBootResponse {
+  saveGameId: number;
+  season: number | null;
+  scope: GoldenBootScope;
+  top: GoldenBootRow[]; // may be [] if no scorers yet
+}
+
+export interface GoldenBootHistoryResponse {
+  saveGameId: number;
+  scope: GoldenBootScope;
+  top: GoldenBootRow[]; // may be [] if no scorers yet
+}
+
 const BASE = "/api/stats";
 
 /* ------------------------------------------------------- Player endpoints */
@@ -64,10 +89,37 @@ async function getTopPlayers(): Promise<TopPlayerRow[]> {
   return data;
 }
 
+/* ------------------------------------------- Golden Boot (new endpoints) */
+
+async function getSeasonGoldenBoot(params: {
+  saveGameId: number;
+  season?: number;
+  scope?: GoldenBootScope;
+  limit?: number;
+}): Promise<SeasonGoldenBootResponse> {
+  const { data } = await axios.get<SeasonGoldenBootResponse>(`/api/golden-boot/season`, {
+    params,
+  });
+  return data;
+}
+
+async function getGoldenBootHistory(params: {
+  saveGameId: number;
+  scope?: GoldenBootScope;
+  limit?: number;
+}): Promise<GoldenBootHistoryResponse> {
+  const { data } = await axios.get<GoldenBootHistoryResponse>(`/api/golden-boot/history`, {
+    params,
+  });
+  return data;
+}
+
 /* ------------------------------------------------------------------ Export */
 export default {
   getPlayerStats,
   getPlayerStatsSummary,
   recordPlayerStats,
   getTopPlayers,
+  getSeasonGoldenBoot,
+  getGoldenBootHistory,
 };

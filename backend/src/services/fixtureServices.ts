@@ -1,19 +1,24 @@
-// backend/src/services/fixtureServices.ts
-
 import prisma from "../utils/prisma";
 import { DivisionTier, MatchdayType } from "@prisma/client";
+import { generateInitialCupBracket } from "./cupBracketService";
 
 /* ───────────────────────────── Constants ───────────────────────────── */
 
 const LEAGUE_ROUNDS = 14;
-const CUP_ROUNDS = [
-  "Round of 128",
-  "Round of 64",
-  "Round of 32",
-  "Round of 16",
-  "Quarterfinal",
-  "Semifinal",
-  "Final",
+
+// Exact calendar you requested
+const LEAGUE_MATCHDAY_NUMBERS: number[] = [
+  1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16, 17, 19, 20,
+];
+
+const CUP_SLOTS: Array<{ number: number; label: string }> = [
+  { number: 3, label: "Round of 128" },
+  { number: 6, label: "Round of 64" },
+  { number: 9, label: "Round of 32" },
+  { number: 12, label: "Round of 16" },
+  { number: 15, label: "Quarterfinal" },
+  { number: 18, label: "Semifinal" },
+  { number: 21, label: "Final" },
 ];
 
 /* ───────────────────────────── Entrypoint ───────────────────────────── */
@@ -31,13 +36,17 @@ export async function generateFullSeason(
     });
   }
 
+  // Pre-create ALL 21 matchdays with correct types (no real dates)
+  await upsertAllMatchdaysSkeleton(saveGameId);
+
+  // Create all LEAGUE fixtures attached to their mandated matchdays
   await generateLeagueFixtures(saveGameId);
 
-  if (teams.length >= 16) {
-    await generateCupFixtures(saveGameId);
-  } else {
-    console.warn(`⚠️ Skipping cup generation: only ${teams.length} teams found`);
-  }
+  // Seed Cup Round of 128 (static bracket/matches; attaches to the CUP matchday we already created)
+  await generateInitialCupBracket(saveGameId);
+
+  // Ensure CUP matchdays have the correct labels (and type)
+  await labelCupMatchdays(saveGameId);
 }
 
 /* ───────────────────────────── League Fixtures ───────────────────────────── */
@@ -51,18 +60,18 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
     DIST: [],
   };
 
-  // Gather team IDs per division (skip DIST)
+  // Gather team IDs per division (skip DIST for league)
   for (const div of ["D1", "D2", "D3", "D4"] as DivisionTier[]) {
-    const teams = await prisma.saveGameTeam.findMany({
+    const rows = await prisma.saveGameTeam.findMany({
       where: { saveGameId, division: div },
       orderBy: { localIndex: "asc" },
       select: { id: true },
     });
-    teamsByDivision[div] = teams.map((t) => t.id);
-    console.log(`📌 Division ${div} has ${teams.length} teams`);
+    teamsByDivision[div] = rows.map((t) => t.id);
+    console.log(`📌 Division ${div} has ${rows.length} teams`);
   }
 
-  // Create double round robin fixtures for each division
+  // Create double round robin fixtures (14 rounds) for each division
   const fixturesByDivision: Record<DivisionTier, number[][][]> = {
     D1: createDoubleRoundRobinFixtures(teamsByDivision.D1),
     D2: createDoubleRoundRobinFixtures(teamsByDivision.D2),
@@ -71,22 +80,20 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
     DIST: [],
   };
 
-  // Create matchdays and matches
-  for (let round = 0; round < LEAGUE_ROUNDS; round++) {
-    const matchday = await prisma.matchday.create({
-      data: {
-        number: round + 1,
-        type: MatchdayType.LEAGUE,
-        date: addDays(new Date(), round),
-        saveGame: { connect: { id: saveGameId } },
-      },
+  // Attach each league round to the mandated matchday number
+  for (let roundIdx = 0; roundIdx < LEAGUE_ROUNDS; roundIdx++) {
+    const mdNumber = LEAGUE_MATCHDAY_NUMBERS[roundIdx];
+
+    // exists because we pre-created all matchdays
+    const matchday = await prisma.matchday.findFirstOrThrow({
+      where: { saveGameId, number: mdNumber, type: MatchdayType.LEAGUE },
+      select: { id: true },
     });
 
     for (const div of ["D1", "D2", "D3", "D4"] as DivisionTier[]) {
-      const roundFixtures = fixturesByDivision[div][round];
-
+      const roundFixtures = fixturesByDivision[div][roundIdx];
       if (!roundFixtures || roundFixtures.length === 0) {
-        console.warn(`⚠️ No fixtures for division ${div} in round ${round + 1}`);
+        console.warn(`⚠️ No fixtures for division ${div} in league round index ${roundIdx} (md ${mdNumber})`);
         continue;
       }
 
@@ -97,64 +104,71 @@ export async function generateLeagueFixtures(saveGameId: number): Promise<void> 
             matchday: { connect: { id: matchday.id } },
             homeTeam: { connect: { id: homeId } },
             awayTeam: { connect: { id: awayId } },
-            // isPlayed defaults to false if you added it in schema; otherwise omit
           },
         });
-
-        console.log(`✅ Match created: ${homeId} vs ${awayId} [${div}, Round ${round + 1}]`);
       }
     }
   }
 }
 
-/* ───────────────────────────── Cup Fixtures ───────────────────────────── */
+/* ──────────────────────── Cup utilities (no dates) ─────────────────────── */
 
-export async function generateCupFixtures(saveGameId: number): Promise<void> {
-  const teams = await prisma.saveGameTeam.findMany({
-    where: { saveGameId },
-    select: { id: true },
-  });
+async function upsertAllMatchdaysSkeleton(saveGameId: number): Promise<void> {
+  // Create or fix all 21 matchdays, assigning type by the requested sequence.
+  const leagueSet = new Set(LEAGUE_MATCHDAY_NUMBERS);
+  const cupNumbers = CUP_SLOTS.map((s) => s.number);
+  const cupSet = new Set(cupNumbers);
 
-  let remaining = teams.map((t) => t.id);
-  if (remaining.length < 16) {
-    console.warn(`⚠️ Skipping cup: too few teams (${remaining.length})`);
-    return;
-  }
-
-  for (let i = 0; i < CUP_ROUNDS.length; i++) {
-    remaining = shuffleArray(remaining);
-
-    const matchday = await prisma.matchday.create({
-      data: {
-        number: LEAGUE_ROUNDS + i + 1,
-        type: MatchdayType.CUP,
-        date: addDays(new Date(), LEAGUE_ROUNDS + i),
-        saveGame: { connect: { id: saveGameId } },
-      },
+  for (let n = 1; n <= 21; n++) {
+    const type = leagueSet.has(n) ? MatchdayType.LEAGUE : MatchdayType.CUP;
+    const exists = await prisma.matchday.findFirst({
+      where: { saveGameId, number: n },
+      select: { id: true, type: true },
     });
 
-    const winners: number[] = [];
-
-    for (let j = 0; j < remaining.length; j += 2) {
-      const homeId = remaining[j];
-      const awayId = remaining[j + 1];
-      if (awayId === undefined) break;
-
-      await prisma.saveGameMatch.create({
+    if (!exists) {
+      await prisma.matchday.create({
         data: {
           saveGame: { connect: { id: saveGameId } },
-            matchday: { connect: { id: matchday.id } },
-            homeTeam: { connect: { id: homeId } },
-            awayTeam: { connect: { id: awayId } },
+          number: n,
+          type,
         },
       });
-
-      // Temporary winner pick to advance the bracket
-      winners.push(Math.random() < 0.5 ? homeId : awayId);
+    } else if (exists.type !== type) {
+      await prisma.matchday.update({
+        where: { id: exists.id },
+        data: { type },
+      });
     }
-
-    remaining = winners;
   }
+}
+
+async function labelCupMatchdays(saveGameId: number): Promise<void> {
+  // Ensure the seven CUP matchdays have the expected labels in the expected slots.
+  for (const slot of CUP_SLOTS) {
+    const md = await prisma.matchday.findFirst({
+      where: { saveGameId, number: slot.number },
+      select: { id: true, type: true },
+    });
+    if (!md) continue;
+    if (md.type !== MatchdayType.CUP) {
+      await prisma.matchday.update({ where: { id: md.id }, data: { type: MatchdayType.CUP } });
+    }
+    await prisma.matchday.update({
+      where: { id: md.id },
+      data: { roundLabel: slot.label },
+    });
+  }
+}
+
+/* ───────────────────────── Deprecated (kept for compat) ──────────────────── */
+
+export async function generateCupFixtures(saveGameId: number): Promise<void> {
+  console.warn(
+    "[fixtureServices] generateCupFixtures is deprecated. Seeding Round of 128 via generateInitialCupBracket()."
+  );
+  await generateInitialCupBracket(saveGameId);
+  await labelCupMatchdays(saveGameId);
 }
 
 /* ───────────────────────────── Helpers ───────────────────────────── */
@@ -189,19 +203,4 @@ function createRoundRobinFixtures(ids: number[]): number[][][] {
   }
 
   return schedule;
-}
-
-function shuffleArray<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-function addDays(d: Date, days: number): Date {
-  const x = new Date(d.getTime());
-  x.setDate(x.getDate() + days);
-  return x;
 }

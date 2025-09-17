@@ -1,33 +1,26 @@
 // backend/src/services/matchdayService.ts
 
 import prisma from '../utils/prisma';
-import { ensureMatchState } from './matchStateService';
 import { updateLeagueTableForMatchday, prepareLeagueTableForNewSeason } from './leagueTableService';
 import { updateMoraleAndContracts } from './moraleContractService';
 import { getGameState } from './gameState';
 import { generateFullSeason } from './fixtureServices';
-import { startOrResumeMatchday } from './matchdayEngine';
-import {
-  broadcastStageChanged,
-  broadcastMatchTick,
-  broadcastMatchEvent,
-} from '../sockets/broadcast';
-import { simulateMatch } from '../engine/simulateMatch';
+import { startOrResumeMatchday } from './matchService'; // ← single engine source of truth
+import { maybeAdvanceCupAfterRound } from './cupBracketService';
+
 import {
   MatchdayType,
   GameState,
   GameStage,
-  MatchEventType,
-  type SaveGameMatch,
-  type MatchState,
 } from '@prisma/client';
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/** Keep these numbers aligned with cupBracketService CUP_CALENDAR_NUMBERS. */
 function getMatchdayTypeForNumber(matchday: number): MatchdayType {
-  const cupDays = [3, 6, 8, 11, 14, 17, 20];
+  const cupDays = [3, 6, 9, 12, 15, 18, 21];
   return cupDays.includes(matchday) ? MatchdayType.CUP : MatchdayType.LEAGUE;
 }
 
@@ -35,167 +28,10 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function setStage(saveGameId: number, stage: GameStage) {
-  const updated = await prisma.gameState.updateMany({
-    where: { currentSaveGameId: saveGameId },
-    data: { gameStage: stage },
-  });
-
-  // Single-row fallback
-  if (updated.count === 0) {
-    await prisma.gameState.update({
-      where: { id: 1 },
-      data: { currentSaveGameId: saveGameId, gameStage: stage },
-    });
-  }
-
-  try {
-    broadcastStageChanged({ gameStage: stage }, saveGameId, { alsoGlobal: true });
-  } catch {
-    /* sockets may not be initialized; ignore */
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Minute-by-minute simulator (used by engine)                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Run the minute-by-minute simulation for every match in a given matchday.
- * - Ensures MatchState exists for each match
- * - Uses simulateMatch(...) per minute
- * - Persists MatchEvent rows
- * - Emits `match-tick` and `match-event` for the FE live page
- * - 45' → stage HALFTIME and wait until stage returns to MATCHDAY
- * - 90' → stage RESULTS (engine/route handles post-processing)
- */
-export async function simulateMatchday(matchdayId: number): Promise<void> {
-  const md = await prisma.matchday.findUnique({
-    where: { id: matchdayId },
-    select: {
-      id: true,
-      saveGameId: true,
-      saveGameMatches: { select: { id: true } },
-    },
-  });
-  if (!md) throw new Error(`Matchday ${matchdayId} not found`);
-
-  const saveGameId = md.saveGameId;
-  const matchIds = md.saveGameMatches.map((m) => m.id);
-
-  // Ensure states exist before loop
-  await Promise.all(matchIds.map((mId) => ensureMatchState(mId)));
-
-  // NEW (defensive): ensure clients see MATCHDAY before ticks start
-  await setStage(saveGameId, GameStage.MATCHDAY);
-
-  // Minute loop: 1..90
-  for (let minute = 1; minute <= 90; minute++) {
-    // Halftime gate at 45' completed (enter 46)
-    if (minute === 46) {
-      await setStage(saveGameId, GameStage.HALFTIME);
-
-      // Wait until UI/route flips back to MATCHDAY, max ~2 minutes
-      const MAX_TRIES = 240;
-      for (let i = 0; i < MAX_TRIES; i++) {
-        const gs = await prisma.gameState.findFirst({
-          where: { currentSaveGameId: saveGameId },
-          select: { gameStage: true },
-        });
-        if (gs?.gameStage === GameStage.MATCHDAY) break;
-        await sleep(500);
-      }
-    }
-
-    // Simulate each match for this minute
-    for (const mId of matchIds) {
-      const match: SaveGameMatch | null = await prisma.saveGameMatch.findUnique({ where: { id: mId } });
-      if (!match) continue;
-
-      let state: MatchState | null = await prisma.matchState.findUnique({ where: { saveGameMatchId: mId } });
-      if (!state) state = await ensureMatchState(mId);
-
-      const events = await simulateMatch(match as SaveGameMatch, state as MatchState, minute);
-
-      // Persist and broadcast events
-      if (events && events.length > 0) {
-        await prisma.$transaction(
-          events.map((e) =>
-            prisma.matchEvent.create({
-              data: {
-                saveGameMatchId: match.id,
-                minute: e.minute,
-                type: e.type as MatchEventType,
-                description: e.description,
-                saveGamePlayerId: e.saveGamePlayerId ?? null,
-              },
-            })
-          )
-        );
-
-        // Broadcast each event with optional player name
-        for (const e of events) {
-          let player: { id: number; name: string } | null = null;
-          if (e.saveGamePlayerId) {
-            try {
-              const p = await prisma.saveGamePlayer.findUnique({
-                where: { id: e.saveGamePlayerId },
-                select: { id: true, name: true },
-              });
-              if (p) player = { id: p.id, name: p.name };
-            } catch { /* ignore name lookup failure */ }
-          }
-
-          broadcastMatchEvent(saveGameId, {
-            matchId: match.id,
-            minute: e.minute,
-            type: e.type as MatchEventType,
-            description: e.description,
-            player,
-          });
-        }
-      }
-
-      // Broadcast a tick with the latest scoreline (include legacy `id`)
-      const latest = await prisma.saveGameMatch.findUnique({
-        where: { id: mId },
-        select: { homeGoals: true, awayGoals: true },
-      });
-
-      broadcastMatchTick(saveGameId, {
-        id: mId, // legacy key
-        matchId: mId,
-        minute,
-        homeGoals: latest?.homeGoals ?? 0,
-        awayGoals: latest?.awayGoals ?? 0,
-      });
-    }
-
-    // Small delay to avoid a tight loop (tune as needed)
-    await sleep(300);
-  }
-
-  // Mark as played (optional but typical)
-  await prisma.saveGameMatch.updateMany({
-    where: { id: { in: matchIds } },
-    data: { isPlayed: true },
-  });
-
-  // Full-time: flip to RESULTS
-  await setStage(saveGameId, GameStage.RESULTS);
-}
-
-
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Advance only the matchday *number/type* (no simulation).
- * Leaves gameStage as-is.
- * NOTE: This uses the current active GameState. If you need scoped control,
- * add a variant that receives saveGameId explicitly.
- */
 export async function advanceMatchdayType() {
   const gameState = await getGameState();
   if (!gameState) throw new Error('Game state not found');
@@ -219,13 +55,8 @@ export async function advanceMatchdayType() {
 }
 
 /**
- * STEP 1: Flip into MATCHDAY and return the new GameState immediately.
- * Also: eagerly create MatchState rows (both sides) so UI has lineups
- * and the simulation can run without user input.
- *
- * After flipping to MATCHDAY, we kick off completeMatchday(saveGameId)
- * in the background so that by the time the UI hits RESULTS and navigates to
- * Standings, the LeagueTable has been updated.
+ * Start the matchday engine and asynchronously run post-processing (tables, morale).
+ * Engine responsibility (ticks/pauses/ET/Pens/stage flips) is centralized in matchService.ts.
  */
 export async function startMatchday(saveGameId: number): Promise<GameState> {
   const state = await prisma.gameState.findFirst({
@@ -235,14 +66,13 @@ export async function startMatchday(saveGameId: number): Promise<GameState> {
     throw new Error(`Game state not found for saveGameId ${saveGameId}`);
   }
 
-  // Ensure there’s a matchday to simulate
   const md = await prisma.matchday.findFirst({
     where: {
       number: state.currentMatchday,
       type: getMatchdayTypeForNumber(state.currentMatchday),
       saveGameId,
     },
-    include: { saveGameMatches: true },
+    select: { id: true },
   });
   if (!md) {
     throw new Error(
@@ -250,19 +80,19 @@ export async function startMatchday(saveGameId: number): Promise<GameState> {
     );
   }
 
-  // EAGER: create/complete MatchState for all matches (both sides)
-  await Promise.all(md.saveGameMatches.map((m) => ensureMatchState(m.id)));
-
-  // Flip stage to MATCHDAY for this save
+  // Optional: set stage early so FE flips immediately; engine will broadcast too.
   const updated = await prisma.gameState.update({
     where: { id: state.id },
     data: { gameStage: GameStage.MATCHDAY },
   });
 
-  // Kick off the engine loop (drives minute-by-minute + stage flips)
-  startOrResumeMatchday(saveGameId);
+  // Kick off the engine loop
+  startOrResumeMatchday(saveGameId).catch((e) => {
+    // Avoid throwing to caller; log and continue
+    console.error('[matchdayService] startOrResumeMatchday failed:', e);
+  });
 
-  // Fire-and-forget post-sim updates (will wait for RESULTS stage inside)
+  // Fire-and-forget post-processing once RESULTS is reached
   (async () => {
     try {
       await completeMatchday(saveGameId);
@@ -275,9 +105,10 @@ export async function startMatchday(saveGameId: number): Promise<GameState> {
 }
 
 /**
- * STEP 2: Wait for the engine to reach RESULTS, then do post-match updates.
- * We poll GameState for this save until stage === RESULTS (or timeout).
- * Do NOT increment here if the UI will show STANDINGS and then call finalizeStandings().
+ * Wait for engine to reach RESULTS, then:
+ *  - update league table (for LEAGUE)
+ *  - update morale/contracts
+ *  - advance CUP bracket rounds (for CUP)
  */
 export async function completeMatchday(saveGameId: number): Promise<string> {
   const state = await prisma.gameState.findFirst({
@@ -309,20 +140,29 @@ export async function completeMatchday(saveGameId: number): Promise<string> {
     await sleep(500);
   }
 
-  // League table / cup updates
   if (matchdayType === MatchdayType.LEAGUE) {
     await updateLeagueTableForMatchday(saveGameId, matchday.id);
   }
+
   await updateMoraleAndContracts(matchday.id, saveGameId);
+
+  if (matchdayType === MatchdayType.CUP) {
+    const cupMd = await prisma.matchday.findFirst({
+      where: { id: matchday.id },
+      select: { roundLabel: true },
+    });
+
+    if (cupMd?.roundLabel) {
+      await maybeAdvanceCupAfterRound(saveGameId, cupMd.roundLabel as any);
+    }
+  }
 
   return `Completed matchday ${currentMatchday}`;
 }
 
 /**
- * Called after the StandingsPage grace period.
- * - If currentMatchday < 21: increments to next day, sets stage ACTION, updates type.
- * - If currentMatchday === 21: resets for a new season (fresh fixtures, league table, cup).
- * Returns the updated GameState.
+ * Called when RESULTS are acknowledged on the FE and we should return to ACTION.
+ * Also handles season rollover when currentMatchday >= 21.
  */
 export async function finalizeStandingsAndAdvance(saveGameId: number): Promise<GameState> {
   const state = await prisma.gameState.findFirst({
@@ -333,7 +173,6 @@ export async function finalizeStandingsAndAdvance(saveGameId: number): Promise<G
   }
 
   if (state.currentMatchday >= 21) {
-    // Season rollover
     await resetForNewSeason(saveGameId);
   } else {
     const nextMatchday = state.currentMatchday + 1;
@@ -354,22 +193,17 @@ export async function finalizeStandingsAndAdvance(saveGameId: number): Promise<G
   return updated;
 }
 
-/**
- * Alias requested by FE/route layer:
- * Increment currentMatchday, recalc matchdayType, and set gameStage: ACTION (no simulation).
- * If the season has ended, roll over to a fresh season.
- */
+/** Alias requested by FE/route layer. */
 export async function finalizeStandings(saveGameId: number): Promise<GameState> {
   return finalizeStandingsAndAdvance(saveGameId);
 }
 
 /**
- * Reset everything that must be fresh at the start of a new season for this save:
- * - Increment season
- * - Reset currentMatchday → 1, matchdayType → LEAGUE, stage → ACTION
- * - Clear ALL fixtures (events → states → matches → matchdays) for this save
- * - Reset/initialize league table for D1–D4
- * - Regenerate a full season (league + cup)
+ * Season rollover:
+ *  - wipe matches/events/states + matchdays for this save
+ *  - prepare league table
+ *  - increment season, reset matchday to 1, stage to ACTION
+ *  - regenerate fixtures
  */
 export async function resetForNewSeason(saveGameId: number): Promise<void> {
   const gs = await prisma.gameState.findFirst({
@@ -377,7 +211,6 @@ export async function resetForNewSeason(saveGameId: number): Promise<void> {
   });
   if (!gs) throw new Error(`GameState not found for saveGameId ${saveGameId}`);
 
-  // 1) Delete existing fixtures for this save (events -> states -> matches -> matchdays)
   const matchIdsRows = await prisma.saveGameMatch.findMany({
     where: { saveGameId },
     select: { id: true },
@@ -392,10 +225,8 @@ export async function resetForNewSeason(saveGameId: number): Promise<void> {
 
   await prisma.matchday.deleteMany({ where: { saveGameId } });
 
-  // 2) Reset league table (fresh rows for all D1–D4 teams)
   await prepareLeagueTableForNewSeason(saveGameId);
 
-  // 3) Increment season & reset counters/stage
   await prisma.gameState.update({
     where: { id: gs.id },
     data: {
@@ -406,7 +237,6 @@ export async function resetForNewSeason(saveGameId: number): Promise<void> {
     },
   });
 
-  // 4) Rebuild a full season (league + cup fixtures/bracket)
   const teams = await prisma.saveGameTeam.findMany({
     where: { saveGameId },
     orderBy: { id: 'asc' },
@@ -462,7 +292,6 @@ export async function getMatchdayFixtures(
   });
   if (!md) throw new Error(`Matchday ${number} (${type}) not found for save ${saveGameId}`);
 
-  // Fetch matches (scoped to save + matchday)
   const matches = await prisma.saveGameMatch.findMany({
     where: { matchdayId: md.id, saveGameId },
     select: {
@@ -479,7 +308,6 @@ export async function getMatchdayFixtures(
 
   if (matches.length === 0) return [];
 
-  // Team names
   const teamIds = Array.from(new Set(matches.flatMap((m) => [m.homeTeamId, m.awayTeamId])));
   const teams = await prisma.saveGameTeam.findMany({
     where: { id: { in: teamIds }, saveGameId },
@@ -487,7 +315,6 @@ export async function getMatchdayFixtures(
   });
   const nameById = new Map<number, string>(teams.map((t) => [t.id, t.name]));
 
-  // Events per match
   const matchIds = matches.map((m) => m.id);
   const events = await prisma.matchEvent.findMany({
     where: { saveGameMatchId: { in: matchIds } },
@@ -501,7 +328,6 @@ export async function getMatchdayFixtures(
     eventsByMatch.set(e.saveGameMatchId, list);
   }
 
-  // Build payload
   const payload: FixtureWithExtras[] = matches.map((m) => ({
     ...m,
     homeTeam: { id: m.homeTeamId, name: nameById.get(m.homeTeamId) ?? String(m.homeTeamId) },
@@ -512,10 +338,6 @@ export async function getMatchdayFixtures(
   return payload;
 }
 
-/**
- * Get the matchId and home/away flag for a team on a given matchday.
- * Strictly scoped by saveGameId to avoid cross-save conflicts.
- */
 export async function getTeamMatchInfo(
   saveGameId: number,
   matchdayNumber: number,

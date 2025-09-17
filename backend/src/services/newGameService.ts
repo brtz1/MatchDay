@@ -2,6 +2,7 @@ import prisma from "../utils/prisma";
 import { GameStage, MatchdayType, DivisionTier } from "@prisma/client";
 import { syncPlayersWithNewTeamRating } from "../utils/playerSync";
 import { generateFullSeason } from "./fixtureServices";
+import { generateInitialCupBracket } from "./cupBracketService";
 import type { SaveGameTeamLite } from "../types/index";
 
 /* ──────────────────────────────── Types ──────────────────────────────── */
@@ -15,12 +16,18 @@ export interface NewGameResult {
 /* ──────────────────────────────── Helpers ──────────────────────────────── */
 function generateTeamRatingForDivision(tier: DivisionTier): number {
   switch (tier) {
-    case "D1": return Math.floor(Math.random() * 10) + 38; // 38–47
-    case "D2": return Math.floor(Math.random() * 13) + 28; // 28–40
-    case "D3": return Math.floor(Math.random() * 13) + 18; // 18–30
-    case "D4": return Math.floor(Math.random() * 13) + 8;  // 8–20
-    case "DIST": return Math.floor(Math.random() * 8) + 1; // 1–8
-    default: return 1;
+    case "D1":
+      return Math.floor(Math.random() * 10) + 38; // 38–47
+    case "D2":
+      return Math.floor(Math.random() * 13) + 28; // 28–40
+    case "D3":
+      return Math.floor(Math.random() * 13) + 18; // 18–30
+    case "D4":
+      return Math.floor(Math.random() * 13) + 8; // 8–20
+    case "DIST":
+      return Math.floor(Math.random() * 8) + 1; // 1–8
+    default:
+      return 1;
   }
 }
 
@@ -59,7 +66,10 @@ export async function startNewGame(
   const saveGameTeams: SaveGameTeamLite[] = [];
   let localIndex = 0;
 
-  for (const [tier, teams] of Object.entries(divisionMap) as [DivisionTier, typeof baseTeams][]) {
+  for (const [tier, teams] of Object.entries(divisionMap) as [
+    DivisionTier,
+    typeof baseTeams
+  ][]) {
     for (const base of teams) {
       const rating = generateTeamRatingForDivision(tier);
       const team = await prisma.saveGameTeam.create({
@@ -104,34 +114,46 @@ export async function startNewGame(
   await syncPlayersWithNewTeamRating(saveGameTeams, divisionMap);
 
   // 7. Select a random Division 4 team as the coach
-const d4Teams = saveGameTeams.filter((t) => t.division === "D4");
-const coach = d4Teams[Math.floor(Math.random() * d4Teams.length)];
+  const d4Teams = saveGameTeams.filter((t) => t.division === "D4");
+  const coach = d4Teams[Math.floor(Math.random() * d4Teams.length)];
 
-// 8. Update GameState with new save and coach info
-const gameState = await prisma.gameState.findFirstOrThrow();
-await prisma.gameState.update({
-  where: { id: gameState.id },
-  data: {
-    currentSaveGameId: saveGame.id,
-    coachTeamId: coach.id,
-    currentMatchday: 1,
-    matchdayType: MatchdayType.LEAGUE,
-    gameStage: GameStage.ACTION,
-  },
-});
-
-// 9. Generate league and cup matchday
-console.log("🔵 Generating full season (league + cup)...");
-await generateFullSeason(saveGame.id, saveGameTeams.map((t) => ({ id: t.id })));
-
-// 10. Return result with division preview
-const divisionPreview = (["D1", "D2", "D3", "D4"] as DivisionTier[]).map((tier) => {
-  const ids = saveGameTeams
-    .filter((t) => t.division === tier)
-      .map((t) => t.id)
-      .join(", ");
-    return `${tier}: ${ids}`;
+  // 8. Update GameState with new save and coach info
+  const gameState = await prisma.gameState.findFirstOrThrow();
+  await prisma.gameState.update({
+    where: { id: gameState.id },
+    data: {
+      currentSaveGameId: saveGame.id,
+      coachTeamId: coach.id,
+      currentMatchday: 1,
+      matchdayType: MatchdayType.LEAGUE,
+      gameStage: GameStage.ACTION,
+    },
   });
+
+  // 9. Generate Cup bracket (Round of 128) using dedicated service
+  //    Safe to call even if another generator already created CUP matchdays:
+  //    generateInitialCupBracket() is idempotent and returns early if CUP exists.
+  console.log("🏆 Generating initial Cup bracket (Round of 128)...");
+  await generateInitialCupBracket(saveGame.id);
+
+  // 10. Generate league fixtures/season
+  //     If your generateFullSeason also creates CUP, the call above will no-op.
+  console.log("🔵 Generating full league season...");
+  await generateFullSeason(
+    saveGame.id,
+    saveGameTeams.map((t) => ({ id: t.id }))
+  );
+
+  // 11. Return result with division preview
+  const divisionPreview = (["D1", "D2", "D3", "D4"] as DivisionTier[]).map(
+    (tier) => {
+      const ids = saveGameTeams
+        .filter((t) => t.division === tier)
+        .map((t) => t.id)
+        .join(", ");
+      return `${tier}: ${ids}`;
+    }
+  );
 
   return {
     saveGameId: saveGame.id,

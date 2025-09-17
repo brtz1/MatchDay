@@ -165,8 +165,22 @@ export async function setStage(payload: {
   saveGameId: number;
   stage: GameStage;
 }): Promise<{ gameStage: GameStage }> {
-  const { data } = await api.post<{ gameStage: GameStage }>("/matchday/set-stage", payload);
-  return data;
+  const res = await api.post<{ gameStage: GameStage }>("/matchday/set-stage", payload);
+  if (!res.data?.gameStage) throw new Error("set-stage returned no gameStage");
+  return res.data;
+}
+
+/* -- Formation / Coach XI -------------------------------------------------- */
+/** POST /formation/coach — persist confirmed XI exactly as chosen on FE. */
+export async function postCoachFormation(payload: {
+  saveGameId: number;
+  teamId: number;
+  lineupIds: number[];   // 11 ids (1 GK + 10 outfielders enforced on FE)
+  reserveIds: number[];  // 0..6 ids
+  formation: string;     // derived "DF-MF-AT" string from FE lineup
+}): Promise<{ ok: true }> {
+  const { data } = await api.post<{ ok: true }>("/formation/coach", payload);
+  return data ?? { ok: true };
 }
 
 /* -- Matchday Flow --------------------------------------------------------- */

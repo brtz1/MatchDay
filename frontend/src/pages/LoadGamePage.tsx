@@ -10,12 +10,22 @@ import { AppButton } from "@/components/common/AppButton";
 import { teamUrl, titlePageUrl, newGameUrl } from "@/utils/paths";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
+interface SaveGameTeamLite {
+  id: number;
+  name: string;
+  division: string;
+}
+
 interface SaveGame {
   id: number;
   name: string;
   coachName: string;
   createdAt: string;
-  teams: { id: number; name: string; division: string }[];
+
+  // ✅ This should come from the backend; if not present we’ll gracefully fall back
+  coachTeamId?: number;
+
+  teams: SaveGameTeamLite[];
 }
 
 interface LoadResponse {
@@ -37,7 +47,6 @@ export default function LoadGamePage() {
     axios
       .get<SaveGame[]>("/save-game", { params: { includeTeams: true } })
       .then(({ data }) => {
-        // ensure we always end up with an array
         if (Array.isArray(data)) {
           setSaves(data);
         } else {
@@ -68,11 +77,10 @@ export default function LoadGamePage() {
       // mark this save as active
       await axios.post(`/gamestate/set-save/${saveGameId}`);
 
-      // fetch coachTeamId
-      const { data } = await axios.post<LoadResponse>(
-        "/save-game/load",
-        { id: saveGameId }
-      );
+      // fetch coachTeamId for this save
+      const { data } = await axios.post<LoadResponse>("/save-game/load", {
+        id: saveGameId,
+      });
 
       if (!data.coachTeamId) {
         throw new Error("Missing coach team ID from save");
@@ -102,14 +110,17 @@ export default function LoadGamePage() {
       ) : error ? (
         <p className="font-semibold text-red-400">{error}</p>
       ) : saves.length === 0 ? (
-        <p className="text-gray-200">
-          No saves found. Start a new game to begin!
-        </p>
+        <p className="text-gray-200">No saves found. Start a new game to begin!</p>
       ) : (
         <div className="w-full max-w-2xl space-y-4">
           {saves.map((save) => {
-            // we’ll treat the first team in the list as the “coach team”
-            const coachTeam = save.teams[0];
+            // ✅ Prefer the actual coached team if the API provides coachTeamId
+            const coached =
+              (save.coachTeamId &&
+                save.teams.find((t) => t.id === save.coachTeamId)) ||
+              undefined;
+
+            const coachTeamName = coached?.name ?? "N/A";
 
             return (
               <AppCard
@@ -120,10 +131,9 @@ export default function LoadGamePage() {
                 <div>
                   <p className="text-xl font-semibold">{save.name}</p>
                   <p className="text-sm text-gray-300">
-                    Coach: {save.coachName || "Unknown"} — Team:{" "}
-                    {coachTeam?.name || "N/A"} <br />
-                    Created:{" "}
-                    {new Date(save.createdAt).toLocaleString()}
+                    Coach: {save.coachName || "Unknown"} — Team: {coachTeamName}
+                    <br />
+                    Created: {new Date(save.createdAt).toLocaleString()}
                   </p>
                 </div>
 
@@ -141,16 +151,10 @@ export default function LoadGamePage() {
 
       {/* always-visible back/new buttons */}
       <div className="mt-10 flex gap-4">
-        <AppButton
-          variant="secondary"
-          onClick={() => navigate(titlePageUrl)}
-        >
+        <AppButton variant="secondary" onClick={() => navigate(titlePageUrl)}>
           Back to Menu
         </AppButton>
-        <AppButton
-          variant="primary"
-          onClick={() => navigate(newGameUrl)}
-        >
+        <AppButton variant="primary" onClick={() => navigate(newGameUrl)}>
           Start New Game
         </AppButton>
       </div>

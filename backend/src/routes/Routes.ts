@@ -5,7 +5,7 @@ import express, { Router, Request, Response } from 'express';
 import newGameRoute from './newGameRoute';
 import saveGameRoute from './saveGameRoute';
 import manualSaveRoute from './manualSaveRoute';
-
+import goldenBootRoute from './goldenBootRoute';
 import teamRoute from './teamRoute';
 import playerRoute from './playerRoute';
 import refereeRoute from './refereeRoute';
@@ -60,6 +60,7 @@ router.use('/match-summary', matchSummaryRoute);
 router.use('/season', seasonRoute);
 router.use('/countries', countryRoute);
 router.use('/import', importRoute);
+router.use('/golden-boot', goldenBootRoute)
 
 // 🏆 Cup
 router.use('/cup', cupRoute);

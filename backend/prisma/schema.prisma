@@ -67,11 +67,11 @@ model Player {
 }
 
 model Matchday {
-  id       Int          @id @default(autoincrement())
-  number   Int
-  type     MatchdayType
-  date     DateTime
-  isPlayed Boolean      @default(false)
+  id         Int          @id @default(autoincrement())
+  number     Int
+  type       MatchdayType
+  isPlayed   Boolean      @default(false)
+  roundLabel String?
 
   season Int @default(1)
 
@@ -85,6 +85,7 @@ model Matchday {
 
   // Optional grouping for events
   events MatchEvent[]
+  @@unique([saveGameId, number], name: "matchday_save_number_unique")
 }
 
 model Match {
@@ -95,7 +96,6 @@ model Match {
   awayTeam   Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
   homeScore  Int?
   awayScore  Int?
-  matchDate  DateTime
   season     Int
   isPlayed   Boolean  @default(false)
   matchdayId Int
@@ -137,7 +137,6 @@ model Finance {
   amount Int
   type   String
   reason String
-  date   DateTime @default(now())
 }
 
 model Country {
@@ -188,11 +187,16 @@ model SaveGame {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  teams     SaveGameTeam[]
+  teams     SaveGameTeam[]   @relation("SaveGame_Teams")
   players   SaveGamePlayer[]
   matches   SaveGameMatch[]
   transfers Transfer[]
   matchdays Matchday[]
+
+  coachTeamId Int?          @unique
+  coachTeam   SaveGameTeam? @relation("SaveGame_CoachTeam", fields: [coachTeamId], references: [id], onDelete: SetNull)
+
+  @@index([coachTeamId])
 }
 
 model SaveGameTeam {
@@ -203,11 +207,14 @@ model SaveGameTeam {
   division      DivisionTier
   rating        Int
   morale        Int
-  currentSeason Int          @default(1)
-  localIndex    Int?
+  currentSeason Int
+  localIndex    Int
   leagueTable   LeagueTable?
 
-  saveGame SaveGame         @relation(fields: [saveGameId], references: [id])
+  saveGame SaveGame @relation("SaveGame_Teams", fields: [saveGameId], references: [id], onDelete: Cascade)
+
+  coachedSave SaveGame? @relation("SaveGame_CoachTeam")
+
   baseTeam BaseTeam         @relation(fields: [baseTeamId], references: [id])
   players  SaveGamePlayer[]
 
@@ -264,9 +271,6 @@ model SaveGameMatch {
   homeGoals Int @default(0)
   awayGoals Int @default(0)
 
-  // ✅ re-add this to match the DB constraint
-  matchDate DateTime @default(now())
-
   // (optional but recommended; many services expect it)
   isPlayed Boolean @default(false)
 
@@ -277,6 +281,8 @@ model SaveGameMatch {
 
   @@index([saveGameId])
   @@index([matchdayId])
+
+  @@unique([matchdayId, homeTeamId, awayTeamId], name: "unique_fixture_per_round")
 }
 
 model MatchEvent {
@@ -333,7 +339,6 @@ model Transfer {
   toTeam   SaveGameTeam @relation("TransferToSaveTeam", fields: [toTeamId], references: [id])
 
   fee  Int
-  date DateTime @default(now())
 }
 
 model GameState {
@@ -410,6 +415,7 @@ enum GameStage {
   HALFTIME
   RESULTS
   STANDINGS
+  PENALTIES
 }
 
 enum DivisionTier {

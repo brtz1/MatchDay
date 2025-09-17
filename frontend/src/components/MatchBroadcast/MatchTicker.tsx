@@ -16,6 +16,8 @@ export type TickerGame = {
   homeGoals?: number;
   awayGoals?: number;
   events?: TickerEvent[]; // we will show only the latest one
+  /** Phase of play (used upstream for ET-only filtering) */
+  phase?: "NORMAL" | "ET" | "PENS";
 };
 
 interface Props {

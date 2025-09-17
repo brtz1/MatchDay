@@ -2,7 +2,8 @@
 
 import prisma from '../utils/prisma';
 import { getGameState } from './gameState';
-import { DivisionTier } from '@prisma/client';
+import { DivisionTier, MatchdayType } from '@prisma/client';
+import { broadcastStageChanged /* optional */, broadcastStandingsUpdated } from '../sockets/broadcast';
 
 type StandingsRowUI = {
   teamId: number;
@@ -31,11 +32,146 @@ const ALLOWED_DIVS: DivisionTier[] = [
   DivisionTier.D4,
 ];
 
+/* -------------------------------------------------------------------------- */
+/* NEW: finalizeStandings – recompute LeagueTable and broadcast               */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Returns standings grouped by division for a given saveGameId (or the current active one).
- * Primary source: LeagueTable (reset on new season). If LeagueTable is empty, we fall back
- * to computing from matches (up to current matchday) so the UI still works during wiring.
+ * Recomputes the LeagueTable for D1–D4 from all **played LEAGUE** matches
+ * up to the current matchday, upserting rows for every team in those divisions.
+ * Emits a 'standings-updated' socket event for the save, and returns coachTeamId
+ * (to satisfy the FE finalizeStandings() caller).
  */
+export async function finalizeStandings(saveGameId?: number): Promise<{ coachTeamId: number | null }> {
+  // Resolve active save + matchday + coach
+  const gs = await getGameState().catch(() => null);
+  const activeSaveId = typeof saveGameId === 'number' ? saveGameId : gs?.currentSaveGameId;
+  if (!activeSaveId) throw new Error('Game state not initialized');
+  const currentMatchday = gs?.currentMatchday ?? 0;
+  const coachTeamId = gs?.coachTeamId ?? null;
+
+  // Teams in allowed divisions
+  const teams = await prisma.saveGameTeam.findMany({
+    where: { saveGameId: activeSaveId, division: { in: ALLOWED_DIVS } },
+    select: { id: true, name: true, division: true },
+  });
+  const teamIds = teams.map(t => t.id);
+  const byId = new Map(teams.map(t => [t.id, t]));
+
+  // All LEAGUE matchdays up to current
+  const matchdays = await prisma.matchday.findMany({
+    where: {
+      saveGameId: activeSaveId,
+      number: { lte: currentMatchday },
+      type: MatchdayType.LEAGUE,
+    },
+    select: { id: true },
+  });
+  const matchdayIds = matchdays.map(md => md.id);
+
+  // Matches that belong to those matchdays (coalesce null goals to 0, but prefer isPlayed=true)
+  const matches = matchdayIds.length
+    ? await prisma.saveGameMatch.findMany({
+        where: {
+          saveGameId: activeSaveId,
+          matchdayId: { in: matchdayIds },
+          // After your flow ends at 90', you set isPlayed=true; keep it explicit:
+          isPlayed: true,
+        },
+        select: {
+          homeTeamId: true,
+          awayTeamId: true,
+          homeGoals: true,
+          awayGoals: true,
+        },
+      })
+    : [];
+
+  // Aggregate per team (only count teams within allowed divisions)
+  type Agg = {
+    played: number; wins: number; draws: number; losses: number;
+    gf: number; ga: number; points: number;
+  };
+  const agg = new Map<number, Agg>();
+
+  for (const t of teams) {
+    agg.set(t.id, { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0 });
+  }
+
+  for (const m of matches) {
+    const hg = m.homeGoals ?? 0;
+    const ag = m.awayGoals ?? 0;
+
+    const homeAllowed = byId.has(m.homeTeamId);
+    const awayAllowed = byId.has(m.awayTeamId);
+    if (!homeAllowed || !awayAllowed) continue;
+
+    const home = agg.get(m.homeTeamId)!;
+    const away = agg.get(m.awayTeamId)!;
+
+    home.played += 1;
+    away.played += 1;
+
+    home.gf += hg; home.ga += ag;
+    away.gf += ag; away.ga += hg;
+
+    if (hg > ag) {
+      home.wins += 1; home.points += 3;
+      away.losses += 1;
+    } else if (hg < ag) {
+      away.wins += 1; away.points += 3;
+      home.losses += 1;
+    } else {
+      home.draws += 1; away.draws += 1;
+      home.points += 1; away.points += 1;
+    }
+  }
+
+  // Upsert LeagueTable rows for all D1–D4 teams
+  await prisma.$transaction(
+    teams.map(t =>
+      prisma.leagueTable.upsert({
+        where: { teamId: t.id }, // assumes unique on teamId
+        create: {
+          teamId: t.id,
+          played: agg.get(t.id)?.played ?? 0,
+          wins: agg.get(t.id)?.wins ?? 0,
+          draws: agg.get(t.id)?.draws ?? 0,
+          losses: agg.get(t.id)?.losses ?? 0,
+          goalsFor: agg.get(t.id)?.gf ?? 0,
+          goalsAgainst: agg.get(t.id)?.ga ?? 0,
+          points: agg.get(t.id)?.points ?? 0,
+        },
+        update: {
+          played: agg.get(t.id)?.played ?? 0,
+          wins: agg.get(t.id)?.wins ?? 0,
+          draws: agg.get(t.id)?.draws ?? 0,
+          losses: agg.get(t.id)?.losses ?? 0,
+          goalsFor: agg.get(t.id)?.gf ?? 0,
+          goalsAgainst: agg.get(t.id)?.ga ?? 0,
+          points: agg.get(t.id)?.points ?? 0,
+        },
+      })
+    )
+  );
+
+  // 🔔 Notify clients on that save to refetch immediately
+  try {
+    broadcastStandingsUpdated(activeSaveId, { saveGameId: activeSaveId });
+  } catch {
+    // Optional fallback: bounce a no-op stage-changed to RESULTS to trigger refetch listeners
+    try {
+      broadcastStageChanged({ gameStage: 'RESULTS', matchdayNumber: currentMatchday }, activeSaveId);
+    } catch { /* ignore */ }
+  }
+
+  return { coachTeamId };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Existing grouped fetch (unchanged)                                         */
+/* -------------------------------------------------------------------------- */
+
 export async function getStandingsGrouped(saveGameId?: number): Promise<DivisionGroupUI[]> {
   // Resolve active save (currentMatchday is only needed for fallback mode)
   let activeSaveId = saveGameId;
@@ -54,7 +190,6 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
     select: { id: true, name: true, division: true },
   });
 
-  // Build quick indexes (partial map; we don't require keys for non-allowed tiers like DIST)
   const byDivision: Partial<Record<DivisionTier, { id: number; name: string }[]>> = {};
   for (const t of teams) {
     if (ALLOWED_DIVS.includes(t.division)) {
@@ -84,7 +219,6 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
   const rowsByTeam = new Map(leagueRows.map((r) => [r.teamId, r]));
   const useFallback = leagueRows.length === 0;
 
-  // 3) Build per-division rows
   const result: DivisionGroupUI[] = [];
 
   for (const div of ALLOWED_DIVS) {
@@ -92,7 +226,6 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
     let rows: StandingsRowUI[] = [];
 
     if (!useFallback) {
-      // Preferred: read from LeagueTable, zero-fill missing teams
       rows = teamsInDiv.map(({ id, name }) => {
         const r = rowsByTeam.get(id);
         const played = r?.played ?? 0;
@@ -114,11 +247,11 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
           ga,
           gd,
           points,
-          position: 0, // set after sort
+          position: 0,
         };
       });
     } else {
-      // Fallback: compute from matches up to currentMatchday
+      // Fallback: compute from matches up to currentMatchday (any null goals treated as 0)
       if (currentMatchday == null || currentMatchday < 1) {
         rows = teamsInDiv.map(({ id, name }) => ({
           teamId: id,
@@ -135,12 +268,11 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
         }));
       } else {
         const matchdays = await prisma.matchday.findMany({
-          where: { saveGameId: activeSaveId, number: { lte: currentMatchday } },
+          where: { saveGameId: activeSaveId, number: { lte: currentMatchday }, type: MatchdayType.LEAGUE },
           select: { id: true },
         });
         const matchdayIds = matchdays.map((md) => md.id);
 
-        // IMPORTANT: include matches even if goals are NULL (we coalesce to 0 below)
         const matches = matchdayIds.length
           ? await prisma.saveGameMatch.findMany({
               where: {
@@ -209,7 +341,7 @@ export async function getStandingsGrouped(saveGameId?: number): Promise<Division
         rows = Array.from(agg.values()).map((t) => ({
           ...t,
           gd: t.gf - t.ga,
-          position: 0, // set after sort
+          position: 0,
         }));
       }
     }
