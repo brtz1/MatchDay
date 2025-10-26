@@ -214,6 +214,79 @@ async function persistAndBroadcastEvents(
   }
 }
 
+type MatchScore = { homeGoals: number; awayGoals: number };
+
+async function handlePenaltyForMinute(params: {
+  saveGameId: number;
+  match: { id: number; homeTeamId: number; awayTeamId: number };
+  minute: number;
+  mdNumber: number;
+  state: MatchState;
+  currentScore: MatchScore;
+}): Promise<MatchScore> {
+  const { saveGameId, match, minute, mdNumber, state, currentScore } = params;
+  const pseudoMatch = {
+    ...match,
+    homeGoals: currentScore.homeGoals,
+    awayGoals: currentScore.awayGoals,
+  } as SaveGameMatch & { homeTeamId: number; awayTeamId: number };
+
+  const pen = await maybeAwardPenalty(pseudoMatch, state, minute);
+  if (!pen) return currentScore;
+
+  const gs = await prisma.gameState.findFirst({
+    where: { currentSaveGameId: saveGameId },
+    select: { coachTeamId: true },
+  });
+  const coachTeamId = gs?.coachTeamId ?? null;
+
+  const isCoached =
+    !!coachTeamId &&
+    ((pen.isHomeTeam && match.homeTeamId === coachTeamId) ||
+      (!pen.isHomeTeam && match.awayTeamId === coachTeamId));
+
+  if (isCoached) {
+    broadcastPenaltyAwarded(saveGameId, {
+      matchId: match.id,
+      minute,
+      isHomeTeam: pen.isHomeTeam,
+      candidates: pen.candidates.map((p) => ({
+        id: p.id,
+        name: p.name,
+        position: p.position ?? undefined,
+        rating: p.rating ?? undefined,
+      })),
+      defaultShooterId: pen.defaultShooterId ?? undefined,
+    });
+
+    await pauseUntilResumed(saveGameId, mdNumber, { stageOverride: null });
+
+    const after = await prisma.saveGameMatch.findUnique({
+      where: { id: match.id },
+      select: { homeGoals: true, awayGoals: true },
+    });
+    return {
+      homeGoals: after?.homeGoals ?? currentScore.homeGoals,
+      awayGoals: after?.awayGoals ?? currentScore.awayGoals,
+    };
+  }
+
+  const shooterId = pen.defaultShooterId ?? pen.candidates[0]?.id ?? null;
+  if (!shooterId) return currentScore;
+
+  const result = await resolveMatchPenalty({
+    matchId: match.id,
+    shooterId,
+    isHome: pen.isHomeTeam,
+    minute,
+  });
+
+  return {
+    homeGoals: result.homeGoals,
+    awayGoals: result.awayGoals,
+  };
+}
+
 /* ----------------------------------------------------------------------------
    Maintain matchState.isPaused for all matches in a matchday while paused
 ---------------------------------------------------------------------------- */
@@ -236,35 +309,53 @@ async function setMatchdayPausedFlag(saveGameId: number, mdNumber: number, pause
  * Pause entire matchday loop (used at HT, injury-pause for coached team, GK red).
  * Waits until GameState.gameStage flips back to MATCHDAY or a hard stop occurs.
  */
-async function pauseUntilResumed(saveGameId: number, mdNumber: number) {
+async function pauseUntilResumed(
+  saveGameId: number,
+  mdNumber: number,
+  opts?: { stageOverride?: GameStage | null },
+) {
+  const stageOverride = opts?.stageOverride ?? GameStage.HALFTIME;
+  const shouldSignalStage = stageOverride !== null;
+
   if (!pausedSaves.has(saveGameId)) {
     pausedSaves.add(saveGameId);
 
-    await prisma.gameState.updateMany({
-      where: { currentSaveGameId: saveGameId },
-      data: { gameStage: GameStage.HALFTIME },
-    });
-    await setMatchdayPausedFlag(saveGameId, mdNumber, true);
+    if (shouldSignalStage) {
+      await prisma.gameState.updateMany({
+        where: { currentSaveGameId: saveGameId },
+        data: { gameStage: stageOverride },
+      });
+      await setMatchdayPausedFlag(saveGameId, mdNumber, true);
 
-    // NOTE: broadcastStageChanged signature is (payload, saveGameId)
-    broadcastStageChanged({ gameStage: "HALFTIME", matchdayNumber: mdNumber }, saveGameId);
+      // NOTE: broadcastStageChanged signature is (payload, saveGameId)
+      broadcastStageChanged({ gameStage: stageOverride, matchdayNumber: mdNumber }, saveGameId);
+    }
   }
 
   const started = Date.now();
   while (true) {
     if (stoppedSaves.has(saveGameId)) return;
-    const gs = await prisma.gameState.findFirst({
-      where: { currentSaveGameId: saveGameId },
-      select: { gameStage: true },
-    });
-    if (gs?.gameStage === GameStage.MATCHDAY) break;
+
+    if (shouldSignalStage) {
+      const gs = await prisma.gameState.findFirst({
+        where: { currentSaveGameId: saveGameId },
+        select: { gameStage: true },
+      });
+      if (gs?.gameStage === GameStage.MATCHDAY) break;
+    } else {
+      if (!pausedSaves.has(saveGameId)) break;
+    }
+
     if (Date.now() - started > 120_000) break; // safety escape ~2min
     await sleep(400);
   }
 
-  broadcastStageChanged({ gameStage: "MATCHDAY", matchdayNumber: mdNumber }, saveGameId);
+  if (shouldSignalStage) {
+    broadcastStageChanged({ gameStage: "MATCHDAY", matchdayNumber: mdNumber }, saveGameId);
+    await setMatchdayPausedFlag(saveGameId, mdNumber, false);
+  }
+
   pausedSaves.delete(saveGameId);
-  await setMatchdayPausedFlag(saveGameId, mdNumber, false);
 }
 
 /* Honor external (FE) coach-pause via set-stage:HALFTIME */
@@ -336,65 +427,16 @@ async function simulateExtraTimeForMatch(
 
     const state = await getOrCreateMatchState(matchId);
 
-    /* ------------------------------------------------------------------
-     * Penalty-awarded branch (ET)
-     * ------------------------------------------------------------------ */
-    {
-      const pseudoMatch = {
-        ...match,
-        homeGoals,
-        awayGoals,
-      } as unknown as SaveGameMatch;
-
-      const pen = await maybeAwardPenalty(pseudoMatch, state, minute);
-      if (pen) {
-        const gs = await prisma.gameState.findFirst({
-          where: { currentSaveGameId: saveGameId },
-          select: { coachTeamId: true },
-        });
-        const coachTeamId = gs?.coachTeamId ?? null;
-
-        const isCoached =
-          !!coachTeamId &&
-          ((pen.isHomeTeam && match.homeTeamId === coachTeamId) ||
-            (!pen.isHomeTeam && match.awayTeamId === coachTeamId));
-
-        if (isCoached) {
-          broadcastPenaltyAwarded(saveGameId, {
-            matchId,
-            minute,
-            isHomeTeam: pen.isHomeTeam,
-            candidates: pen.candidates.map((p) => ({
-              id: p.id,
-              name: p.name,
-              position: p.position ?? undefined,
-              rating: p.rating ?? undefined,
-            })), 
-            defaultShooterId: pen.defaultShooterId ?? undefined,
-          });
-
-          await pauseUntilResumed(saveGameId, mdNumber);
-
-          const after = await prisma.saveGameMatch.findUnique({
-            where: { id: matchId },
-            select: { homeGoals: true, awayGoals: true },
-          });
-          homeGoals = after?.homeGoals ?? homeGoals;
-          awayGoals = after?.awayGoals ?? awayGoals;
-        } else {
-          const shooterId = pen.defaultShooterId ?? pen.candidates[0]?.id ?? null;
-          if (shooterId) {
-            const result = await resolveMatchPenalty({
-              matchId,
-              shooterId,
-              isHome: pen.isHomeTeam,
-            });
-            homeGoals = result.homeGoals;
-            awayGoals = result.awayGoals;
-          }
-        }
-      }
-    }
+    const updatedScore = await handlePenaltyForMinute({
+      saveGameId,
+      match,
+      minute,
+      mdNumber,
+      state,
+      currentScore: { homeGoals, awayGoals },
+    });
+    homeGoals = updatedScore.homeGoals;
+    awayGoals = updatedScore.awayGoals;
 
     const simEventsRaw = await simulateMatch(
       match as SaveGameMatch & { homeTeamId: number; awayTeamId: number },
@@ -551,6 +593,42 @@ async function safeResolveShootout(
 }
 
 /* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Public: resume matchday (lift pause gate)                                   */
+/* -------------------------------------------------------------------------- */
+export async function resumeMatchday(saveGameId: number): Promise<void> {
+  try {
+    // Clear gates so the engine loop can continue
+    pausedSaves.delete(saveGameId);
+    stoppedSaves.delete(saveGameId);
+
+    // Flip stage to MATCHDAY (idempotent if already set by caller)
+    await prisma.gameState.updateMany({
+      where: { currentSaveGameId: saveGameId },
+      data: { gameStage: GameStage.MATCHDAY },
+    });
+
+    // Best-effort: clear per-match isPaused flags for current matchday
+    const md = await prisma.matchday.findFirst({ where: { saveGameId }, select: { number: true } });
+    if (md?.number != null) {
+      const row = await prisma.matchday.findFirst({
+        where: { saveGameId, number: md.number },
+        select: { id: true, saveGameMatches: { select: { id: true } } },
+      });
+      const ids = row?.saveGameMatches?.map((m) => m.id) ?? [];
+      if (ids.length) {
+        await prisma.matchState.updateMany({ where: { saveGameMatchId: { in: ids } }, data: { isPaused: false } });
+      }
+    }
+
+    // Notify clients
+    broadcastStageChanged({ gameStage: "MATCHDAY", matchdayNumber: md?.number }, saveGameId);
+  } catch {
+    // ignore; engine loop will naturally resume once gates are cleared
+  }
+}
+
+
 /* Public: start or resume a matchday                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -559,6 +637,8 @@ export { ensureMatchState as ensureInitialMatchState } from "./matchStateService
 
 export async function startOrResumeMatchday(saveGameId: number): Promise<void> {
   stoppedSaves.delete(saveGameId);
+  // Clear any lingering pause gate so the loop can run
+  try { (pausedSaves as any).delete(saveGameId); } catch {}
 
   const { md, coachTeamId } = await getActiveMatchday(saveGameId);
   const matchIds = md.saveGameMatches.map((m) => m.id);
@@ -613,6 +693,20 @@ export async function startOrResumeMatchday(saveGameId: number): Promise<void> {
       if (!match) continue;
 
       const state = await getOrCreateMatchState(matchId);
+
+      const updatedScore = await handlePenaltyForMinute({
+        saveGameId,
+        match,
+        minute,
+        mdNumber: md.number,
+        state,
+        currentScore: {
+          homeGoals: match.homeGoals ?? 0,
+          awayGoals: match.awayGoals ?? 0,
+        },
+      });
+      match.homeGoals = updatedScore.homeGoals;
+      match.awayGoals = updatedScore.awayGoals;
 
       const simEventsRaw = await simulateMatch(match, state, minute);
 
@@ -792,3 +886,4 @@ export async function startOrResumeMatchday(saveGameId: number): Promise<void> {
   });
   broadcastStageChanged({ gameStage: "RESULTS", matchdayNumber: md.number }, saveGameId);
 }
+

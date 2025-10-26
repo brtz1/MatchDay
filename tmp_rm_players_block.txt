@@ -1,0 +1,92 @@
+      "players": [
+        {
+          "name": "Thibaut Courtois",
+          "nationality": "Belgium",
+          "position": "GK",
+          "behavior": 4
+        },
+        {
+          "name": "Andriy Lunin",
+          "nationality": "Ukraine",
+          "position": "GK",
+          "behavior": 2
+        },
+        {
+          "name": "Dani Carvajal",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Éder Militão",
+          "nationality": "Brazil",
+          "position": "DF",
+          "behavior": 5
+        },
+        {
+          "name": "David Alaba",
+          "nationality": "Austria",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Ferland Mendy",
+          "nationality": "France",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Antonio Rüdiger",
+          "nationality": "Germany",
+          "position": "DF",
+          "behavior": 2
+        },
+        {
+          "name": "Nacho Fernández",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Lucas Vázquez",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Eduardo Camavinga",
+          "nationality": "France",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Toni Kroos",
+          "nationality": "Germany",
+          "position": "MF",
+          "behavior": 4
+        },
+        {
+          "name": "Luka Modrić",
+          "nationality": "Croatia",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Fede Valverde",
+          "nationality": "Uruguay",
+          "position": "MF",
+          "behavior": 3
+        },
+        {
+          "name": "Vinícius Júnior",
+          "nationality": "Brazil",
+          "position": "AT",
+          "behavior": 4
+        },
+        {
+          "name": "Karim Benzema",
+          "nationality": "France",
+          "position": "AT",
+          "behavior": 5
+        }
+      ]

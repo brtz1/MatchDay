@@ -15,11 +15,12 @@ import GKRedPopup from "@/components/MatchBroadcast/GKRedPopup";
 import { type MatchEvent } from "@/components/MatchBroadcast/MatchEventFeed";
 import { ProgressBar } from "@/components/common/ProgressBar";
 import { isAxiosError } from "axios";
-import { standingsUrl, cupUrl } from "@/utils/paths";
+import { standingsUrl, cupUrl, teamUrl } from "@/utils/paths";
 
 /* ⬇️ In-match penalty picker */
 import PenaltyKickPopup from "@/components/pk/PenaltyKickPopup";
 import type { PlayerLite, Position } from "@/components/pk/PenaltyKickPopup";
+import type { PenaltyAwardedPayload, PenaltyResultPayload } from "@/types/pk";
 
 /* ------------------------------------------------------------------ */
 /* DTOs – keep in sync with backend                                   */
@@ -106,15 +107,6 @@ interface PauseRequestPayload {
   player?: { id: number; name: string; position?: string | null; rating?: number };
 }
 
-/** ⬇️ PK socket payloads (minimal, FE-friendly) */
-type PenaltyAwardedPayload = { matchId: number; isHome: boolean };
-type PenaltyResultPayload = {
-  matchId: number;
-  isHome: boolean;
-  shooterId: number;
-  outcome: "GOAL" | "MISS" | "SAVE";
-  newScore?: { home: number; away: number };
-};
 
 /* ------------------------------------------------------------------ */
 /* helpers to avoid `any` and normalize positions                     */
@@ -160,6 +152,7 @@ export default function MatchDayLive() {
     gameStage,
     saveGameId,
     currentSaveGameId,
+    skipCupRoster,
   } = useGameState();
 
   const isCupDay = matchdayType === "CUP";
@@ -247,6 +240,7 @@ export default function MatchDayLive() {
   const [pkMatchId, setPkMatchId] = useState<number | null>(null);
   const [pkLineup, setPkLineup] = useState<PlayerDTO[]>([]);
   const [pkTeamName, setPkTeamName] = useState<string>("");
+  const [pkMinute, setPkMinute] = useState<number | null>(null);
 
   /* ---------------------------------------------------------------- */
   /* Inline guard with grace window                                   */
@@ -276,7 +270,7 @@ export default function MatchDayLive() {
     ]);
     if (liveStage && !ALLOWED.has(liveStage)) {
       const t = setTimeout(() => {
-        navigate(`/team/${coachTeamId ?? ""}`, { replace: true });
+        navigate(teamUrl(coachTeamId ?? ""), { replace: true });
       }, 1500);
       return () => clearTimeout(t);
     }
@@ -393,7 +387,7 @@ export default function MatchDayLive() {
           sid = data.currentSaveGameId ?? undefined;
         }
         if (typeof sid === "number") {
-          await api.post("/matchday/pause", { saveGameId: sid });
+          await api.post("/matchday/pause", { saveGameId: sid }, { headers: { 'X-Silent': '1' } });
           return; // success — whole engine paused
         }
       } catch {
@@ -415,6 +409,7 @@ export default function MatchDayLive() {
   /* Auto open halftime popup for the coached team (HALFTIME)          */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
+    if (skipCupRoster) return;
     const stage = liveStage;
     if (stage !== "HALFTIME") return;
     if (!coachTeamId || !currentMatchday) return;
@@ -470,12 +465,13 @@ export default function MatchDayLive() {
         /* ignore */
       }
     })();
-  }, [liveStage, coachTeamId, currentMatchday, popupMatchId, matches, effectiveSaveId]);
+  }, [skipCupRoster, liveStage, coachTeamId, currentMatchday, popupMatchId, matches, effectiveSaveId]);
 
   /* ---------------------------------------------------------------- */
   /* Server-initiated pause (injury/GK incidents/ET halftime)          */
   /* ---------------------------------------------------------------- */
   useSocketEvent<PauseRequestPayload>("pause-request", async (p) => {
+    if (skipCupRoster) return;
     const m = matches.find((x) => x.id === p.matchId);
     if (m && typeof coachTeamId === "number") {
       const teamId = p.isHomeTeam ? m.homeTeam.id : m.awayTeam.id;
@@ -522,21 +518,37 @@ export default function MatchDayLive() {
     const m = matches.find((x) => x.id === p.matchId);
     if (!m || !coachTeamId) return;
 
-    const takerTeamId = p.isHome ? m.homeTeam.id : m.awayTeam.id;
+    const isHome =
+      typeof p.isHomeTeam === "boolean"
+        ? p.isHomeTeam
+        : typeof (p as any).isHome === "boolean"
+        ? (p as any).isHome
+        : true;
+    const takerTeamId = isHome ? m.homeTeam.id : m.awayTeam.id;
     if (takerTeamId !== coachTeamId) return; // AI vs AI: ignore
+
+    const eventMinute =
+      typeof p.minute === "number"
+        ? p.minute
+        : typeof m.minute === "number"
+        ? m.minute
+        : null;
+    setPkMinute(eventMinute);
+
+    const teamLabel = isHome ? m.homeTeam.name : m.awayTeam.name;
 
     // Fetch current lineup for that side
     try {
-      const side = p.isHome ? "home" : "away";
+      const side: "home" | "away" = isHome ? "home" : "away";
       const { data } = await api.get<MatchStateDTO>(`/matchstate/${p.matchId}`, {
         params: { side },
       });
       setPkLineup(data.lineup ?? []);
-      setPkTeamName(p.isHome ? m.homeTeam.name : m.awayTeam.name);
+      setPkTeamName(teamLabel);
     } catch {
       // best-effort; still allow the popup with empty list (won't render pickers)
       setPkLineup([]);
-      setPkTeamName(p.isHome ? m.homeTeam.name : m.awayTeam.name);
+      setPkTeamName(teamLabel);
     }
 
     setPkMatchId(p.matchId);
@@ -546,22 +558,32 @@ export default function MatchDayLive() {
   // If backend emits penalty-result (it will), keep scores in sync even if popup closed
   useSocketEvent<PenaltyResultPayload>("penalty-result", (res) => {
     if (!res) return;
-    if (
-      typeof res.newScore?.home === "number" &&
-      typeof res.newScore?.away === "number"
-    ) {
-      setMatches((prev) =>
-        prev.map((m) =>
-          m.id === res.matchId
-            ? {
-                ...m,
-                homeGoals: res.newScore!.home,
-                awayGoals: res.newScore!.away,
-              }
-            : m,
-        ),
-      );
-    }
+    const homeGoals =
+      typeof res.homeGoals === "number"
+        ? res.homeGoals
+        : typeof res.newScore?.home === "number"
+        ? res.newScore.home
+        : undefined;
+    const awayGoals =
+      typeof res.awayGoals === "number"
+        ? res.awayGoals
+        : typeof res.newScore?.away === "number"
+        ? res.newScore.away
+        : undefined;
+
+    if (typeof homeGoals !== "number" || typeof awayGoals !== "number") return;
+
+    setMatches((prev) =>
+      prev.map((m) =>
+        m.id === res.matchId
+          ? {
+              ...m,
+              homeGoals,
+              awayGoals,
+            }
+          : m,
+      ),
+    );
   });
 
   /* ---------------------------------------------------------------- */
@@ -810,6 +832,19 @@ export default function MatchDayLive() {
       }
 
       // Return the global stage to MATCHDAY
+      // Also call backend resume to lift any save-wide pause gate
+      try {
+        let sid = resolvedSaveId;
+        if (typeof sid !== "number") {
+          const { data } = await api.get<GameStateDTO>("/gamestate");
+          sid = data.currentSaveGameId ?? undefined;
+        }
+        if (typeof sid === "number") {
+          await api.post("/matchday/resume", { saveGameId: sid }, { headers: { 'X-Silent': '1' } });
+        }
+      } catch (e) {
+        // ignore; set-stage below still resumes engine when possible
+      }
       await setStage("MATCHDAY");
     } catch (e) {
       console.warn("[MatchDayLive] Failed to resume MATCHDAY:", e);
@@ -819,6 +854,13 @@ export default function MatchDayLive() {
       setIncidentPlayer(null);
     }
   }, [liveStage, matchdayType, navigate, popupMatchId, setStage]);
+
+  useEffect(() => {
+    if (!skipCupRoster) return;
+    if (liveStage === "HALFTIME") {
+      void resumeMatch();
+    }
+  }, [skipCupRoster, liveStage, resumeMatch]);
 
   /* ---------------------------------------------------------------- */
   /* HOOK ORDER SAFE: compute memos BEFORE any early returns           */
@@ -860,6 +902,26 @@ export default function MatchDayLive() {
       text: ev.description,
     }));
   }, [eventsByMatch, popupMatchId]);
+
+  const popupMatch = useMemo(
+    () => (popupMatchId == null ? null : matches.find((m) => m.id === popupMatchId) ?? null),
+    [matches, popupMatchId],
+  );
+
+  const popupTeamName = popupMatch
+    ? isHomeTeamForPopup
+      ? popupMatch.homeTeam.name
+      : popupMatch.awayTeam.name
+    : undefined;
+
+  const popupMatchMeta = popupMatch
+    ? {
+        homeTeam: popupMatch.homeTeam.name,
+        awayTeam: popupMatch.awayTeam.name,
+        homeGoals: Number(popupMatch.homeGoals ?? 0),
+        awayGoals: Number(popupMatch.awayGoals ?? 0),
+      }
+    : undefined;
 
   const canSubstitute = useMemo(() => {
     if (popupMatchId == null || coachTeamId == null) return false;
@@ -927,6 +989,9 @@ export default function MatchDayLive() {
               setIncidentPlayer(null);
               setIsHomeTeamForPopup(true); // default side when row (not team) is clicked
 
+              // Set popup target early to block auto-open effect
+              setPopupMatchId(numId);
+
               // Pause everything, then flip global stage to HALFTIME
               await pauseAllMatches();
               await setStage("HALFTIME");
@@ -955,6 +1020,8 @@ export default function MatchDayLive() {
             setIncidentPlayer(null);
 
             try {
+              // Set popup target early to block auto-open effect
+              setPopupMatchId(matchId);
               // Pause everything (engine-wide), then set global HALFTIME
               await pauseAllMatches();
               await setStage("HALFTIME");
@@ -1045,6 +1112,8 @@ export default function MatchDayLive() {
               canSubstitute={canSubstitute}
               // Pass pauseReason through — HalfTimePopup can label ET vs normal HT
               pauseReason={pauseReason ?? undefined}
+              matchMeta={popupMatchMeta}
+              focusTeamName={popupTeamName}
             />
           )}
         </>
@@ -1058,6 +1127,7 @@ export default function MatchDayLive() {
           matchId={pkMatchId}
           lineup={mapToPlayerLite(pkLineup)}
           teamName={pkTeamName}
+          minute={pkMinute ?? undefined}
           allowGK={false}
           onResolved={(res) => {
             if (res.newScore) {
@@ -1074,10 +1144,12 @@ export default function MatchDayLive() {
               );
             }
           }}
-          onClose={() => {
+          onClose={async () => {
+            await resumeMatch();
             setPkOpen(false);
             setPkMatchId(null);
             setPkLineup([]);
+            setPkMinute(null);
           }}
         />
       )}
@@ -1115,3 +1187,13 @@ function sortUserMatchFirst<
   const user = fixtures[idx];
   return [user, ...fixtures.slice(0, idx), ...fixtures.slice(idx + 1)];
 }
+
+
+
+
+
+
+
+
+
+

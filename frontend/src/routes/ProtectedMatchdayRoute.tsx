@@ -1,6 +1,7 @@
 // frontend/src/routes/ProtectedMatchdayRoute.tsx
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
+import { teamUrl } from "@/utils/paths";
 import { useGameState } from "@/store/GameStateStore";
 import api from "@/services/axios";
 
@@ -95,7 +96,7 @@ export default function ProtectedMatchdayRoute({ children }: Props) {
 
   // 4) If stage isn’t allowed and no grace, send to the team page (not Title)
   if (coachTeamId != null) {
-    return <Navigate to={`/team/${coachTeamId}`} replace />;
+    return <Navigate to={teamUrl(coachTeamId)} replace />;
   }
   return <Navigate to="/" replace />;
 }

@@ -19,6 +19,7 @@ export interface GameState {
   // ✅ Include PENALTIES to match store usage
   gameStage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS" | "PENALTIES";
   matchdayType: "LEAGUE" | "CUP";
+  skipCupRoster?: boolean;
 }
 
 export interface ManualSavePayload {

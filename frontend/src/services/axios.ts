@@ -67,13 +67,13 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
-    if (import.meta.env.DEV) {
-      console.error("[axios]", err.response ?? err.message);
+    const silent = (err.config as any)?.headers?.['X-Silent'];
+    if (import.meta.env.DEV && !silent) {
+      console.error('[axios]', err.response ?? err.message);
     }
     return Promise.reject(err);
   }
 );
-
 /* ============================================================================
    Shared Types — keep in sync with backend
 ============================================================================ */
@@ -360,3 +360,7 @@ export function getApiBaseUrl() {
 
 export { isAxiosError };
 export default api;
+
+
+
+

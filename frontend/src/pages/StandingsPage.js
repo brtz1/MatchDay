@@ -104,11 +104,11 @@ export default function StandingsPage() {
             try {
                 const res = await finalizeStandings(resolved);
                 const targetCoach = res.coachTeamId ?? coachTeamId;
-                navigate(teamUrl(targetCoach), { replace: true });
+                navigate(teamUrl(targetCoach), { replace: true, state: { cameFromResults: true } });
             }
             catch (e) {
                 console.warn("[Standings] finalize failed; routing anyway", e);
-                navigate(teamUrl(coachTeamId), { replace: true });
+                navigate(teamUrl(coachTeamId), { replace: true, state: { cameFromResults: true } });
             }
         }, 3000);
         return () => clearTimeout(t);
@@ -128,7 +128,7 @@ export default function StandingsPage() {
 function DivisionCard({ div, navigate, }) {
     return (_jsxs(AppCard, { variant: "default", className: "mb-0 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-blue-200/80 shadow-lg dark:border-blue-900 dark:bg-gradient-to-br dark:from-blue-950 dark:to-blue-800/80", children: [_jsx("div", { className: "mb-4 flex items-center rounded-lg bg-blue-100 px-4 py-2 shadow-inner dark:bg-blue-900/60", children: _jsx("h2", { className: "text-2xl font-bold uppercase tracking-wide text-blue-700 dark:text-yellow-300", children: divisionNamePretty(String(div.division)) }) }), _jsx("div", { className: "overflow-x-auto rounded-xl bg-white/90 p-0 shadow-inner dark:bg-gray-950/60", children: _jsxs("table", { className: "w-full text-sm", children: [_jsx("thead", { className: "border-b border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-900/70", children: _jsxs("tr", { className: "text-center font-semibold text-blue-700 dark:text-blue-200", children: [_jsx("th", { className: "px-3 py-2 text-left", children: "Team" }), _jsx("th", { children: "Pts" }), _jsx("th", { children: "Pl" }), _jsx("th", { children: "W" }), _jsx("th", { children: "D" }), _jsx("th", { children: "L" }), _jsx("th", { children: "GF" }), _jsx("th", { children: "GA" }), _jsx("th", { children: "GD" })] }) }), _jsx("tbody", { children: div.teams.map((team, idx) => (_jsxs("tr", { className: `transition-colors duration-100 ${idx % 2 === 0
                                     ? "bg-blue-50 dark:bg-blue-900/30"
-                                    : "bg-blue-100/60 dark:bg-blue-950/30"} hover:bg-yellow-100 dark:hover:bg-yellow-900/30`, children: [_jsx("td", { className: "px-3 py-2 text-left font-medium", children: _jsx("button", { className: "text-blue-600 underline transition-colors hover:text-yellow-700 dark:text-yellow-300 dark:hover:text-yellow-100", onClick: () => navigate(teamUrl(team.teamId)), children: team.name }) }), _jsx("td", { className: "text-center font-bold", children: team.points }), _jsx("td", { className: "text-center", children: team.played }), _jsx("td", { className: "text-center", children: team.won }), _jsx("td", { className: "text-center", children: team.draw }), _jsx("td", { className: "text-center", children: team.lost }), _jsx("td", { className: "text-center", children: team.goalsFor }), _jsx("td", { className: "text-center", children: team.goalsAgainst }), _jsx("td", { className: "text-center", children: team.goalDifference })] }, team.teamId))) })] }) })] }));
+                                    : "bg-blue-100/60 dark:bg-blue-950/30"} hover:bg-yellow-100 dark:hover:bg-yellow-900/30`, children: [_jsx("td", { className: "px-3 py-2 text-left font-medium", children: _jsx("button", { className: "text-blue-600 underline transition-colors hover:text-yellow-700 dark:text-yellow-300 dark:hover:text-yellow-100", onClick: () => navigate(teamUrl(team.teamId), { state: { cameFromResults } }), children: team.name }) }), _jsx("td", { className: "text-center font-bold", children: team.points }), _jsx("td", { className: "text-center", children: team.played }), _jsx("td", { className: "text-center", children: team.won }), _jsx("td", { className: "text-center", children: team.draw }), _jsx("td", { className: "text-center", children: team.lost }), _jsx("td", { className: "text-center", children: team.goalsFor }), _jsx("td", { className: "text-center", children: team.goalsAgainst }), _jsx("td", { className: "text-center", children: team.goalDifference })] }, team.teamId))) })] }) })] }));
 }
 function divisionNamePretty(division) {
     switch (division) {

@@ -61,12 +61,42 @@ export async function snapshotCurrentGame(): Promise<number> {
       salary: p.salary,
       behavior: p.behavior,
       contractUntil: p.contractUntil,
-      teamId: p.teamId ? oldTeamIdToNew[p.teamId] : null,
+      teamId: p.teamId ? oldTeamIdToNew[p.teamId] ?? null : null,
       localIndex: p.localIndex,
     })),
   });
 
-  // 4. Copy SaveGameMatches
+  // 4. Copy Matchdays so matches point at the cloned schedule
+  const oldMatchdays = await prisma.matchday.findMany({
+    where: { saveGameId: currentSaveId },
+    select: {
+      id: true,
+      number: true,
+      type: true,
+      isPlayed: true,
+      roundLabel: true,
+      season: true,
+    },
+    orderBy: { id: 'asc' },
+  });
+
+  const matchdayIdMap: Record<number, number> = {};
+
+  for (const md of oldMatchdays) {
+    const newMd = await prisma.matchday.create({
+      data: {
+        saveGameId: newSave.id,
+        number: md.number,
+        type: md.type,
+        isPlayed: md.isPlayed,
+        roundLabel: md.roundLabel,
+        season: md.season,
+      },
+    });
+    matchdayIdMap[md.id] = newMd.id;
+  }
+
+  // 5. Copy SaveGameMatches with remapped foreign keys
   const oldMatches = await prisma.saveGameMatch.findMany({
     where: { saveGameId: currentSaveId },
     select: {
@@ -74,19 +104,29 @@ export async function snapshotCurrentGame(): Promise<number> {
       awayTeamId: true,
       homeGoals: true,
       awayGoals: true,
+      isPlayed: true,
       matchdayId: true,
     },
   });
 
   for (const match of oldMatches) {
+    const newHomeTeamId = oldTeamIdToNew[match.homeTeamId];
+    const newAwayTeamId = oldTeamIdToNew[match.awayTeamId];
+    const newMatchdayId = matchdayIdMap[match.matchdayId];
+
+    if (!newHomeTeamId || !newAwayTeamId || !newMatchdayId) {
+      throw new Error('Failed to resolve cloned identifiers while snapshotting matches');
+    }
+
     await prisma.saveGameMatch.create({
       data: {
         saveGameId: newSave.id,
-        homeTeamId: oldTeamIdToNew[match.homeTeamId],
-        awayTeamId: oldTeamIdToNew[match.awayTeamId],
+        homeTeamId: newHomeTeamId,
+        awayTeamId: newAwayTeamId,
         homeGoals: match.homeGoals,
         awayGoals: match.awayGoals,
-        matchdayId: match.matchdayId, // assumes same matchday ids are valid; adjust if you also clone matchdays
+        isPlayed: match.isPlayed,
+        matchdayId: newMatchdayId,
       },
     });
   }

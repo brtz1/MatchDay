@@ -101,17 +101,27 @@ export interface PkShootoutState {
 /** Emitted when a penalty is awarded during live simulation */
 export interface PenaltyAwardedPayload {
   matchId: number;
+  minute: number;
   /** side that was awarded the kick */
-  isHome: boolean;
+  isHomeTeam: boolean;
+  /** Optional candidates provided by backend */
+  candidates?: ShooterBrief[];
+  /** Optional default shooter suggestion */
+  defaultShooterId?: number;
 }
 
 /** Emitted after resolving an in-match penalty */
 export interface PenaltyResultPayload {
   matchId: number;
-  isHome: boolean;
-  shooterId: number;
+  minute: number;
+  isHomeTeam: boolean;
+  shooter: ShooterBrief;
   outcome: PkOutcome;
+  description?: string;
   /** New match score after applying the penalty, if it was a goal */
+  homeGoals?: number;
+  awayGoals?: number;
+  /** Legacy support for older payload readers */
   newScore?: Score;
 }
 
@@ -123,6 +133,8 @@ export interface TakePenaltyRequest {
   saveGameId: number;
   matchId: number;
   shooterId: number;
+  /** Optional explicit minute to attribute the event to */
+  minute?: number;
 }
 
 export interface TakePenaltyResponse {

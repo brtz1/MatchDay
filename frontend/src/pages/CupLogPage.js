@@ -78,11 +78,11 @@ export default function CupLogPage() {
                     // Reuse the same backend finalize used by StandingsPage.
                     const res = await finalizeStandings(resolved);
                     const targetCoach = res.coachTeamId ?? coachTeamId;
-                    navigate(teamUrl(targetCoach), { replace: true });
+                    navigate(teamUrl(targetCoach), { replace: true, state: { cameFromResults: true } });
                 }
                 catch (e) {
                     console.warn("[CupLog] finalize failed; routing anyway", e);
-                    navigate(teamUrl(coachTeamId), { replace: true });
+                    navigate(teamUrl(coachTeamId), { replace: true, state: { cameFromResults: true } });
                 }
             }, 3000);
             // cleanup
@@ -92,6 +92,6 @@ export default function CupLogPage() {
             cancelled = true;
         };
     }, [cameFromResults, storeSaveId, coachTeamId, navigate]);
-    return (_jsxs("div", { className: "relative flex flex-col gap-4 p-4 w-full min-h-screen bg-gradient-to-b from-green-800 via-green-900 to-green-950", children: [_jsx("div", { className: "absolute right-6 top-6 z-10", children: _jsx(AppButton, { variant: "secondary", onClick: () => coachTeamId ? navigate(teamUrl(coachTeamId)) : navigate(-1), className: "!px-6 !py-2", children: "\u2190 Back" }) }), _jsx("h1", { className: "text-3xl font-extrabold text-yellow-300 tracking-tight drop-shadow-md text-center uppercase", children: "Cup Bracket" }), _jsx(AppCard, { variant: "default", className: "w-full rounded-2xl border-2 border-yellow-500 bg-yellow-300 shadow-xl p-0", children: _jsx("div", { className: "w-full max-h-[calc(100vh-220px)] rounded-xl bg-yellow-300 shadow-inner overflow-auto pl-px", children: loading ? (_jsx("div", { className: "flex w-full justify-center py-10", children: _jsx("div", { className: "animate-spin rounded-full h-12 w-12 border-b-4 border-blue-700" }) })) : error ? (_jsx("div", { className: "py-10 mx-auto text-center text-red-700", children: error })) : matches.length === 0 ? (_jsx("div", { className: "py-10 mx-auto text-center text-blue-900", children: "No cup data available yet." })) : (_jsx(CupBracket, { matches: matches })) }) })] }));
+    return (_jsxs("div", { className: "relative flex flex-col gap-4 p-4 w-full min-h-screen bg-gradient-to-b from-green-800 via-green-900 to-green-950", children: [_jsx("div", { className: "absolute right-6 top-6 z-10", children: _jsx(AppButton, { variant: "secondary", onClick: () => coachTeamId ? navigate(teamUrl(coachTeamId), { state: { cameFromResults } }) : navigate(-1), className: "!px-6 !py-2", children: "\u2190 Back" }) }), _jsx("h1", { className: "text-3xl font-extrabold text-yellow-300 tracking-tight drop-shadow-md text-center uppercase", children: "Cup Bracket" }), _jsx(AppCard, { variant: "default", className: "w-full rounded-2xl border-2 border-yellow-500 bg-yellow-300 shadow-xl p-0", children: _jsx("div", { className: "w-full max-h-[calc(100vh-220px)] rounded-xl bg-yellow-300 shadow-inner overflow-auto pl-px", children: loading ? (_jsx("div", { className: "flex w-full justify-center py-10", children: _jsx("div", { className: "animate-spin rounded-full h-12 w-12 border-b-4 border-blue-700" }) })) : error ? (_jsx("div", { className: "py-10 mx-auto text-center text-red-700", children: error })) : matches.length === 0 ? (_jsx("div", { className: "py-10 mx-auto text-center text-blue-900", children: "No cup data available yet." })) : (_jsx(CupBracket, { matches: matches })) }) })] }));
 }
 //# sourceMappingURL=CupLogPage.js.map

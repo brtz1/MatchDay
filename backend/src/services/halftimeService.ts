@@ -26,8 +26,7 @@ function uniq<T>(arr: T[]): T[] {
  * Mirrors the logic used by our route layer: validates remaining subs,
  * lineup/bench membership, and GK rules; then persists arrays & counters.
  *
- * NOTE: This version (to stay consistent with our recent changes) returns the
- * outgoing player to the bench array.
+ * NOTE: Enforce no re-entry: outgoing player is NOT returned to bench.
  */
 async function applySubstitutionInternal(
   matchId: number,
@@ -71,11 +70,10 @@ async function applySubstitutionInternal(
     if (gkOnField >= 1) throw new Error("Cannot have two goalkeepers on the field");
   }
 
-  // Apply: swap in/out; keep out on bench (consistent with our route logic)
+  // Apply: swap in/out; do NOT return OUT to bench (no re-entry)
   const newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
-  const newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
-
-  if (isHomeTeam) {
+  const newBench = uniq(bench.filter((id) => id !== inId && id !== outId));
+if (isHomeTeam) {
     await prisma.matchState.update({
       where: { saveGameMatchId: matchId },
       data: {
@@ -234,3 +232,5 @@ async function autoSubstituteSide(matchId: number, isHome: boolean): Promise<voi
     }
   }
 }
+
+

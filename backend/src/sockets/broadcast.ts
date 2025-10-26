@@ -247,6 +247,25 @@ export function broadcastStageChanged(
   b?: StageChangedPayload | number,
   c?: Options
 ) {
+  // In-memory dedupe: avoid spamming identical stage for the same save.
+  // Keeps UX clean when both engine and HTTP endpoints flip the same stage.
+  type LastKey = { stage: string; matchday?: number; at: number };
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  const globalAny = global as unknown as { __lastStage?: Map<number, LastKey> };
+  if (!globalAny.__lastStage) globalAny.__lastStage = new Map<number, LastKey>();
+
+  const shouldSkip = (saveId: number | undefined, payload: StageChangedPayload) => {
+    if (typeof saveId !== "number") return false;
+    const last = globalAny.__lastStage!.get(saveId);
+    const now: LastKey = { stage: String(payload.gameStage), matchday: payload.matchdayNumber, at: Date.now() };
+    if (last && last.stage === now.stage && last.matchday === now.matchday && now.at - last.at < 1000) {
+      return true;
+    }
+    globalAny.__lastStage!.set(saveId, now);
+    return false;
+  };
+
   // Form A: (saveGameId, payload, opts?)
   if (typeof a === "number") {
     const saveGameId = a as number;
@@ -255,6 +274,7 @@ export function broadcastStageChanged(
 
     // Always include saveGameId in the payload when we know it
     const full: StageChangedPayload = { ...payload, saveGameId };
+    if (shouldSkip(saveGameId, full)) return;
     emit("stage-changed", full, saveGameId, opts);
     return;
   }
@@ -274,7 +294,7 @@ export function broadcastStageChanged(
 
   const full: StageChangedPayload =
     typeof saveGameId === "number" ? { ...payload, saveGameId } : payload;
-
+  if (shouldSkip(saveGameId, full)) return;
   emit("stage-changed", full, saveGameId, opts);
 }
 

@@ -94,11 +94,12 @@ router.post("/resume", async (req: Request, res: Response, next: NextFunction) =
     if (!saveGameId)
       return res.status(400).json({ error: "saveGameId required" });
 
-    // Flip stage first so the engine's pause loop exits
+    // Flip stage to MATCHDAY and lift pause gate (no new loop)
     await setStageForSave(saveGameId, "MATCHDAY");
-
-    // Kick (or re-kick) the engine loop
-    await startOrResumeMatchday(saveGameId);
+    try {
+      const { resumeMatchday } = await import("../services/matchService");
+      await resumeMatchday(saveGameId);
+    } catch {}
 
     return res.json({ ok: true, gameStage: "MATCHDAY" });
   } catch (e) {
@@ -108,42 +109,54 @@ router.post("/resume", async (req: Request, res: Response, next: NextFunction) =
 
 /**
  * POST /api/matchday/set-stage
- * Body: {
- *   saveGameId: number,
- *   stage: "ACTION" | "MATCHDAY" | "HALFTIME" | "RESULTS" | "STANDINGS" | "PENALTIES"
- * }
- *
- * NOTE:
- *  - Setting to "HALFTIME" will cause the engine to pause (it polls this flag).
- *  - Setting to "MATCHDAY" will resume the engine (it sees the flag and continues).
- *  - You can also call /resume which sets to MATCHDAY and restarts the loop if needed.
- *  - "PENALTIES" is used during interactive PK shootouts (engine/PK service will flip to RESULTS at end).
+ * Body: { saveGameId: number, stage: "MATCHDAY"|"HALFTIME"|"RESULTS"|"STANDINGS"|"ACTION" }
+ * Alias for the canonical gamestate setter to keep FE calls backward-compatible.
  */
-router.post("/set-stage", async (req, res, next) => {
+router.post(
+  "/set-stage",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const saveGameId = parseNum(req.body?.saveGameId);
+      const stage = String(req.body?.stage ?? "").trim();
+      if (!saveGameId) return res.status(400).json({ error: "saveGameId required" });
+      if (!stage) return res.status(400).json({ error: "stage required" });
+
+      const out = await setStageForSave(saveGameId, stage as any);
+      return res.json({ saveGameId, ...out }); // { saveGameId, gameStage }
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+/**
+ * POST /api/matchday/pause
+ * Body: { saveGameId: number }
+ * Pauses the matchday engine for the given save and flips stage to HALFTIME.
+ */
+router.post('/pause', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const saveGameId = Number(req.body?.saveGameId);
-    const stageStr = String(req.body?.stage ?? "");
+    const saveGameId = parseNum(req.body?.saveGameId);
+    if (!saveGameId) return res.status(400).json({ error: 'saveGameId required' });
 
-    const allowed = ["ACTION", "MATCHDAY", "HALFTIME", "RESULTS", "STANDINGS", "PENALTIES"] as const;
-    type StageStr = typeof allowed[number];
+    // Flip stage so FE/engine agree on state
+    await setStageForSave(saveGameId, 'HALFTIME');
 
-    if (!Number.isFinite(saveGameId) || saveGameId <= 0) {
-      return res.status(400).json({ error: "saveGameId required" });
-    }
-    if (!allowed.includes(stageStr as StageStr)) {
-      return res.status(400).json({ error: "Invalid stage" });
-    }
+    // Best-effort: also mark the in-memory pause gate if engine loop uses it
+    try {
+      const { pauseMatchday } = await import('../services/matchService');
+      await pauseMatchday(saveGameId);
+    } catch {}
 
-    const out = await setStageForSave(saveGameId, stageStr as StageStr);
-    return res.json(out); // { gameStage }
+    return res.json({ ok: true, saveGameId, gameStage: 'HALFTIME' });
   } catch (e) {
     next(e);
   }
 });
 
 /**
- * GET /api/matchday/team-match-info?saveGameId=&matchday=&teamId=
- * → { saveGameId, matchdayId, matchId, isHomeTeam, homeTeamId, awayTeamId, opponentTeamId }
+ * GET /api/matchday/team-match-info?saveGameId&matchday&teamId
+ * Returns: { matchId, isHomeTeam }
  */
 router.get(
   "/team-match-info",
@@ -153,36 +166,20 @@ router.get(
       const matchday = parseNum(req.query.matchday);
       const teamId = parseNum(req.query.teamId);
       if (!saveGameId || !matchday || !teamId) {
-        return res
-          .status(400)
-          .json({ error: "saveGameId, matchday and teamId are required" });
+        return res.status(400).json({ error: "saveGameId, matchday and teamId are required" });
       }
-      const { matchId, isHomeTeam } = await svcGetTeamMatchInfo(
-        saveGameId,
-        matchday,
-        teamId
-      );
 
-      const m = await prisma.saveGameMatch.findUnique({
-        where: { id: matchId },
-        select: { matchdayId: true, homeTeamId: true, awayTeamId: true },
-      });
-      if (!m) return res.status(404).json({ error: "Match not found" });
-
-      const opponentTeamId = isHomeTeam ? m.awayTeamId : m.homeTeamId;
-      return res.json({
-        saveGameId,
-        matchdayId: m.matchdayId,
-        matchId,
-        isHomeTeam,
-        homeTeamId: m.homeTeamId,
-        awayTeamId: m.awayTeamId,
-        opponentTeamId,
-      });
+      try {
+        const info = await svcGetTeamMatchInfo(saveGameId, matchday, teamId);
+        return res.json(info);
+      } catch (err) {
+        return res.status(404).json({ error: "Team match info not found" });
+      }
     } catch (e) {
       next(e);
     }
   }
 );
-
 export default router;
+
+

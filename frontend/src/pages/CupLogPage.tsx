@@ -98,10 +98,16 @@ export default function CupLogPage() {
           // Reuse the same backend finalize used by StandingsPage.
           const res = await finalizeStandings(resolved);
           const targetCoach = res.coachTeamId ?? coachTeamId;
-          navigate(teamUrl(targetCoach), { replace: true });
+          navigate(teamUrl(targetCoach), {
+            replace: true,
+            state: { cameFromResults: true },
+          });
         } catch (e) {
           console.warn("[CupLog] finalize failed; routing anyway", e);
-          navigate(teamUrl(coachTeamId), { replace: true });
+          navigate(teamUrl(coachTeamId), {
+            replace: true,
+            state: { cameFromResults: true },
+          });
         }
       }, 3000);
 
@@ -120,7 +126,11 @@ export default function CupLogPage() {
         <AppButton
           variant="secondary"
           onClick={() =>
-            coachTeamId ? navigate(teamUrl(coachTeamId)) : navigate(-1)
+            coachTeamId
+              ? navigate(teamUrl(coachTeamId), {
+                  state: { cameFromResults },
+                })
+              : navigate(-1)
           }
           className="!px-6 !py-2"
         >

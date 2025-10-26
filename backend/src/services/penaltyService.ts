@@ -1,15 +1,15 @@
 // backend/src/services/penaltyService.ts
 
-import prisma from "../utils/prisma";
 import { MatchEventType } from "@prisma/client";
 import {
-  broadcastPkStart,
-  broadcastPkAttempt,
-  broadcastPkEnd,
-  broadcastPenaltyResult,
   broadcastMatchEvent,
   broadcastMatchTick,
+  broadcastPenaltyResult,
+  broadcastPkAttempt,
+  broadcastPkEnd,
+  broadcastPkStart,
 } from "../sockets/broadcast";
+import prisma from "../utils/prisma";
 import { enterPenalties, exitPenalties } from "./gameState";
 
 /* ----------------------------------------------------------------------------
@@ -71,16 +71,18 @@ export type InteractivePkSnapshot = {
   homeScore: number;
   awayScore: number;
   attemptNumber: number; // total attempts taken so far (1-based on the last emitted attempt)
-  roundNumber: number;   // completed pairs in regulation [0..bestOf]
+  roundNumber: number; // completed pairs in regulation [0..bestOf]
   suddenDeath: boolean;
-  currentShooter: Side;  // side that will shoot next
+  currentShooter: Side; // side that will shoot next
   finished?: boolean;
   winner?: Side;
 };
 
 const interactivePkBySave = new Map<number, InteractivePkSnapshot>();
 
-export function getInteractivePkState(saveGameId: number): InteractivePkSnapshot | null {
+export function getInteractivePkState(
+  saveGameId: number
+): InteractivePkSnapshot | null {
   const s = interactivePkBySave.get(saveGameId);
   return s ?? null;
 }
@@ -98,7 +100,7 @@ function clearInteractiveState(saveGameId: number) {
  * ---------------------------------------------------------------------------- */
 
 const MAX_TOTAL_ATTEMPTS = 60; // 30 pairs max; then coin-flip
-const BEST_OF = 5;             // standard FIFA 5
+const BEST_OF = 5; // standard FIFA 5
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -106,7 +108,7 @@ function clamp(v: number, lo: number, hi: number): number {
 
 function coinFlipFirstShooter(matchId: number): Side {
   const r = Math.sin(matchId * 9301 + 49297) * 233280;
-  return (r - Math.floor(r)) < 0.5 ? "HOME" : "AWAY";
+  return r - Math.floor(r) < 0.5 ? "HOME" : "AWAY";
 }
 
 function randomWinner(): Side {
@@ -171,7 +173,10 @@ function sortShooters(a: PKPlayer, b: PKPlayer): number {
   return (a.id || 0) - (b.id || 0);
 }
 
-async function getGkRatingForSide(matchState: any, side: Side): Promise<number> {
+async function getGkRatingForSide(
+  matchState: any,
+  side: Side
+): Promise<number> {
   const lineupIds = extractOnPitchIds(matchState, side);
   if (lineupIds.length === 0) return 40;
 
@@ -189,7 +194,7 @@ async function getGkRatingForSide(matchState: any, side: Side): Promise<number> 
 
 function pkScoreProbability(shooterRating: number, gkRating: number): number {
   const p = 0.75 + (shooterRating - gkRating) * 0.01;
-  return clamp(p, 0.60, 0.92);
+  return clamp(p, 0.6, 0.92);
 }
 
 /* ----------------------------------------------------------------------------
@@ -237,8 +242,14 @@ export async function selectShootoutOrder(saveGameMatchId: number): Promise<{
     return pos !== "GK" && !excluded.has(p.id);
   };
 
-  const homeElig = homePlayers.filter(isEligible).map<PKPlayer>((p) => p).sort(sortShooters);
-  const awayElig = awayPlayers.filter(isEligible).map<PKPlayer>((p) => p).sort(sortShooters);
+  const homeElig = homePlayers
+    .filter(isEligible)
+    .map<PKPlayer>((p) => p)
+    .sort(sortShooters);
+  const awayElig = awayPlayers
+    .filter(isEligible)
+    .map<PKPlayer>((p) => p)
+    .sort(sortShooters);
 
   const bestOf = BEST_OF;
   const homeOrder = homeElig.slice(0, Math.min(bestOf, homeElig.length));
@@ -316,10 +327,16 @@ export async function simulateShootout(
 
   // If zero eligible shooters on both sides → coin-flip to avoid deadlock.
   const noShooters =
-    homeOrder.length + awayOrder.length + homeQueue.length + awayQueue.length === 0;
+    homeOrder.length +
+      awayOrder.length +
+      homeQueue.length +
+      awayQueue.length ===
+    0;
 
   if (interactive) {
-    try { await enterPenalties(saveGameId); } catch {}
+    try {
+      await enterPenalties(saveGameId);
+    } catch {}
     try {
       broadcastMatchTick(saveGameId, {
         matchId,
@@ -381,7 +398,9 @@ export async function simulateShootout(
           suddenDeath: false,
         });
       } catch {}
-      try { await exitPenalties(saveGameId, { to: "RESULTS" }); } catch {}
+      try {
+        await exitPenalties(saveGameId, { to: "RESULTS" });
+      } catch {}
       clearInteractiveState(saveGameId);
     }
 
@@ -444,7 +463,9 @@ export async function simulateShootout(
 
   const pickShooter = (side: Side): PKPlayer | null => {
     if (roundNumber < bestOf) {
-      return side === "HOME" ? (homeOrder[homeIdx] || null) : (awayOrder[awayIdx] || null);
+      return side === "HOME"
+        ? homeOrder[homeIdx] || null
+        : awayOrder[awayIdx] || null;
     }
     // sudden-death / recycling
     if (side === "HOME") {
@@ -626,7 +647,9 @@ export async function simulateShootout(
       });
     } catch {}
 
-    try { await exitPenalties(saveGameId, { to: "RESULTS" }); } catch {}
+    try {
+      await exitPenalties(saveGameId, { to: "RESULTS" });
+    } catch {}
 
     // snapshot no longer needed once we leave PENALTIES
     clearInteractiveState(saveGameId);
@@ -651,13 +674,14 @@ export async function resolveMatchPenalty(params: {
   matchId: number;
   shooterId: number;
   isHome: boolean;
+  minute?: number;
 }): Promise<{
   outcome: "GOAL" | "MISS" | "SAVE";
   description: string;
   homeGoals: number;
   awayGoals: number;
 }> {
-  const { matchId, shooterId, isHome } = params;
+  const { matchId, shooterId, isHome, minute } = params;
 
   const match = await prisma.saveGameMatch.findUnique({
     where: { id: matchId },
@@ -688,11 +712,14 @@ export async function resolveMatchPenalty(params: {
   let newHome = match.homeGoals ?? 0;
   let newAway = match.awayGoals ?? 0;
 
+  const eventMinute =
+    typeof minute === "number" ? minute : (match.state as any)?.minute ?? 0;
+
   let description = "";
   if (outcome === "GOAL") {
     if (isHome) newHome += 1;
     else newAway += 1;
-    description = `Penalty scored by ${shooter.name}`;
+    description = `⚽️ Penalty scored by ${shooter.name}`;
   } else if (outcome === "SAVE") {
     description = `Penalty saved! ${shooter.name} denied`;
   } else {
@@ -712,7 +739,7 @@ export async function resolveMatchPenalty(params: {
       await prisma.matchEvent.create({
         data: {
           saveGameMatchId: matchId,
-          minute: (match.state as any)?.minute ?? 0,
+          minute: eventMinute,
           type: MatchEventType.GOAL,
           description,
           saveGamePlayerId: shooter.id,
@@ -723,7 +750,7 @@ export async function resolveMatchPenalty(params: {
     try {
       broadcastMatchEvent(saveGameId, {
         matchId,
-        minute: (match.state as any)?.minute ?? 0,
+        minute: eventMinute,
         type: MatchEventType.GOAL,
         description,
         player: { id: shooter.id, name: shooter.name },
@@ -735,7 +762,7 @@ export async function resolveMatchPenalty(params: {
   try {
     broadcastPenaltyResult(saveGameId, {
       matchId,
-      minute: (match.state as any)?.minute ?? 0,
+      minute: eventMinute,
       isHomeTeam: isHome,
       shooter: {
         id: shooter.id,

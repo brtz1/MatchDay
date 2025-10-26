@@ -100,9 +100,62 @@ async function getMatchStateOrThrow(matchId: number) {
 async function buildPublicSideState(matchId: number, side: Side): Promise<PublicSideState> {
   const ms = await getMatchStateOrThrow(matchId);
 
-  const lineupIds: number[] = (side === "home" ? ms.homeLineup : ms.awayLineup) ?? [];
-  const benchIds: number[] = (side === "home" ? ms.homeReserves : ms.awayReserves) ?? [];
+  let lineupIds: number[] = (side === "home" ? ms.homeLineup : ms.awayLineup) ?? [];
+  let benchIds: number[] = (side === "home" ? ms.homeReserves : ms.awayReserves) ?? [];
   const subsMade: number = side === "home" ? (ms.homeSubsMade ?? 0) : (ms.awaySubsMade ?? 0);
+
+  // Self-heal legacy states: if this side has no lineup and no bench, generate a best-available XI.
+  if (lineupIds.length === 0 && benchIds.length === 0) {
+    try {
+      const match = await prisma.saveGameMatch.findUnique({
+        where: { id: matchId },
+        select: { homeTeamId: true, awayTeamId: true },
+      });
+      if (match) {
+        const teamId = side === "home" ? match.homeTeamId : match.awayTeamId;
+        const all = await prisma.saveGamePlayer.findMany({
+          where: { teamId },
+          select: { id: true, position: true, rating: true },
+        });
+        const byRating = (a: { rating: number | null; id: number }, b: { rating: number | null; id: number }) =>
+          (Number(b.rating ?? 0) - Number(a.rating ?? 0)) || a.id - b.id;
+        const gks = all.filter((p) => (p.position ?? "").toUpperCase() === "GK").sort(byRating);
+        const field = all.filter((p) => (p.position ?? "").toUpperCase() !== "GK").sort(byRating);
+        const recLineup: number[] = [];
+        const recBench: number[] = [];
+        if (gks.length > 0) recLineup.push(gks[0].id);
+        for (const p of field) {
+          if (recLineup.length < 11) recLineup.push(p.id);
+          else recBench.push(p.id);
+        }
+        const extras = all
+          .filter((p) => !recLineup.includes(p.id) && !recBench.includes(p.id))
+          .sort(byRating)
+          .map((p) => p.id);
+        for (const pid of extras) {
+          if (recLineup.length < 11) recLineup.push(pid);
+          else recBench.push(pid);
+        }
+        const recBench6 = recBench.slice(0, 6);
+
+        if (side === "home") {
+          await prisma.matchState.update({
+            where: { saveGameMatchId: matchId },
+            data: { homeLineup: recLineup, homeReserves: recBench6 },
+          });
+        } else {
+          await prisma.matchState.update({
+            where: { saveGameMatchId: matchId },
+            data: { awayLineup: recLineup, awayReserves: recBench6 },
+          });
+        }
+        lineupIds = recLineup;
+        benchIds = recBench6;
+      }
+    } catch {
+      // ignore repair errors; continue with empty lists
+    }
+  }
 
   const ids = [...lineupIds, ...benchIds];
   const players = ids.length
@@ -251,11 +304,12 @@ async function applySubstitutionLocal(
   if (outIdx !== -1) {
     // Normal: out on field → move OUT to bench, IN to field
     newLineup = uniq(lineup.filter((id) => id !== outId).concat(inId));
-    newBench = uniq(bench.filter((id) => id !== inId).concat(outId));
+    // Do NOT allow re-entry: keep outgoing player off the bench
+    newBench = uniq(bench.filter((id) => id !== inId && id !== outId));
   } else {
     // Injury-flow: OUT already off → just move IN from bench to lineup
     newLineup = uniq(lineup.concat(inId));
-    newBench = uniq(bench.filter((id) => id !== inId));
+    newBench = uniq(bench.filter((id) => id !== inId && id !== outId));
   }
 
   // Persist counters + arrays
@@ -296,6 +350,7 @@ async function removeFromLineupNoSub(
   const ms = await getMatchStateOrThrow(matchId);
   const lineup = isHomeTeam ? (ms.homeLineup ?? []) : (ms.awayLineup ?? []);
   const reserves = isHomeTeam ? (ms.homeReserves ?? []) : (ms.awayReserves ?? []);
+  const newReserves = reserves.filter((id) => id !== playerId);
 
   const exists = lineup.includes(playerId);
   if (!exists) {
@@ -310,7 +365,7 @@ async function removeFromLineupNoSub(
       where: { saveGameMatchId: matchId },
       data: {
         homeLineup: newLineup,
-        homeReserves: reserves,
+        homeReserves: newReserves,
       },
     });
   } else {
@@ -318,7 +373,7 @@ async function removeFromLineupNoSub(
       where: { saveGameMatchId: matchId },
       data: {
         awayLineup: newLineup,
-        awayReserves: reserves,
+        awayReserves: newReserves,
       },
     });
   }
@@ -523,3 +578,4 @@ router.post(
 );
 
 export default router;
+

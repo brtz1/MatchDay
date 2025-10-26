@@ -1,0 +1,251 @@
+{
+  "teams": [
+    {
+      "name": "Real Madrid",
+      "country": "Spain",
+      "rating": 85,
+      "coachName": "Carlo Ancelotti",
+      "players": [
+        {
+          "name": "Thibaut Courtois",
+          "nationality": "Belgium",
+          "position": "GK",
+          "behavior": 4
+        },
+        {
+          "name": "Andriy Lunin",
+          "nationality": "Ukraine",
+          "position": "GK",
+          "behavior": 2
+        },
+        {
+          "name": "Dani Carvajal",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Éder Militão",
+          "nationality": "Brazil",
+          "position": "DF",
+          "behavior": 5
+        },
+        {
+          "name": "David Alaba",
+          "nationality": "Austria",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Ferland Mendy",
+          "nationality": "France",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Antonio Rüdiger",
+          "nationality": "Germany",
+          "position": "DF",
+          "behavior": 2
+        },
+        {
+          "name": "Nacho Fernández",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Lucas Vázquez",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Eduardo Camavinga",
+          "nationality": "France",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Toni Kroos",
+          "nationality": "Germany",
+          "position": "MF",
+          "behavior": 4
+        },
+        {
+          "name": "Luka Modrić",
+          "nationality": "Croatia",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Fede Valverde",
+          "nationality": "Uruguay",
+          "position": "MF",
+          "behavior": 3
+        },
+        {
+          "name": "Vinícius Júnior",
+          "nationality": "Brazil",
+          "position": "AT",
+          "behavior": 4
+        },
+        {
+          "name": "Karim Benzema",
+          "nationality": "France",
+          "position": "AT",
+          "behavior": 5
+        }
+      ]
+    },
+    {
+      "name": "Barcelona",
+      "country": "Spain",
+      "rating": 84,
+      "coachName": "Xavi Hernández",
+      "players": [
+        {
+          "name": "Marc-André ter Stegen",
+          "nationality": "Germany",
+          "position": "GK",
+          "behavior": 5
+        },
+        {
+          "name": "Iñaki Peña",
+          "nationality": "Spain",
+          "position": "GK",
+          "behavior": 3
+        },
+        {
+          "name": "Alejandro Balde",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Ronald Araújo",
+          "nationality": "Uruguay",
+          "position": "DF",
+          "behavior": 5
+        },
+        {
+          "name": "Andreas Christensen",
+          "nationality": "Denmark",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Jules Koundé",
+          "nationality": "France",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Éric García",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Frenkie de Jong",
+          "nationality": "Netherlands",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Gavi",
+          "nationality": "Spain",
+          "position": "MF",
+          "behavior": 4
+        },
+        {
+          "name": "Pedri",
+          "nationality": "Spain",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Dani Olmo",
+          "nationality": "Spain",
+          "position": "MF",
+          "behavior": 3
+        },
+        {
+          "name": "Ferran Torres",
+          "nationality": "Spain",
+          "position": "AT",
+          "behavior": 4
+        },
+        {
+          "name": "Raphinha",
+          "nationality": "Brazil",
+          "position": "AT",
+          "behavior": 4
+        },
+        {
+          "name": "Robert Lewandowski",
+          "nationality": "Poland",
+          "position": "AT",
+          "behavior": 5
+        },
+        {
+          "name": "Ousmane Dembélé",
+          "nationality": "France",
+          "position": "AT",
+          "behavior": 3
+        }
+      ]
+    },
+    {
+      "name": "Atlético Madrid",
+      "country": "Spain",
+      "rating": 83,
+      "coachName": "Diego Simeone",
+      "players": [
+        {
+          "name": "Jan Oblak",
+          "nationality": "Slovenia",
+          "position": "GK",
+          "behavior": 5
+        },
+        {
+          "name": "Juan Musso",
+          "nationality": "Argentina",
+          "position": "GK",
+          "behavior": 3
+        },
+        {
+          "name": "César Azpilicueta",
+          "nationality": "Spain",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "José Giménez",
+          "nationality": "Uruguay",
+          "position": "DF",
+          "behavior": 3
+        },
+        {
+          "name": "Nahuel Molina",
+          "nationality": "Argentina",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Stefan Savić",
+          "nationality": "Montenegro",
+          "position": "DF",
+          "behavior": 4
+        },
+        {
+          "name": "Marcos Llorente",
+          "nationality": "Spain",
+          "position": "MF",
+          "behavior": 5
+        },
+        {
+          "name": "Kieran Trippier",
+          "nationality": "England",
+          "position": "DF",
+          "behavior": 3

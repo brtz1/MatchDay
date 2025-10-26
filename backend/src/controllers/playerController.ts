@@ -16,7 +16,14 @@ export async function getAllPlayers(
     const { teamId, position, nationality } = req.query;
 
     const where: Prisma.PlayerWhereInput = {};
-    if (teamId != null) where.teamId = Number(teamId);
+    if (teamId != null) {
+      const parsed = Number(teamId);
+      if (!Number.isFinite(parsed)) {
+        res.status(400).json({ error: "teamId must be a number" });
+        return;
+      }
+      where.teamId = parsed;
+    }
     if (position != null) where.position = String(position);
     if (nationality != null) where.nationality = String(nationality);
 
@@ -45,6 +52,10 @@ export async function getPlayerById(
   next: NextFunction
 ): Promise<void> {
   const playerId = Number(req.params.id);
+  if (!Number.isFinite(playerId)) {
+    res.status(400).json({ error: "Invalid player id" });
+    return;
+  }
   try {
     const player = await prisma.player.findUnique({
       where: { id: playerId },

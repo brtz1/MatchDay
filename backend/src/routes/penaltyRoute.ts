@@ -90,6 +90,7 @@ router.post(
       const saveGameId = parseNum(req.body?.saveGameId);
       const matchId = parseNum(req.body?.matchId);
       const shooterId = parseNum(req.body?.shooterId);
+      const minute = parseNum(req.body?.minute);
 
       if (!saveGameId || !matchId || !shooterId) {
         return res
@@ -158,6 +159,7 @@ router.post(
         matchId,
         shooterId,
         isHome,
+        minute: minute ?? undefined,
       });
 
       return res.json(result);

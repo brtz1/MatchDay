@@ -56,6 +56,17 @@ export interface HalfTimePopupProps {
 
   /** Label ET half-time explicitly (caller may omit; we infer from pauseReason === 'ET_HALF') */
   mode?: HalfTimeMode;
+
+  /** Optional scoreboard/team metadata for the paused match */
+  matchMeta?: {
+    homeTeam: string;
+    awayTeam: string;
+    homeGoals: number;
+    awayGoals: number;
+  };
+
+  /** Name of the team whose lineup/bench we are editing */
+  focusTeamName?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -74,6 +85,8 @@ export default function HalfTimePopup({
   pauseReason,
   incidentPlayer,
   mode,
+  matchMeta,
+  focusTeamName,
 }: HalfTimePopupProps) {
   const [selectedOut, setSelectedOut] = useState<number | null>(null);
   const [selectedIn,  setSelectedIn]  = useState<number | null>(null);
@@ -219,7 +232,31 @@ export default function HalfTimePopup({
   })();
 
   // Title: show ET label when applicable
-  const titleText = effectiveMode === "ET" ? "Extra Time – Half-time" : "Match Paused";
+  const titleText = effectiveMode === "ET" ? "Extra Time — Half-time" : "Match Paused";
+
+  const scoreboard = matchMeta ? (
+    <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900 shadow-sm dark:border-blue-600/60 dark:bg-blue-900/20 dark:text-blue-100">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold">
+          <div className="text-xs uppercase tracking-wide text-blue-800/70 dark:text-blue-100/70">
+            Home
+          </div>
+          <div>{matchMeta.homeTeam}</div>
+        </div>
+        <div className="text-3xl font-black tracking-wide">
+          <span>{matchMeta.homeGoals}</span>
+          <span className="mx-2 text-base font-medium">-</span>
+          <span>{matchMeta.awayGoals}</span>
+        </div>
+        <div className="text-right text-sm font-semibold">
+          <div className="text-xs uppercase tracking-wide text-blue-800/70 dark:text-blue-100/70">
+            Away
+          </div>
+          <div>{matchMeta.awayTeam}</div>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <Modal
@@ -237,6 +274,8 @@ export default function HalfTimePopup({
       <div className="rounded-md border border-yellow-400 bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-600/70 dark:bg-yellow-900/20 dark:text-yellow-100">
         {banner}
       </div>
+
+      {scoreboard}
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Left: Events */}
@@ -259,16 +298,18 @@ export default function HalfTimePopup({
           {/* On Field */}
           <RosterList
             kind="lineup"
-            title={`On Field`}
+            title={`On Field (${lineup.length})`}
+            teamLabel={focusTeamName}
             players={lineup}
             selected={selectedOut}
-            onSelect={canSubstitute && subsRemaining > 0 ? setSelectedOut : noopSelect}
+            onSelect={canSubstitute ? setSelectedOut : noopSelect}
           />
 
           {/* Bench (injured/unavailable filtered OUT completely) */}
           <RosterList
             kind="bench"
-            title={`Bench`}
+            title={`Bench (${bench.length})`}
+            teamLabel={focusTeamName}
             players={bench}
             selected={selectedIn}
             onSelect={canSubstitute && subsRemaining > 0 ? setSelectedIn : noopSelect}
@@ -319,12 +360,14 @@ function RosterList({
   players,
   selected,
   onSelect,
+  teamLabel,
 }: {
   kind: "lineup" | "bench";
   title: string;
   players: PlayerDTO[];
   selected: number | null;
   onSelect: (id: number | null) => void;
+  teamLabel?: string;
 }) {
   const normalizePos = (pos?: string) => {
     const s = (pos || "").toUpperCase();
@@ -360,6 +403,11 @@ function RosterList({
       <p className="mb-1 text-xs font-bold uppercase tracking-wide text-blue-600 dark:text-blue-400">
         {title}
       </p>
+      {teamLabel ? (
+        <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          {teamLabel}
+        </p>
+      ) : null}
       <div className="max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
         {sorted.map((p, idx) => {
           // Fallback safety: if an ineligible player still slips through, disable the button.

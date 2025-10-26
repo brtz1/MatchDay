@@ -18,7 +18,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 
     // ⬇️ Updated: call snapshot with no arguments (if refactored to use gameState internally)
     const saveId = await snapshotCurrentGame();
-    res.status(201).json({ saveId, saveName: name });
+    res.status(201).json({ saveGameId: saveId, saveName: name });
   } catch (error) {
     console.error('❌ Manual save failed:', error);
     next(error);
@@ -26,3 +26,4 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 export default router;
+

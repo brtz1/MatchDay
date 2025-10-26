@@ -1,6 +1,7 @@
 // File: frontend/src/components/DrawResults.tsx
 import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { teamUrl } from "@/utils/paths";
 import { useTeamContext } from "@/store/TeamContext";
 
 interface DrawState {
@@ -46,7 +47,7 @@ export default function DrawResults() {
         })}
       </div>
       <button
-        onClick={() => navigate(`/team/${userTeamId}`)}
+        onClick={() => navigate(teamUrl(userTeamId))}
         className="mt-6 px-4 py-2 bg-green-600 text-white rounded"
       >
         Go to Team Roster

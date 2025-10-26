@@ -1,6 +1,7 @@
 // frontend/src/components/layout/TopNavBar.tsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { teamUrl } from "@/utils/paths";
 import clsx from "clsx";
 
 import SeasonGoldenBootModal from "@/components/stats/SeasonGoldenBootModal";
@@ -115,7 +116,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({ coachTeamId }) => {
 
   const handleBack = () => navigate(-1);
   const handleHome = () => {
-    if (coachTeamId > 0) navigate(`/team/${coachTeamId}`);
+    if (coachTeamId > 0) navigate(teamUrl(coachTeamId));
   };
 
   const openMenu = (key: string) => setOpenDropdown(key);

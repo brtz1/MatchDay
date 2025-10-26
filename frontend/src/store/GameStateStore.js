@@ -2,7 +2,7 @@ import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useState, useEffect, useRef, } from "react";
 import gameStateService from "@/services/gameStateService";
 import { onStageChanged, offStageChanged } from "@/socket";
-import * as Sock from "@/socket"; // ⬅️ for raw socket access to PK events
+import * as Sock from "@/socket"; // For raw socket access to PK events
 import { FORMATION_LAYOUTS } from "@/utils/formationHelper";
 /* ------------------------------------------------------------------------- */
 /* Helpers                                                                   */
@@ -13,7 +13,7 @@ function isGameStage(v) {
         v === "HALFTIME" ||
         v === "RESULTS" ||
         v === "STANDINGS" ||
-        v === "PENALTIES" // ⬅️ NEW
+        v === "PENALTIES" // NEW
     );
 }
 function isMatchdayType(v) {
@@ -21,6 +21,7 @@ function isMatchdayType(v) {
 }
 const BENCH_MAX = 6; // <-- per your rule (max 6)
 const LINEUP_MAX = 11;
+const DEFAULT_FORMATION = "4-4-2";
 /* ------------------------------------------------------------------------- */
 /* Context                                                                   */
 /* ------------------------------------------------------------------------- */
@@ -32,16 +33,16 @@ export function GameStateProvider({ children, autoLoad = true, }) {
     const [gameStage, setGameStage] = useState("ACTION");
     const [matchdayType, setMatchdayType] = useState("LEAGUE");
     const [bootstrapping, setBootstrapping] = useState(true);
-    // One-shot “came from results” flag + when we entered STANDINGS
+    // One-shot "came from results" flag + when we entered STANDINGS
     const [cameFromResults, setCameFromResults] = useState(false);
     const [standingsEnteredAt, setStandingsEnteredAt] = useState(null);
     // Keep last known stage to detect transitions
     const prevStageRef = useRef("ACTION");
     // Ephemeral formation selection
-    const [selectedFormation, setSelectedFormation] = useState("4-4-2");
+    const [selectedFormation, setSelectedFormation] = useState(DEFAULT_FORMATION);
     const [lineupIds, setLineupIds] = useState([]);
     const [reserveIds, setReserveIds] = useState([]);
-    // 🔧 Track latest arrays to compute atomic updates safely for cycleSelection
+    // Track latest arrays to compute atomic updates safely for cycleSelection
     const lineupRef = useRef(lineupIds);
     const reserveRef = useRef(reserveIds);
     useEffect(() => {
@@ -63,6 +64,14 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         setPkAttempts([]);
         setPkEnded(null);
     };
+    const resetSelection = () => {
+        setLineupIds([]);
+        setReserveIds([]);
+    };
+    const resetFormationSelection = () => {
+        setSelectedFormation(DEFAULT_FORMATION);
+        resetSelection();
+    };
     const resetState = () => {
         setSaveGameId(null);
         setCoachTeamId(null);
@@ -72,10 +81,8 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         setCameFromResults(false);
         setStandingsEnteredAt(null);
         prevStageRef.current = "ACTION";
-        setSelectedFormation("4-4-2");
-        setLineupIds([]);
-        setReserveIds([]);
-        clearPk(); // ⬅️ also reset PK state
+        resetFormationSelection();
+        clearPk(); // also reset PK state
     };
     const refreshGameState = async () => {
         try {
@@ -105,6 +112,7 @@ export function GameStateProvider({ children, autoLoad = true, }) {
             if (prev === "RESULTS" && nextStage === "STANDINGS") {
                 setCameFromResults(true);
                 setStandingsEnteredAt(Date.now());
+                resetFormationSelection();
             }
             // If we leave STANDINGS to anything else, clear the one-shot flag
             if (prev === "STANDINGS" && nextStage !== "STANDINGS") {
@@ -154,6 +162,7 @@ export function GameStateProvider({ children, autoLoad = true, }) {
             if (prev === "RESULTS" && nextStage === "STANDINGS") {
                 setCameFromResults(true);
                 setStandingsEnteredAt(Date.now());
+                resetFormationSelection();
             }
             if (prev === "STANDINGS" && nextStage !== "STANDINGS") {
                 setCameFromResults(false);
@@ -215,7 +224,7 @@ export function GameStateProvider({ children, autoLoad = true, }) {
     // --------------------------- Selection helpers ----------------------------
     /**
      * Endless cycle with limits:
-     * none → lineup → reserve → none → lineup …
+     * none -> lineup -> reserve -> none -> lineup ...
      * - Prevents duplicates
      * - Atomic updates (reads refs, sets both lists together)
      * - Formation-agnostic; validation (exactly 1 GK, etc.) happens on advance CTA
@@ -229,24 +238,24 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         let nextLineup = curLineup.slice();
         let nextReserve = curReserve.slice();
         if (!inLineup && !inReserve) {
-            // none → lineup (no caps here; validate on advance)
+            // none -> lineup (no caps here; validate on advance)
             nextLineup = [playerId, ...nextLineup];
         }
         else if (inLineup) {
-            // lineup → reserve
+            // lineup -> reserve
             nextLineup = nextLineup.filter((id) => id !== playerId);
             if (!nextReserve.includes(playerId)) {
                 nextReserve = [playerId, ...nextReserve];
             }
         }
         else {
-            // reserve → none
+            // reserve -> none
             nextReserve = nextReserve.filter((id) => id !== playerId);
         }
         // safety: de-dup cross lists
         const luSet = new Set(nextLineup);
         nextReserve = nextReserve.filter((id) => !luSet.has(id));
-        // Debug — remove once verified
+        // Debug: remove once verified
         console.debug("[cycleSelection]", { playerId, inLineup, inReserve }, { nextLineup, nextReserve });
         setLineupIds(nextLineup);
         setReserveIds(nextReserve);
@@ -259,10 +268,6 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         setLineupIds(lu);
         setReserveIds(rs);
     };
-    const resetSelection = () => {
-        setLineupIds([]);
-        setReserveIds([]);
-    };
     /**
      * Autopick that DOES NOT cross-fill positions.
      * - Select up to the formation's requested count PER position (capped by what's available).
@@ -270,7 +275,7 @@ export function GameStateProvider({ children, autoLoad = true, }) {
      * - Bench picks best-of-rest up to BENCH_MAX (prefer 1 GK if available).
      */
     const autopickSelection = (players, formation) => {
-        const layout = FORMATION_LAYOUTS[formation] ?? FORMATION_LAYOUTS["4-4-2"];
+        const layout = FORMATION_LAYOUTS[formation] ?? FORMATION_LAYOUTS[DEFAULT_FORMATION];
         const byPos = {
             GK: players
                 .filter((p) => p.position === "GK")
@@ -287,12 +292,12 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         };
         const lineup = [];
         const reserves = [];
-        // GK / DF / MF / AT starters — strictly per position, capped by availability
+        // GK / DF / MF / AT starters - strictly per position, capped by availability
         lineup.push(...byPos.GK.slice(0, layout.GK).map((p) => p.id));
         lineup.push(...byPos.DF.slice(0, layout.DF).map((p) => p.id));
         lineup.push(...byPos.MF.slice(0, layout.MF).map((p) => p.id));
         lineup.push(...byPos.AT.slice(0, layout.AT).map((p) => p.id));
-        // ❌ Do NOT top-up to 11 with other positions.
+        // NOTE: Do NOT top-up to 11 with other positions.
         // Bench: up to BENCH_MAX best of the rest (prefer 1 GK if available)
         const chosen = new Set(lineup);
         const rest = [...players]
@@ -337,6 +342,7 @@ export function GameStateProvider({ children, autoLoad = true, }) {
         cycleSelection,
         setSelection,
         resetSelection,
+        resetFormationSelection,
         autopickSelection,
         // PK state
         pkMatchId,

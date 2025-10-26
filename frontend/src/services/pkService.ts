@@ -74,6 +74,8 @@ export interface TakePenaltyRequest {
   saveGameId: number;
   matchId: number;
   shooterId: number;
+  /** Optional explicit minute for attribution */
+  minute?: number;
 }
 
 export interface TakePenaltyResponse {

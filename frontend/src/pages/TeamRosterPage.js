@@ -77,7 +77,7 @@ export default function TeamRosterPage() {
          - store flag (cameFromResults), or
          - router state flag (location.state?.cameFromResults)
        Prefers store method `resetFormationSelection()` if present; falls back to
-       `setLineupIds([])` + `setReserveIds([])` when available.
+       `resetSelection()` (or manual lineup/reserve clears) and restores default formation.
        Also clears router state to avoid repeated resets.
     --------------------------------------------------------------------------- */
     useEffect(() => {
@@ -90,10 +90,18 @@ export default function TeamRosterPage() {
                 gameState.resetFormationSelection();
             }
             else {
-                if (typeof gameState.setLineupIds === "function")
-                    gameState.setLineupIds([]);
-                if (typeof gameState.setReserveIds === "function")
-                    gameState.setReserveIds([]);
+                if (typeof gameState.resetSelection === "function") {
+                    gameState.resetSelection();
+                }
+                else {
+                    if (typeof gameState.setLineupIds === "function")
+                        gameState.setLineupIds([]);
+                    if (typeof gameState.setReserveIds === "function")
+                        gameState.setReserveIds([]);
+                }
+                if (typeof gameState.setSelectedFormation === "function") {
+                    gameState.setSelectedFormation("4-4-2");
+                }
             }
         }
         finally {

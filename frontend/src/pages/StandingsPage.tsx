@@ -228,10 +228,16 @@ export default function StandingsPage() {
       try {
         const res = await finalizeStandings(sid);
         const targetCoach = res?.coachTeamId ?? coachTeamId;
-        navigate(teamUrl(targetCoach), { replace: true });
+        navigate(teamUrl(targetCoach), {
+          replace: true,
+          state: { cameFromResults: true },
+        });
       } catch (e) {
         console.warn("[Standings] finalize failed; routing anyway", e);
-        navigate(teamUrl(coachTeamId), { replace: true });
+        navigate(teamUrl(coachTeamId), {
+          replace: true,
+          state: { cameFromResults: true },
+        });
       }
     }, 3000);
 
@@ -320,7 +326,11 @@ function DivisionCard({
                 <td className="px-3 py-2 text-left font-medium">
                   <button
                     className="text-blue-600 underline transition-colors hover:text-yellow-700 dark:text-yellow-300 dark:hover:text-yellow-100"
-                    onClick={() => navigate(teamUrl(team.teamId))}
+                    onClick={() =>
+                      navigate(teamUrl(team.teamId), {
+                        state: { cameFromResults },
+                      })
+                    }
                   >
                     {team.name}
                   </button>

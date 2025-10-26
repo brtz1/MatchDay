@@ -25,6 +25,7 @@ import h2hRoute from './routes/h2hRoute';
 import goldenBootRoute from './routes/goldenBootRoute';
 import statsSyncRoute from './routes/statsSyncRoute';
 import formationRoute from './routes/formationRoute';
+import penaltyRoute from './routes/penaltyRoute';
 
 dotenv.config();
 
@@ -67,6 +68,7 @@ app.use('/api/match-events', matchEventRoute);
 app.use('/api/golden-boot', goldenBootRoute);
 app.use('/api/stats', statsSyncRoute);
 app.use('/api/formation', formationRoute);
+app.use('/api/pk', penaltyRoute);
 
 // 404 JSON fallback
 app.use((req, res) => {

@@ -1,7 +1,7 @@
 // frontend/src/pages/TeamRosterPage.tsx
 
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, useParams, useLocation, matchPath } from "react-router-dom";
 import { matchdayUrl } from "@/utils/paths";
 
@@ -9,6 +9,7 @@ import { matchdayUrl } from "@/utils/paths";
 import { getTeamById } from "@/services/teamService";
 import { useTeamContext } from "@/store/TeamContext";
 import { useGameState } from "@/store/GameStateStore";
+import { advanceToMatchday } from "@/services/matchService";
 
 /* ── UI ───────────────────────────────────────────────────────────── */
 import TopNavBar from "@/components/common/TopNavBar";
@@ -68,6 +69,8 @@ export default function TeamRosterPage() {
 
     // NEW: react to MATCHDAY to jump to Live immediately
     gameStage,
+    matchdayType,
+    skipCupRoster,
 
     // grace/timer flags from GameState store
     cameFromResults,
@@ -89,15 +92,62 @@ export default function TeamRosterPage() {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [autoCupSim, setAutoCupSim] = useState(false);
+  const [autoCupError, setAutoCupError] = useState<string | null>(null);
+  const autoCupRef = useRef(false);
 
   const isCoachTeam = teamId === coachedId;
   const isTeamRosterPage =
     !!matchPath("/team/:id", location.pathname) || !!matchPath("/teams/:id", location.pathname);
 
+  const shouldAutoCup = Boolean(isCoachTeam && skipCupRoster && matchdayType === "CUP" && typeof gameState.currentMatchday === "number");
+
+  const triggerCupAutoSim = useCallback(async () => {
+    if (typeof saveGameId !== "number" || Number.isNaN(saveGameId)) {
+      setAutoCupError("Missing save information. Reload and try again.");
+      return;
+    }
+    setAutoCupSim(true);
+    setAutoCupError(null);
+    try {
+      await advanceToMatchday(saveGameId);
+      navigate(matchdayUrl, { state: { fromFormation: true, autoCupSkip: true } });
+    } catch (err) {
+      console.error("[TeamRoster] Auto cup simulation failed:", err);
+      setAutoCupError("Unable to auto-simulate this cup round. Please retry.");
+    } finally {
+      setAutoCupSim(false);
+    }
+  }, [navigate, saveGameId]);
+
   /* ---------------------------------------------------------------------------
      ALWAYS refresh GameState when landing on this page (and on tab focus).
      This ensures currentMatchday is correct immediately for GameTab.
   --------------------------------------------------------------------------- */
+  useEffect(() => {
+    const matchdayNumber =
+      typeof gameState.currentMatchday === "number" ? gameState.currentMatchday : null;
+
+    if (!shouldAutoCup || bootstrapping) {
+      if (!shouldAutoCup) {
+        autoCupRef.current = false;
+        setAutoCupError(null);
+        setAutoCupSim(false);
+        if (matchdayNumber !== autoCupRef.current) {
+          autoCupRef.current = null as unknown as boolean;
+        }
+      }
+      return;
+    }
+
+    if (matchdayNumber == null) return;
+
+    if (autoCupRef.current === matchdayNumber) return;
+
+    autoCupRef.current = matchdayNumber as unknown as boolean;
+    void triggerCupAutoSim();
+  }, [shouldAutoCup, bootstrapping, triggerCupAutoSim, gameState.currentMatchday]);
+
   useEffect(() => {
     if (bootstrapping) return;
 
@@ -145,7 +195,7 @@ export default function TeamRosterPage() {
        - store flag (cameFromResults), or
        - router state flag (location.state?.cameFromResults)
      Prefers store method `resetFormationSelection()` if present; falls back to
-     `setLineupIds([])` + `setReserveIds([])` when available.
+     `resetSelection()` (or manual lineup/reserve clears) and restores default formation.
      Also clears router state to avoid repeated resets.
   --------------------------------------------------------------------------- */
   useEffect(() => {
@@ -157,8 +207,15 @@ export default function TeamRosterPage() {
       if (typeof gameState.resetFormationSelection === "function") {
         gameState.resetFormationSelection();
       } else {
-        if (typeof gameState.setLineupIds === "function") gameState.setLineupIds([]);
-        if (typeof gameState.setReserveIds === "function") gameState.setReserveIds([]);
+        if (typeof gameState.resetSelection === "function") {
+          gameState.resetSelection();
+        } else {
+          if (typeof gameState.setLineupIds === "function") gameState.setLineupIds([]);
+          if (typeof gameState.setReserveIds === "function") gameState.setReserveIds([]);
+        }
+        if (typeof gameState.setSelectedFormation === "function") {
+          gameState.setSelectedFormation("4-4-2");
+        }
       }
     } finally {
       if (fromRouter) {
@@ -237,6 +294,43 @@ export default function TeamRosterPage() {
       <p className="mt-6 text-center text-red-500">
         Game not fully initialized — please start a new game.
       </p>
+    );
+  }
+
+  if (shouldAutoCup) {
+    return (
+      <>
+        {isTeamRosterPage && coachedId && <TopNavBar coachTeamId={coachedId} />}
+        <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-green-700 p-4 text-white">
+          <div className="max-w-xl rounded-2xl bg-green-900/70 p-6 text-center shadow-2xl">
+            <h1 className="text-2xl font-bold">Cup Round Auto-Simulation</h1>
+            <p className="mt-4 text-sm text-white/80">
+              Your club has been eliminated from the cup, so this round will play out automatically.
+              We&rsquo;ll show you the live ticker and bracket as soon as the AI fixtures finish.
+            </p>
+            {autoCupError ? (
+              <>
+                <p className="mt-4 text-sm text-red-200">{autoCupError}</p>
+                <button
+                  type="button"
+                  className="mt-4 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-green-950 shadow hover:brightness-105 disabled:opacity-60"
+                  onClick={triggerCupAutoSim}
+                  disabled={autoCupSim}
+                >
+                  {autoCupSim ? "Retrying..." : "Retry simulation"}
+                </button>
+              </>
+            ) : (
+              <div className="mt-6 flex flex-col items-center gap-3">
+                <ProgressBar className="w-48" />
+                <p className="text-sm text-white/70">
+                  Simulating current cup fixtures…
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -325,3 +419,4 @@ export default function TeamRosterPage() {
     </>
   );
 }
+

@@ -250,8 +250,8 @@ export async function maybeAwardPenalty(
   // If paused, don't trigger anything new
   if ((state as any)?.isPaused) return null;
 
-  // Very rare per-minute chance (≈ 0.6 per 90 minutes)
-  const PENALTY_PROB_PER_MINUTE = 0.006;
+  // Slightly higher base chance so QA can exercise the feature more often
+  const PENALTY_PROB_PER_MINUTE = 0.02;
   if (Math.random() > PENALTY_PROB_PER_MINUTE) return null;
 
   // Decide which side attacks (small bias towards the leader)

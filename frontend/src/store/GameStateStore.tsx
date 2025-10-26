@@ -12,7 +12,7 @@ import {
 
 import gameStateService from "@/services/gameStateService";
 import { onStageChanged, offStageChanged } from "@/socket";
-import * as Sock from "@/socket"; // ⬅️ for raw socket access to PK events
+import * as Sock from "@/socket"; // For raw socket access to PK events
 import { FORMATION_LAYOUTS } from "@/utils/formationHelper";
 
 // PK shared types
@@ -33,7 +33,7 @@ export type GameStage =
   | "HALFTIME"
   | "RESULTS"
   | "STANDINGS"
-  | "PENALTIES"; // ⬅️ NEW
+  | "PENALTIES"; // NEW
 
 export type MatchdayType = "LEAGUE" | "CUP";
 
@@ -63,6 +63,8 @@ export interface GameStateContextType {
 
   matchdayType: MatchdayType;
   setMatchdayType: (type: MatchdayType) => void;
+  skipCupRoster: boolean;
+  setSkipCupRoster: (v: boolean) => void;
 
   /** True only when backend moved RESULTS -> STANDINGS (post-match flow) */
   cameFromResults: boolean;
@@ -88,7 +90,7 @@ export interface GameStateContextType {
   /** Max bench size, exposed for UI/validation convenience */
   reserveLimit: number;
 
-  /** Cycle a player's selection (none → lineup → reserve → none → lineup …) */
+  /** Cycle a player's selection (none -> lineup -> reserve -> none -> lineup ...) */
   cycleSelection: (playerId: number) => void;
 
   /** Replace current selection entirely */
@@ -96,6 +98,9 @@ export interface GameStateContextType {
 
   /** Clear all selection */
   resetSelection: () => void;
+
+  /** Clear lineup/bench and restore default suggested formation */
+  resetFormationSelection: () => void;
 
   /** Auto-pick selection for a given formation using a player list */
   autopickSelection: (players: MinimalPlayer[], formation: string) => void;
@@ -125,7 +130,7 @@ function isGameStage(v: unknown): v is GameStage {
     v === "HALFTIME" ||
     v === "RESULTS" ||
     v === "STANDINGS" ||
-    v === "PENALTIES" // ⬅️ NEW
+    v === "PENALTIES" // NEW
   );
 }
 
@@ -135,6 +140,7 @@ function isMatchdayType(v: unknown): v is MatchdayType {
 
 const BENCH_MAX = 6; // <-- per your rule (max 6)
 const LINEUP_MAX = 11;
+const DEFAULT_FORMATION = "4-4-2";
 
 /* ------------------------------------------------------------------------- */
 /* Context                                                                   */
@@ -169,9 +175,10 @@ export function GameStateProvider({
   const [gameStage, setGameStage] = useState<GameStage>("ACTION");
   const [matchdayType, setMatchdayType] =
     useState<MatchdayType>("LEAGUE");
+  const [skipCupRoster, setSkipCupRoster] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
 
-  // One-shot “came from results” flag + when we entered STANDINGS
+  // One-shot "came from results" flag + when we entered STANDINGS
   const [cameFromResults, setCameFromResults] = useState(false);
   const [standingsEnteredAt, setStandingsEnteredAt] =
     useState<number | null>(null);
@@ -181,11 +188,11 @@ export function GameStateProvider({
 
   // Ephemeral formation selection
   const [selectedFormation, setSelectedFormation] =
-    useState<string>("4-4-2");
+    useState<string>(DEFAULT_FORMATION);
   const [lineupIds, setLineupIds] = useState<number[]>([]);
   const [reserveIds, setReserveIds] = useState<number[]>([]);
 
-  // 🔧 Track latest arrays to compute atomic updates safely for cycleSelection
+  // Track latest arrays to compute atomic updates safely for cycleSelection
   const lineupRef = useRef<number[]>(lineupIds);
   const reserveRef = useRef<number[]>(reserveIds);
   useEffect(() => {
@@ -209,6 +216,15 @@ export function GameStateProvider({
     setPkAttempts([]);
     setPkEnded(null);
   };
+  const resetSelection = () => {
+    setLineupIds([]);
+    setReserveIds([]);
+  };
+
+  const resetFormationSelection = () => {
+    setSelectedFormation(DEFAULT_FORMATION);
+    resetSelection();
+  };
 
   const resetState = () => {
     setSaveGameId(null);
@@ -216,15 +232,14 @@ export function GameStateProvider({
     setCurrentMatchday(null);
     setGameStage("ACTION");
     setMatchdayType("LEAGUE");
+    setSkipCupRoster(false);
     setCameFromResults(false);
     setStandingsEnteredAt(null);
     prevStageRef.current = "ACTION";
 
-    setSelectedFormation("4-4-2");
-    setLineupIds([]);
-    setReserveIds([]);
+    resetFormationSelection();
 
-    clearPk(); // ⬅️ also reset PK state
+    clearPk(); // also reset PK state
   };
 
   const refreshGameState = async () => {
@@ -257,11 +272,13 @@ export function GameStateProvider({
       if (isMatchdayType(state.matchdayType)) {
         setMatchdayType(state.matchdayType);
       }
+      setSkipCupRoster(Boolean(state.skipCupRoster));
 
       // Flag only when backend really moved from RESULTS to STANDINGS
       if (prev === "RESULTS" && nextStage === "STANDINGS") {
         setCameFromResults(true);
         setStandingsEnteredAt(Date.now());
+        resetFormationSelection();
       }
       // If we leave STANDINGS to anything else, clear the one-shot flag
       if (prev === "STANDINGS" && nextStage !== "STANDINGS") {
@@ -318,6 +335,7 @@ export function GameStateProvider({
       if (prev === "RESULTS" && nextStage === "STANDINGS") {
         setCameFromResults(true);
         setStandingsEnteredAt(Date.now());
+        resetFormationSelection();
       }
       if (prev === "STANDINGS" && nextStage !== "STANDINGS") {
         setCameFromResults(false);
@@ -394,7 +412,7 @@ export function GameStateProvider({
 
   /**
    * Endless cycle with limits:
-   * none → lineup → reserve → none → lineup …
+   * none ? lineup ? reserve ? none ? lineup ?
    * - Prevents duplicates
    * - Atomic updates (reads refs, sets both lists together)
    * - Formation-agnostic; validation (exactly 1 GK, etc.) happens on advance CTA
@@ -411,16 +429,16 @@ export function GameStateProvider({
     let nextReserve = curReserve.slice();
 
     if (!inLineup && !inReserve) {
-      // none → lineup (no caps here; validate on advance)
+      // none -> lineup (no caps here; validate on advance)
       nextLineup = [playerId, ...nextLineup];
     } else if (inLineup) {
-      // lineup → reserve
+      // lineup -> reserve
       nextLineup = nextLineup.filter((id) => id !== playerId);
       if (!nextReserve.includes(playerId)) {
         nextReserve = [playerId, ...nextReserve];
       }
     } else {
-      // reserve → none
+      // reserve -> none
       nextReserve = nextReserve.filter((id) => id !== playerId);
     }
 
@@ -428,7 +446,7 @@ export function GameStateProvider({
     const luSet = new Set(nextLineup);
     nextReserve = nextReserve.filter((id) => !luSet.has(id));
 
-    // Debug — remove once verified
+        // Debug - remove once verified
     console.debug(
       "[cycleSelection]",
       { playerId, inLineup, inReserve },
@@ -446,11 +464,6 @@ export function GameStateProvider({
       .slice(0, BENCH_MAX);
     setLineupIds(lu);
     setReserveIds(rs);
-  };
-
-  const resetSelection = () => {
-    setLineupIds([]);
-    setReserveIds([]);
   };
 
   /**
@@ -484,13 +497,13 @@ export function GameStateProvider({
     const lineup: number[] = [];
     const reserves: number[] = [];
 
-    // GK / DF / MF / AT starters — strictly per position, capped by availability
+    // GK / DF / MF / AT starters - strictly per position, capped by availability
     lineup.push(...byPos.GK.slice(0, layout.GK).map((p) => p.id));
     lineup.push(...byPos.DF.slice(0, layout.DF).map((p) => p.id));
     lineup.push(...byPos.MF.slice(0, layout.MF).map((p) => p.id));
     lineup.push(...byPos.AT.slice(0, layout.AT).map((p) => p.id));
 
-    // ❌ Do NOT top-up to 11 with other positions.
+    // NOTE: Do NOT top-up to 11 with other positions.
 
     // Bench: up to BENCH_MAX best of the rest (prefer 1 GK if available)
     const chosen = new Set(lineup);
@@ -525,6 +538,8 @@ export function GameStateProvider({
     setGameStage,
     matchdayType,
     setMatchdayType,
+    skipCupRoster,
+    setSkipCupRoster,
     cameFromResults,
     standingsEnteredAt,
     clearCameFromResults,
@@ -539,6 +554,7 @@ export function GameStateProvider({
     cycleSelection,
     setSelection,
     resetSelection,
+    resetFormationSelection,
     autopickSelection,
 
     // PK state
@@ -568,3 +584,6 @@ export function useGameState() {
   }
   return ctx;
 }
+
+
+

@@ -2,8 +2,7 @@
 //
 // In-match penalty popup for the coached team.
 // - Lists current *lineup* players for selection (default excludes GK).
-// - After pick, shows a short suspense countdown.
-// - Then reveals the outcome: "GOAL!", "MISSED!", or "GK DEFENDS!".
+// - Immediately shows the outcome once backend resolves: "GOAL!", "MISSED!", or "GK DEFENDS!".
 // - Calls POST /pk/take with { saveGameId, matchId, shooterId }.
 // - Emits result via onResolved and then lets the parent close.
 //
@@ -11,6 +10,7 @@
 
 import * as React from "react";
 import api from "@/services/axios";
+import SuspenseTicker from "./SuspenseTicker";
 
 /* ------------------------------------------------------------------------- */
 /* Types                                                                     */
@@ -26,7 +26,7 @@ export type PlayerLite = {
   rating: number; // 1..99
 };
 
-type Stage = "choose" | "countdown" | "reveal";
+type Stage = "choose" | "suspense" | "reveal";
 
 export interface PenaltyKickPopupProps {
   /** Controls visibility */
@@ -42,11 +42,11 @@ export interface PenaltyKickPopupProps {
   /** Optional team label in header (e.g., "Fluminense") */
   teamName?: string;
 
+  /** Minute of the match when the penalty was awarded */
+  minute?: number | null;
+
   /** If true, GK appears in the list (default false) */
   allowGK?: boolean;
-
-  /** Suspense time in ms (default 1200) */
-  suspenseMs?: number;
 
   /** Called when the whole flow is finished (after reveal, on Continue) */
   onClose: () => void;
@@ -68,6 +68,14 @@ function cx(...xs: Array<string | false | null | undefined>) {
 }
 
 const POS_PRIORITY: Record<Position, number> = { AT: 0, MF: 1, DF: 2, GK: 3 };
+const SUSPENSE_MS = 1800;
+const SUSPENSE_EXTRA_HOLD_MS = 600;
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, Math.max(0, ms));
+  });
+}
 
 /** Sort AT→MF→DF→GK and then rating DESC, tiebreak by name */
 function sortForPenalty(list: PlayerLite[], allowGK = false) {
@@ -97,23 +105,6 @@ function OutcomeBig({ outcome }: { outcome: PkOutcome }) {
   );
 }
 
-/* Tiny shimmer progress bar for suspense */
-function SuspenseBar({ ms }: { ms: number }) {
-  return (
-    <div className="mt-5 w-full">
-      <div className="h-2 w-full overflow-hidden rounded bg-emerald-900/40">
-        <div
-          className="h-2 animate-[shimmer_1.2s_linear_infinite] bg-emerald-400/70"
-          style={{ animationDuration: `${Math.max(900, ms)}ms` }}
-        />
-      </div>
-      <style>
-        {`@keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }`}
-      </style>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------------- */
 /* Component                                                                 */
 /* ------------------------------------------------------------------------- */
@@ -125,8 +116,8 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
     matchId,
     lineup,
     teamName,
+    minute,
     allowGK = false,
-    suspenseMs = 1200,
     onClose,
     onResolved,
   } = props;
@@ -139,18 +130,46 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
 
   const [outcome, setOutcome] = React.useState<PkOutcome | null>(null);
   const [newScore, setNewScore] = React.useState<{ home: number; away: number } | undefined>();
+  const suspenseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startSuspenseDelay = React.useCallback(() => {
+    if (suspenseTimeoutRef.current) {
+      clearTimeout(suspenseTimeoutRef.current);
+    }
+    return new Promise<void>((resolve) => {
+      suspenseTimeoutRef.current = setTimeout(() => {
+        suspenseTimeoutRef.current = null;
+        resolve();
+      }, SUSPENSE_MS);
+    });
+  }, []);
 
   // Prepare visible list when opened
   React.useEffect(() => {
     if (open) {
-      setSorted(sortForPenalty(lineup, allowGK));
       setStage("choose");
       setSelectedId(null);
       setOutcome(null);
       setNewScore(undefined);
       setError(null);
+      setLoading(false);
+    } else {
+      setSelectedId(null);
     }
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setSorted(sortForPenalty(lineup, allowGK));
   }, [open, lineup, allowGK]);
+
+  React.useEffect(() => {
+    return () => {
+      if (suspenseTimeoutRef.current) {
+        clearTimeout(suspenseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const shooter = React.useMemo(
     () => sorted.find((p) => p.id === selectedId),
@@ -160,21 +179,33 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
   async function handlePick(playerId: number) {
     if (loading) return;
     setSelectedId(playerId);
-    setStage("countdown");
+    setStage("suspense");
     setError(null);
+    setOutcome(null);
+    setNewScore(undefined);
     setLoading(true);
+    const suspenseDone = startSuspenseDelay();
 
-    // Keep a minimum suspense duration even if backend is instant
-    const suspense = new Promise((r) => setTimeout(r, suspenseMs));
     let respOutcome: PkOutcome = "MISS";
     let respScore: { home: number; away: number } | undefined;
+    let errorMessage: string | null = null;
 
     try {
-      const { data } = await api.post("/pk/take", {
+      const payload: {
+        saveGameId: number;
+        matchId: number;
+        shooterId: number;
+        minute?: number;
+      } = {
         saveGameId,
         matchId,
         shooterId: playerId,
-      });
+      };
+      if (typeof minute === "number") {
+        payload.minute = minute;
+      }
+
+      const { data } = await api.post("/pk/take", payload);
       // Expected { outcome: 'GOAL'|'MISS'|'SAVE', newScore?: {home,away} }
       respOutcome = (data?.outcome ?? "MISS") as PkOutcome;
       if (data?.newScore && typeof data.newScore.home === "number") {
@@ -182,16 +213,18 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
       }
     } catch (e) {
       // If backend fails, default to MISS so game can continue (fail-safe).
-      setError("Network error. Treating as miss.");
+      errorMessage = "Network error. Treating as miss.";
       respOutcome = "MISS";
     }
 
-    await suspense;
+    await suspenseDone;
+    await wait(SUSPENSE_EXTRA_HOLD_MS);
 
     setOutcome(respOutcome);
     setNewScore(respScore);
     setStage("reveal");
     setLoading(false);
+    setError(errorMessage);
 
     onResolved?.({
       shooterId: playerId,
@@ -255,7 +288,13 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
                           {p.rating}
                         </span>
                         <button
-                          className="rounded-lg bg-yellow-400 px-3 py-1.5 text-xs font-bold text-red-950 shadow-sm transition hover:brightness-95 active:translate-y-[1px]"
+                          className={cx(
+                            "rounded-lg px-3 py-1.5 text-xs font-bold text-red-950 shadow-sm transition",
+                            loading
+                              ? "cursor-not-allowed bg-yellow-500/60 text-red-900/60"
+                              : "bg-yellow-400 hover:brightness-95 active:translate-y-[1px]",
+                          )}
+                          disabled={loading}
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePick(p.id);
@@ -269,32 +308,55 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
                 </ul>
               </div>
 
+              {loading && (
+                <div className="mt-3 text-xs font-semibold text-red-100/80">
+                  Resolving penalty...
+                </div>
+              )}
+
               {error && (
                 <div className="mt-3 text-xs font-semibold text-yellow-200">{error}</div>
               )}
             </>
           )}
 
-          {stage === "countdown" && (
-            <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="mb-1 text-xs uppercase tracking-widest text-red-50/80">
-                Shooter
+          {stage === "suspense" && (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <p className="text-xs uppercase tracking-[0.4em] text-red-100/60">
+                Taking the penalty
+              </p>
+              <div className="mt-3 text-2xl font-black text-yellow-200">
+                {shooter ? shooter.name : "Your taker"} steps up...
               </div>
-              <div className="mb-3 text-lg font-bold text-yellow-200">
-                {shooter?.name ?? "—"}
+              <div className="mt-6 w-full max-w-md">
+                <SuspenseTicker
+                  ms={SUSPENSE_MS}
+                  label="Hold your breath"
+                  size="lg"
+                  hideWhenDone={false}
+                />
               </div>
-              <div className="text-sm text-red-50/80">Preparing to take the kick…</div>
-              <SuspenseBar ms={suspenseMs} />
+              <p className="mt-6 text-xs text-red-100/70">
+                Will it be a goal, a miss, or a save?
+              </p>
             </div>
           )}
 
           {stage === "reveal" && outcome && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <OutcomeBig outcome={outcome} />
+              {typeof minute === "number" && (
+                <div className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-red-100/70">
+                  {minute}' penalty
+                </div>
+              )}
               {newScore && (
                 <div className="mt-3 rounded bg-red-800/60 px-3 py-1 text-xs font-bold text-red-100">
                   Score now: {newScore.home}:{newScore.away}
                 </div>
+              )}
+              {error && (
+                <div className="mt-3 text-xs font-semibold text-yellow-200">{error}</div>
               )}
             </div>
           )}
@@ -310,12 +372,12 @@ export default function PenaltyKickPopup(props: PenaltyKickPopupProps) {
             >
               Cancel
             </button>
-          ) : stage === "countdown" ? (
+          ) : stage === "suspense" ? (
             <button
               className="cursor-not-allowed rounded-lg bg-red-800/60 px-3 py-1.5 text-xs font-bold text-red-200/60"
               disabled
             >
-              Resolving…
+              Taking penalty...
             </button>
           ) : (
             <button

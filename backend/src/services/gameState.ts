@@ -18,6 +18,7 @@ type GameStageStr =
 
 export type GameStatePublic = Omit<GameStateModel, "currentSaveGameId"> & {
   currentSaveGameId: number | null;
+  skipCupRoster?: boolean;
 };
 
 /* ------------------------------------------------------------------ */
@@ -93,6 +94,50 @@ function normalizePublic<T extends { currentSaveGameId: number }>(
   } as any;
 }
 
+async function coachHasMatchThisRound(params: {
+  saveGameId?: number | null;
+  matchdayNumber?: number | null;
+  matchdayType?: MatchdayType | null;
+  coachTeamId?: number | null;
+}): Promise<boolean> {
+  const { saveGameId, matchdayNumber, matchdayType, coachTeamId } = params;
+  if (!saveGameId || saveGameId <= 0) return false;
+  if (!matchdayNumber || matchdayNumber <= 0) return false;
+  if (!coachTeamId) return false;
+
+  const md = await prisma.matchday.findFirst({
+    where: {
+      saveGameId,
+      number: matchdayNumber,
+      ...(matchdayType ? { type: matchdayType } : {}),
+    },
+    select: {
+      saveGameMatches: {
+        select: { homeTeamId: true, awayTeamId: true },
+      },
+    },
+  });
+  if (!md) return false;
+  return md.saveGameMatches.some(
+    (m) => m.homeTeamId === coachTeamId || m.awayTeamId === coachTeamId,
+  );
+}
+
+async function shouldSkipCupRoster(row: GameStateModel): Promise<boolean> {
+  const saveGameId = row.currentSaveGameId ?? 0;
+  const coachTeamId = row.coachTeamId ?? null;
+  if (!saveGameId || saveGameId <= 0) return false;
+  if (!coachTeamId) return false;
+  if (row.matchdayType !== MatchdayType.CUP) return false;
+  const hasMatch = await coachHasMatchThisRound({
+    saveGameId,
+    matchdayNumber: row.currentMatchday ?? null,
+    matchdayType: MatchdayType.CUP,
+    coachTeamId,
+  });
+  return !hasMatch;
+}
+
 /** FIRST unplayed matchday for a save; if not found, return 1 */
 async function getMatchdayNumberForSave(saveGameId: number): Promise<number | null> {
   // Prefer GameState's current pointer if it already targets this save
@@ -128,7 +173,9 @@ export async function getGameStatePublic(): Promise<GameStatePublic | null> {
     include: { coachTeam: true },
   });
   if (!row) return null;
-  return normalizePublic(row);
+  const normalized = normalizePublic(row);
+  const skipCupRoster = await shouldSkipCupRoster(row);
+  return { ...normalized, skipCupRoster };
 }
 
 export async function getCurrentSaveGameId(): Promise<number | null> {

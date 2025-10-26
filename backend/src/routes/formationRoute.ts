@@ -2,6 +2,7 @@
 
 import express from "express";
 import prisma from "../utils/prisma";
+import { ensureMatchState } from "../services/matchStateService";
 
 const router = express.Router();
 
@@ -98,21 +99,14 @@ async function upsertMatchStateSelection(
     });
   }
 
-  // Create with sane defaults for the opposite side
-  return prisma.matchState.create({
+  // No state yet: initialize both sides with best-available XI, then override the chosen side
+  await ensureMatchState(matchId);
+  return prisma.matchState.update({
+    where: { saveGameMatchId: matchId },
     data: {
-      saveGameMatchId: matchId,
-      homeFormation: isHomeTeam ? formation : "4-4-2",
-      awayFormation: isHomeTeam ? "4-4-2" : formation,
-      homeLineup: isHomeTeam ? lineupIds : [],
-      awayLineup: isHomeTeam ? [] : lineupIds,
-      homeReserves: isHomeTeam ? reserveIds : [],
-      awayReserves: isHomeTeam ? [] : reserveIds,
-      homeSubsMade: 0,
-      awaySubsMade: 0,
-      subsRemainingHome: 3,
-      subsRemainingAway: 3,
-      isPaused: false,
+      [sideFormation]: formation,
+      [sideLineup]: lineupIds,
+      [sideReserves]: reserveIds,
     },
   });
 }
@@ -210,3 +204,7 @@ router.post("/coach", async (req, res, next) => {
 });
 
 export default router;
+
+
+
+
